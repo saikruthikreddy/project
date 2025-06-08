@@ -295,6 +295,8 @@ class DocumentSummarizer:
                     prompt,
                     generation_config=self.generation_config
                 )
+
+                print('The prompt passsed is here gaiss : \n', prompt)
                 
                 # Check if the response was blocked or had issues
                 if not response.text:
