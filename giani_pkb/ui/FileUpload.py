@@ -18,9 +18,11 @@ from pathlib import Path
 import shutil
 # from dotenv import load_dotenv # This line will be removed in the next block # Actually removed now
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_FLASH_MODEL
-from giani_pkb.utils.prompt_loader import load_prompt_template
+from giani_pkb.utils.prompt_loader import load_prompt_template # Will be unused directly here after refactor
 from giani_pkb.preprocessing.Processing import MainProcessing
-
+from giani_pkb.core.metadata_manager import MetadataManagerService
+from giani_pkb.core.models import DocumentMetadata
+from giani_pkb.core.classification_service import ClassificationService # Added import
 
 # Load environment variables
 # load_dotenv() # Removed
@@ -41,8 +43,15 @@ genai.configure(api_key=GEMINI_API_KEY)
 # PRIORITY_LEVELS = ["High", "Medium", "Low"] # Removed, now imported from constants
 
 # Create base directories
-BASE_DIR = "uploaded_documents"
-MASTER_METADATA_PATH = os.path.join(BASE_DIR, "master_metadata.json")
+BASE_DIR = "uploaded_documents" # Retained for file operations, though MASTER_METADATA_PATH is gone
+# MASTER_METADATA_PATH = os.path.join(BASE_DIR, "master_metadata.json") # Removed
+
+# Instantiate MetadataManagerService
+# This service will now handle all master metadata operations.
+# Its own __init__ will default to "uploaded_documents/master_metadata.json"
+metadata_manager_service = MetadataManagerService()
+classification_service = ClassificationService() # Added instantiation
+
 
 for doc_type in DOCUMENT_TYPES:
     os.makedirs(os.path.join(BASE_DIR, doc_type), exist_ok=True)
@@ -50,209 +59,25 @@ for doc_type in DOCUMENT_TYPES:
 # Global storage for session data
 session_data = {}
 
-def load_master_metadata():
-    """Load existing master metadata or create new one"""
-    if os.path.exists(MASTER_METADATA_PATH):
-        try:
-            with open(MASTER_METADATA_PATH, 'r') as f:
-                return json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
-            pass
-    
-    # Create new master metadata structure
-    return {
-        "metadata_version": "1.0",
-        "created_date": datetime.now().isoformat(),
-        "last_updated": datetime.now().isoformat(),
-        "total_documents": 0,
-        "documents": [],
-        "statistics": {
-            "document_types": {},
-            "ai_classifications": {},
-            "priority_levels": {},
-            "file_types": {}
-        }
-    }
-
-def save_master_metadata(master_metadata):
-    """Save master metadata to file"""
-    master_metadata["last_updated"] = datetime.now().isoformat()
-    try:
-        with open(MASTER_METADATA_PATH, 'w') as f:
-            json.dump(master_metadata, f, indent=2)
-    except (IOError, json.JSONDecodeError) as e:
-        raise FileProcessingError(f"Error saving master metadata: {e}", filepath=MASTER_METADATA_PATH)
-    except Exception as e: # Catch other unexpected errors
-        print(f"Unexpected error saving master metadata: {e}") # Or raise a generic GianiBaseError
-
-def update_master_metadata(document_metadata):
-    """Update master metadata with new document information"""
-    master_metadata = load_master_metadata()
-    
-    # Generate unique document ID
-    doc_id = str(uuid.uuid4())
-    
-    # Create document entry for master metadata
-    document_entry = {
-        "document_id": doc_id,
-        "original_filename": document_metadata["originalFilename"],
-        "file_path": document_metadata.get("file_path", ""),
-        "document_type": document_metadata["documentType"],
-        "ai_classification": document_metadata["aiClassification"],
-        "priority": document_metadata["priority"],
-        "file_size": document_metadata["fileSize"],
-        "file_mime_type": document_metadata["fileMimeType"],
-        "date_added": document_metadata["dateAddedToGiani"],
-        "user_id": document_metadata["userID"],
-        "project_id": document_metadata["projectID"],
-        "document_purpose": document_metadata["documentPurpose"],
-        "metadata_file_path": document_metadata.get("metadata_file_path", "")
-    }
-    
-    # Add to documents list
-    master_metadata["documents"].append(document_entry)
-    master_metadata["total_documents"] = len(master_metadata["documents"])
-    
-    # Update statistics
-    stats = master_metadata["statistics"]
-    
-    # Document types
-    doc_type = document_metadata["documentType"]
-    stats["document_types"][doc_type] = stats["document_types"].get(doc_type, 0) + 1
-    
-    # AI classifications
-    ai_class = document_metadata["aiClassification"]
-    stats["ai_classifications"][ai_class] = stats["ai_classifications"].get(ai_class, 0) + 1
-    
-    # Priority levels
-    priority = document_metadata["priority"]
-    stats["priority_levels"][priority] = stats["priority_levels"].get(priority, 0) + 1
-    
-    # File types
-    file_ext = Path(document_metadata["originalFilename"]).suffix.lower()
-    stats["file_types"][file_ext] = stats["file_types"].get(file_ext, 0) + 1
-    
-    # Save updated master metadata
-    save_master_metadata(master_metadata)
-    
-    return doc_id
+# load_master_metadata, save_master_metadata, update_master_metadata functions removed.
+# Calls will be replaced with metadata_manager_service methods.
 
 def get_master_metadata_summary():
-    """Get a summary of the master metadata for display"""
-    master_metadata = load_master_metadata()
-    
-    summary = f"""
-    📊 **Document Library Summary**
-    
-    **Total Documents**: {master_metadata['total_documents']}
-    **Last Updated**: {master_metadata.get('last_updated', 'Never')}
-    
-    **Document Types**:
-    """
-    
-    for doc_type, count in master_metadata["statistics"]["document_types"].items():
-        summary += f"\n  • {doc_type}: {count}"
-    
-    summary += "\n\n**AI Classifications**:"
-    for ai_class, count in sorted(master_metadata["statistics"]["ai_classifications"].items()):
-        summary += f"\n  • {ai_class}: {count}"
-    
-    summary += "\n\n**Priority Distribution**:"
-    for priority, count in master_metadata["statistics"]["priority_levels"].items():
-        summary += f"\n  • {priority}: {count}"
-    
-    return summary
+    """Get a summary of the master metadata for display using MetadataManagerService."""
+    # This function now calls the service's method that returns a string.
+    return metadata_manager_service.get_master_metadata_summary_text()
 
 def extract_text_preview(file_path, max_chars=1000):
     """Extract text preview from various file types"""
     try:
         processor=MainProcessing(api_key=GEMINI_API_KEY)
         content=processor.process_files(file_path)
-        return content[:5000]
+        return content[:5000] # Return up to 5000 characters for preview
     except Exception as e:
         raise FileProcessingError(f"Error extracting preview from {file_path}: {str(e)}", filepath=file_path)
 
-def get_gemini_prompt(filename, text_preview):
-    """Generate the prompt that will be sent to Gemini AI"""
-    classification_list = "\n".join([f"{i+1}. {cat.split('. ', 1)[1] if '. ' in cat else cat}" for i, cat in enumerate(AI_CLASSIFICATIONS)])
-    prompt_template = load_prompt_template("file_classification_prompt.txt")
-    return prompt_template.format(filename=filename, text_preview=text_preview[:5000], classification_list=classification_list)
-
-def classify_document_with_ai(filename, text_preview):
-    """Use Gemini AI to classify the document"""
-    try:
-        model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
-        
-        # Get the prompt using the dedicated function
-        prompt = get_gemini_prompt(filename, text_preview)
-        
-        response = model.generate_content(prompt)
-        print('GEMINI API CALLED')
-        ai_response = response.text.strip()
-        print(ai_response)
-        
-        # Parse the response
-        lines = ai_response.split('\n')
-        classification = "39. Generic Text Document"
-        purpose = "Document classification pending - unable to determine specific purpose from available content."
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('CLASSIFICATION:'):
-                classification_text = line.replace('CLASSIFICATION:', '').strip()
-                # Validate that the classification matches one of our categories
-                for cat in AI_CLASSIFICATIONS:
-                    if classification_text in cat or cat.split('. ', 1)[1] in classification_text:
-                        classification = cat
-                        break
-            elif line.startswith('PURPOSE:'):
-                purpose = line.replace('PURPOSE:', '').strip()
-        
-        return classification, purpose
-        
-    except Exception as e:
-        # This part is complex as it has fallback logic after the print.
-        # The APIError should be raised if the `model.generate_content(prompt)` call itself fails.
-        # If the goal is to catch errors from the API call specifically:
-        # We'd need to wrap `model.generate_content(prompt)` in its own try-except.
-        # For now, per sed, replacing the general Exception.
-        print(f"Error in AI classification with Gemini: {str(e)}") # Keep print for now or change to logger
-        raise APIError(f"Error in AI classification with Gemini: {str(e)}")
-        # Fallback classification based on filename patterns
-        # filename_lower = filename.lower() # This part would become unreachable if APIError is raised.
-        # This implies the fallback logic might need to be in the caller if APIError is strictly handled.
-        # For this refactoring, I will follow the sed script's intent of replacing the broad exception.
-        # The fallback logic will effectively be bypassed if an exception occurs in the try block.
-        
-        if any(word in filename_lower for word in ['strategy', 'strategic']):
-            classification = "1. Strategy Document/Deck"
-            purpose = "This document appears to contain strategic analysis and recommendations for business decision-making. It likely includes market insights, competitive positioning, and strategic options for the client's consideration."
-        elif any(word in filename_lower for word in ['financial', 'finance', 'budget', 'cost', 'revenue']):
-            classification = "3. Financial Report/Analysis Deck"
-            purpose = "This document contains financial analysis and data relevant to the consulting engagement. It provides quantitative insights to support business recommendations and decision-making processes."
-        elif any(word in filename_lower for word in ['meeting', 'minutes', 'notes']):
-            classification = "30. Meeting Minutes (Formal)"
-            purpose = "This document captures key discussions, decisions, and action items from project meetings. It serves as a record of stakeholder alignment and project progress."
-        elif any(word in filename_lower for word in ['market', 'research', 'analysis']):
-            classification = "9. Market Research Report (Internal/External)"
-            purpose = "This document provides market intelligence and research findings to inform strategic recommendations. It contains data and analysis about market conditions, trends, and opportunities."
-        elif any(word in filename_lower for word in ['proposal', 'sow', 'statement of work']):
-            classification = "4. Statement of Work (SoW)"
-            purpose = "This document outlines the scope, deliverables, and terms of the consulting engagement. It serves as a foundational agreement between the consulting team and client."
-        elif any(word in filename_lower for word in ['presentation', 'deck', 'slides']):
-            classification = "20. Working Draft - Presentation Section"
-            purpose = "This document contains presentation materials or slides being developed for client communication. It represents work-in-progress content for stakeholder engagement."
-        elif any(word in filename_lower for word in ['plan', 'timeline', 'schedule']):
-            classification = "24. Project Plan Document"
-            purpose = "This document outlines project timelines, milestones, and deliverables. It serves as a roadmap for project execution and stakeholder alignment."
-        elif any(word in filename_lower for word in ['data', 'dataset', 'csv', 'excel']):
-            classification = "10. Market Data Dump/Raw Data File"
-            purpose = "This document contains raw data or datasets that will be analyzed to support consulting recommendations. It provides the foundational information for quantitative analysis."
-        else:
-            classification = "39. Generic Text Document"
-            purpose = "This document contains information relevant to the consulting project that requires further analysis to determine its specific role and contribution to the engagement."
-            
-        return classification, purpose
+# Removed get_gemini_prompt function
+# Removed classify_document_with_ai function
 
 def process_file_upload(files, progress=gr.Progress()):
     """Process uploaded files and return session data"""
@@ -274,17 +99,22 @@ def process_file_upload(files, progress=gr.Progress()):
         # Extract text preview
         text_preview = extract_text_preview(file.name)
         
-        # AI classification
-        ai_classification, ai_purpose = classify_document_with_ai(os.path.basename(file.name), text_preview)
+        # AI classification using ClassificationService
+        # The service now also returns the prompt text used.
+        original_filename = os.path.basename(file.name)
+        ai_classification, ai_purpose, gemini_prompt_text = classification_service.classify_document(
+            original_filename,
+            text_preview
+        )
         
         # Store file data including the prompt
         file_data = {
-            "original_filename": os.path.basename(file.name),
-            "file_path": file.name,
+            "original_filename": original_filename,
+            "file_path": file.name, # This is temp path of uploaded file
             "file_size": file_size,
             "mime_type": mime_type,
             "text_preview": text_preview,
-            "gemini_prompt": get_gemini_prompt(os.path.basename(file.name), text_preview),
+            "gemini_prompt": gemini_prompt_text, # Use prompt from service
             "ai_classification": ai_classification,
             "ai_purpose": ai_purpose,
             "date_added": datetime.now().isoformat(),
@@ -323,12 +153,11 @@ def process_file_upload(files, progress=gr.Progress()):
         )
 
 def save_document(session_id, selected_file, doc_type, ai_classification, purpose, priority):
-    """Save document to the appropriate folder with metadata and update master metadata"""
+    """Save document to the appropriate folder with metadata and update master metadata using MetadataManagerService."""
     if not session_id or session_id not in session_data:
         return "Error: No active session found", get_master_metadata_summary()
-    
+
     try:
-        # Find the file data
         file_data = None
         for data in session_data[session_id]:
             if data["original_filename"] == selected_file or len(session_data[session_id]) == 1:
@@ -337,54 +166,71 @@ def save_document(session_id, selected_file, doc_type, ai_classification, purpos
         
         if not file_data:
             return "Error: File not found in session", get_master_metadata_summary()
-        
-        # Create destination path
-        dest_dir = os.path.join(BASE_DIR, doc_type)
+
+        dest_dir = os.path.join(BASE_DIR, doc_type) # doc_type is categoryFolder
+        os.makedirs(dest_dir, exist_ok=True) # Ensure directory exists
         dest_path = os.path.join(dest_dir, file_data["original_filename"])
         
-        # Copy file to destination
         shutil.copy2(file_data["file_path"], dest_path)
         
-        # Create metadata file path
         metadata_filename = f"{Path(file_data['original_filename']).stem}_metadata.json"
-        metadata_path = os.path.join(dest_dir, metadata_filename)
+        individual_metadata_path = os.path.join(dest_dir, metadata_filename)
+
+        # Create DocumentMetadata object
+        doc_meta_obj = DocumentMetadata(
+            id=str(uuid.uuid4()), # Generate new ID here for the object
+            originalFilename=file_data["original_filename"],
+            fileSize=file_data["file_size"],
+            fileMimeType=file_data["mime_type"],
+            dateAddedToGiani=datetime.now().isoformat(), # Overwrites if already set in file_data
+            userID=file_data["user_id"],
+            projectID=file_data["project_id"],
+            textPreview=file_data["text_preview"][:5000] + "..." if len(file_data["text_preview"]) > 5000 else file_data["text_preview"],
+            finalCategory=ai_classification, # From UI
+            finalPurpose=purpose, # From UI
+            priority=priority, # From UI
+            finalizedAt=datetime.now().isoformat(), # Set finalization time
+            storagePath=dest_path, # Actual storage path
+            categoryFolder=doc_type, # Document type from UI used as category folder
+            storedFilename=individual_metadata_path, # Path to the individual metadata JSON
+            savedAt=datetime.now().isoformat() # Set saved time
+            # tempFilePath, processedContent, extractedText are not directly handled here, defaults in DocumentMetadata
+        )
         
-        # Create metadata
-        metadata = {
-            "dateAddedToGiani": datetime.now().isoformat(),
-            "originalFilename": file_data["original_filename"],
-            "file_path": dest_path,
-            "fileSize": file_data["file_size"],
-            "fileMimeType": file_data["mime_type"],
-            "userID": file_data["user_id"],
-            "projectID": file_data["project_id"],
-            "documentType": doc_type,
-            "aiClassification": ai_classification,
-            "documentPurpose": purpose,
-            "priority": priority,
-            "geminiPrompt": file_data["gemini_prompt"],
-            "textPreview": file_data["text_preview"][:5000] + "..." if len(file_data["text_preview"]) > 5000 else file_data["text_preview"],
-            "metadata_file_path": metadata_path
+        # Save individual metadata file (using fields from DocumentMetadata object)
+        individual_metadata_content = {
+            "document_id": doc_meta_obj.id,
+            "dateAddedToGiani": doc_meta_obj.dateAddedToGiani,
+            "originalFilename": doc_meta_obj.originalFilename,
+            "storagePath": doc_meta_obj.storagePath,
+            "fileSize": doc_meta_obj.fileSize,
+            "fileMimeType": doc_meta_obj.fileMimeType,
+            "userID": doc_meta_obj.userID,
+            "projectID": doc_meta_obj.projectID,
+            "categoryFolder": doc_meta_obj.categoryFolder,
+            "finalCategory": doc_meta_obj.finalCategory,
+            "finalPurpose": doc_meta_obj.finalPurpose,
+            "priority": doc_meta_obj.priority,
+            "geminiPrompt": file_data.get("gemini_prompt", ""), # Keep gemini_prompt from session if available
+            "textPreview": doc_meta_obj.textPreview,
+            "storedFilename": doc_meta_obj.storedFilename,
+            "finalizedAt": doc_meta_obj.finalizedAt,
+            "savedAt": doc_meta_obj.savedAt
         }
+        with open(individual_metadata_path, 'w') as f:
+            json.dump(individual_metadata_content, f, indent=2)
         
-        # Save individual metadata file
-        with open(metadata_path, 'w') as f:
-            json.dump(metadata, f, indent=2)
+        # Update master metadata using the service
+        doc_id_from_service = metadata_manager_service.update_master_metadata(doc_meta_obj)
         
-        # Update master metadata
-        doc_id = update_master_metadata(metadata)
+        updated_summary = get_master_metadata_summary() # Uses service
         
-        # Get updated summary
-        updated_summary = get_master_metadata_summary()
-        
-        return f"✅ Document successfully saved to '{doc_type}' folder with metadata (ID: {doc_id[:8]}...)", updated_summary
+        return f"✅ Document successfully saved to '{doc_type}' folder with metadata (ID: {doc_id_from_service[:8]}...)", updated_summary
         
     except (IOError, FileNotFoundError) as e:
-        # It's better to use file_data["file_path"] if available and validated,
-        # but file_data.get("file_path") is safer if file_data might be incomplete.
-        raise FileProcessingError(f"Error during file operation in save_document: {str(e)}", filepath=file_data.get("file_path"))
-    except Exception as e: # Catch other unexpected errors
-        return f"❌ Error saving document: {str(e)}", get_master_metadata_summary() # Keeps original return for Gradio
+        raise FileProcessingError(f"Error during file operation in save_document: {str(e)}", filepath=file_data.get("file_path", "Unknown path"))
+    except Exception as e:
+        return f"❌ Error saving document: {str(e)}", get_master_metadata_summary()
 
 def update_file_selection(session_id):
     """Update file selection dropdown based on session"""
@@ -565,8 +411,9 @@ if __name__ == "__main__":
         print(f"❌ Gemini API configuration error: {e}")
         print("Please ensure GEMINI_API_KEY is set in your .env file")
     
-    # Initialize master metadata on startup
-    master_metadata = load_master_metadata()
-    print(f"📊 Master metadata initialized with {master_metadata['total_documents']} documents")
+  # Initialize master metadata on startup using the service
+  # The service's load_master_metadata will create if not exists.
+  master_metadata = metadata_manager_service.load_master_metadata()
+  print(f"📊 Master metadata initialized with {master_metadata.get('total_documents', 0)} documents")
     
     app.launch(server_name="0.0.0.0", server_port=7860, share=True)
