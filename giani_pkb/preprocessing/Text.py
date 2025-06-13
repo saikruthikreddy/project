@@ -4,7 +4,7 @@ import pdfplumber
 from PIL import Image
 from io import BytesIO
 import fitz
-from preprocessing.Images import Image as Image_Processor
+from giani_pkb.preprocessing.Images import Image as Image_Processor
 
 
 class PDF:

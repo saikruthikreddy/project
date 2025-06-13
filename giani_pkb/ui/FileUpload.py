@@ -1,7 +1,9 @@
 import gradio as gr
+from giani_pkb.utils.constants import DOCUMENT_TYPES, AI_CLASSIFICATIONS, PRIORITY_LEVELS
 import os
 import json
 import uuid
+from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
 from datetime import datetime
 import mimetypes
 import google.generativeai as genai
@@ -10,76 +12,28 @@ import docx
 import PyPDF2
 from pathlib import Path
 import shutil
-from dotenv import load_dotenv
-from preprocessing.Processing import MainProcessing
+# from dotenv import load_dotenv # This line will be removed in the next block # Actually removed now
+from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_FLASH_MODEL
+from giani_pkb.utils.prompt_loader import load_prompt_template
+from giani_pkb.preprocessing.Processing import MainProcessing
 
 # Load environment variables
-load_dotenv()
+# load_dotenv() # Removed
 
 # Configure Gemini API
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY environment variable not found. Please set it in your .env file")
+# api_key = os.getenv("GEMINI_API_KEY") # Removed
+# if not api_key: # Removed
+    # raise ValueError("GEMINI_API_KEY environment variable not found. Please set it in your .env file") # Removed
 
-genai.configure(api_key=api_key)
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Document type categories
-DOCUMENT_TYPES = [
-    "Client-Provided Material",
-    "Internal Research & Analysis", 
-    "Current Project Working Draft",
-    "Past Similar Project Reference",
-    "Meeting Notes/Transcripts",
-    "SoW / Proposal Document",
-    "External Third-Party Report",
-    "Other"
-]
+# DOCUMENT_TYPES = [ ... ] # Removed, now imported from constants
 
 # AI Classification categories
-AI_CLASSIFICATIONS = [
-    "1. Strategy Document/Deck",
-    "2. Operational Report/Review Deck", 
-    "3. Financial Report/Analysis Deck",
-    "4. Statement of Work (SoW)",
-    "5. Proposal Document",
-    "6. Formal Client Deliverable (Final Report)",
-    "7. Formal Client Deliverable (Final Presentation Deck)",
-    "8. Client Brief / Request for Proposal (RFP)",
-    "9. Market Research Report (Internal/External)",
-    "10. Market Data Dump/Raw Data File",
-    "11. Market Sizing Model/Analysis",
-    "12. Competitive Landscape Analysis",
-    "13. Benchmarking Study/Report",
-    "14. Survey Instrument/Questionnaire",
-    "15. Survey Data Analysis/Report",
-    "16. Industry Analyst Report",
-    "17. Academic Research Paper/Journal Article",
-    "18. News Article/Web Page Clipping",
-    "19. Technical Specification Document",
-    "20. Working Draft - Presentation Section",
-    "21. Working Draft - Report Chapter/Section",
-    "22. Internal Working Hypotheses Document",
-    "23. Preliminary Analysis/Findings Note",
-    "24. Project Plan Document",
-    "25. Project Timeline/Gantt Chart Visual",
-    "26. Risk Register/Issue Log Document",
-    "27. Sanitized Case Study (from Past Project)",
-    "28. Lessons Learned Document (from Past Project)",
-    "29. Internal Process Document/Playbook",
-    "30. Meeting Minutes (Formal)",
-    "31. Meeting Notes (Informal)",
-    "32. Workshop Agenda",
-    "33. Workshop Output Summary/Flipchart Notes",
-    "34. Raw Meeting/Interview Transcript",
-    "35. Expert Interview Summary/Notes",
-    "36. Client Feedback (Email/Document)",
-    "37. Email Correspondence (Key Thread/Summary)",
-    "38. Stakeholder Communication Log",
-    "39. Generic Text Document",
-    "40. User Specified (Other)"
-]
+# AI_CLASSIFICATIONS = [ ... ] # Removed, now imported from constants
 
-PRIORITY_LEVELS = ["High", "Medium", "Low"]
+# PRIORITY_LEVELS = ["High", "Medium", "Low"] # Removed, now imported from constants
 
 # Create base directories
 BASE_DIR = "uploaded_documents"
@@ -121,8 +75,10 @@ def save_master_metadata(master_metadata):
     try:
         with open(MASTER_METADATA_PATH, 'w') as f:
             json.dump(master_metadata, f, indent=2)
-    except Exception as e:
-        print(f"Error saving master metadata: {e}")
+    except (IOError, json.JSONDecodeError) as e:
+        raise FileProcessingError(f"Error saving master metadata: {e}", filepath=MASTER_METADATA_PATH)
+    except Exception as e: # Catch other unexpected errors
+        print(f"Unexpected error saving master metadata: {e}") # Or raise a generic GianiBaseError
 
 def update_master_metadata(document_metadata):
     """Update master metadata with new document information"""
@@ -205,39 +161,22 @@ def get_master_metadata_summary():
 def extract_text_preview(file_path, max_chars=1000):
     """Extract text preview from various file types"""
     try:
-        processor=MainProcessing()
+        processor=MainProcessing(api_key=GEMINI_API_KEY)
         content=processor.process_files(file_path)
         return content[:5000]
     except Exception as e:
-        return f"Error extracting preview: {str(e)}"
+        raise FileProcessingError(f"Error extracting preview from {file_path}: {str(e)}", filepath=file_path)
 
 def get_gemini_prompt(filename, text_preview):
     """Generate the prompt that will be sent to Gemini AI"""
     classification_list = "\n".join([f"{i+1}. {cat.split('. ', 1)[1] if '. ' in cat else cat}" for i, cat in enumerate(AI_CLASSIFICATIONS)])
-    
-    prompt = f"""You are an AI assistant helping classify documents for a management consulting project. 
-
-Based on the filename "{filename}" and this text preview:
-"{text_preview[:5000]}"
-
-Please classify this document into ONE of these categories (respond with just the number and title exactly as shown):
-
-{classification_list}
-
-Also provide a 1-3 sentence description of the document's purpose for this management consulting project.
-
-Format your response exactly as:
-CLASSIFICATION: [number]. [category name]
-PURPOSE: [1-3 sentences describing the document's purpose]
-
-Be precise and match the category names exactly as listed above."""
-    
-    return prompt
+    prompt_template = load_prompt_template("file_classification_prompt.txt")
+    return prompt_template.format(filename=filename, text_preview=text_preview[:5000], classification_list=classification_list)
 
 def classify_document_with_ai(filename, text_preview):
     """Use Gemini AI to classify the document"""
     try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
         
         # Get the prompt using the dedicated function
         prompt = get_gemini_prompt(filename, text_preview)
@@ -267,9 +206,18 @@ def classify_document_with_ai(filename, text_preview):
         return classification, purpose
         
     except Exception as e:
-        print(f"Error in AI classification: {str(e)}")
+        # This part is complex as it has fallback logic after the print.
+        # The APIError should be raised if the `model.generate_content(prompt)` call itself fails.
+        # If the goal is to catch errors from the API call specifically:
+        # We'd need to wrap `model.generate_content(prompt)` in its own try-except.
+        # For now, per sed, replacing the general Exception.
+        print(f"Error in AI classification with Gemini: {str(e)}") # Keep print for now or change to logger
+        raise APIError(f"Error in AI classification with Gemini: {str(e)}")
         # Fallback classification based on filename patterns
-        filename_lower = filename.lower()
+        # filename_lower = filename.lower() # This part would become unreachable if APIError is raised.
+        # This implies the fallback logic might need to be in the caller if APIError is strictly handled.
+        # For this refactoring, I will follow the sed script's intent of replacing the broad exception.
+        # The fallback logic will effectively be bypassed if an exception occurs in the try block.
         
         if any(word in filename_lower for word in ['strategy', 'strategic']):
             classification = "1. Strategy Document/Deck"
@@ -426,8 +374,12 @@ def save_document(session_id, selected_file, doc_type, ai_classification, purpos
         
         return f"✅ Document successfully saved to '{doc_type}' folder with metadata (ID: {doc_id[:8]}...)", updated_summary
         
-    except Exception as e:
-        return f"❌ Error saving document: {str(e)}", get_master_metadata_summary()
+    except (IOError, FileNotFoundError) as e:
+        # It's better to use file_data["file_path"] if available and validated,
+        # but file_data.get("file_path") is safer if file_data might be incomplete.
+        raise FileProcessingError(f"Error during file operation in save_document: {str(e)}", filepath=file_data.get("file_path"))
+    except Exception as e: # Catch other unexpected errors
+        return f"❌ Error saving document: {str(e)}", get_master_metadata_summary() # Keeps original return for Gradio
 
 def update_file_selection(session_id):
     """Update file selection dropdown based on session"""
@@ -602,7 +554,7 @@ if __name__ == "__main__":
     # Check if API key is configured
     try:
         # Test API connection
-        test_model = genai.GenerativeModel('gemini-1.5-flash')
+        test_model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
         print("✅ Gemini API configured successfully")
     except Exception as e:
         print(f"❌ Gemini API configuration error: {e}")

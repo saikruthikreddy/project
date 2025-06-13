@@ -1,0 +1,3 @@
+Blindly Rewrite the Dataset in md file format and
+Analyze the following dataset and provide a comprehensive summary of the data:
+<user_input>{content}</user_input>

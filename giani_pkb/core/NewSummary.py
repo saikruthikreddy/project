@@ -3,36 +3,27 @@ import json
 import os
 import time
 import logging
+from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
+from giani_pkb.utils.constants import DocumentCategory, DocumentGroup
 import google.generativeai as genai
 from pathlib import Path
-from dotenv import load_dotenv
+# from dotenv import load_dotenv # Will be removed # Actually removed now
+from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
+from giani_pkb.utils.prompt_loader import load_prompt_template
 import tempfile
 
 # Load environment variables
-load_dotenv()
+# load_dotenv() # Removed
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class DocumentCategory(Enum):
-    STRATEGY_DOCUMENT = "1. Strategy Document/Deck"
-    OPERATIONAL_REPORT = "2. Operational Report/Review Deck"
-    FINANCIAL_REPORT = "3. Financial Report/Analysis Deck"
-    STATEMENT_OF_WORK = "4. Statement of Work (SoW)"
-    PROPOSAL_DOCUMENT = "5. Proposal Document"
-    FORMAL_CLIENT_DELIVERABLE_REPORT = "6. Formal Client Deliverable (Final Report)"
-    TECHNICAL_SPECIFICATION = "19. Technical Specification Document"
-    GENERIC_TEXT = "39. Generic Text Document"
-
-class DocumentGroup(Enum):
-    GROUP_A = "Strategic & Formal Client-Facing Deliverables/Inputs"
-    GROUP_B = "Research, Analysis & Informational Inputs"
-    GROUP_C = "Project Execution & Iterative Work Products"
-    GROUP_D = "Conversational & Interaction Records"
+# class DocumentCategory(Enum): ... # Removed, now imported from constants
+# class DocumentGroup(Enum): ... # Removed, now imported from constants
 
 class APICallTracker:
     def __init__(self):
@@ -65,12 +56,12 @@ class APICallTracker:
 
 class GeminiDocumentProcessor:
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY')
+        self.api_key = api_key if api_key else GEMINI_API_KEY
         if not self.api_key:
-            raise ValueError("Gemini API key required")
+            raise ConfigurationError("Gemini API key required, please set GEMINI_API_KEY or pass it to the constructor")
         
         genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-1.5-pro")
+        self.model = genai.GenerativeModel(GEMINI_PRO_MODEL)
         self.tracker = APICallTracker()
         
         self.generation_config = genai.types.GenerationConfig(
@@ -87,45 +78,21 @@ class GeminiDocumentProcessor:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             return content[:10000]  # Limit to first 10k chars for demo
-        except Exception as e:
-            return f"Error reading file: {str(e)}"
+        except IOError as e:
+            raise FileProcessingError(f"Error reading file: {str(e)}", filepath=file_path)
+        except Exception as e: # Catch other potential errors
+            raise FileProcessingError(f"Unexpected error reading file: {str(e)}", filepath=file_path)
     
     def get_group_a_prompt(self, filename: str, doc_type: str, purpose: str, content: str) -> str:
         """Generate Group A prompt for Strategic documents"""
-        return f"""ROLE:
-You are an AI Knowledge Analyst for Giani.ai, specializing in extracting critical information from consulting documents.
-
-INPUT DOCUMENT DETAILS:
-- Filename: '{filename}'
-- Document Type: '{doc_type}'
-- Purpose: '{purpose}'
-- Content: '''{content}'''
-
-YOUR TASK:
-Analyze this document and extract:
-
-1. **Key Themes** (3-5 main themes)
-2. **Executive Summary** (2-3 paragraphs)
-3. **Main Topics** with summaries
-4. **Key Takeaways** (5 bullet points)
-5. **Strategic Recommendations**
-
-OUTPUT FORMAT (JSON):
-{{
-  "key_themes": ["theme1", "theme2", "theme3"],
-  "executive_summary": "summary text",
-  "main_topics": [
-    {{"topic": "topic1", "summary": "summary1"}},
-    {{"topic": "topic2", "summary": "summary2"}}
-  ],
-  "key_takeaways": ["takeaway1", "takeaway2", "takeaway3"],
-  "recommendations": ["rec1", "rec2", "rec3"],
-  "document_metadata": {{
-    "title": "suggested title",
-    "audience": "target audience",
-    "sentiment": "document sentiment"
-  }}
-}}"""
+        prompt_template = load_prompt_template("summarization_group_a_prompt.txt")
+        # Map local variable names to the template's placeholder names
+        return prompt_template.format(
+            originalFilename=filename,
+            documentSourceType=doc_type,
+            userNoteOnPurpose=purpose,
+            key_document_chunks=content
+        )
 
     def call_gemini_api(self, prompt: str) -> Optional[str]:
         """Make API call to Gemini and track it"""
@@ -158,15 +125,16 @@ OUTPUT FORMAT (JSON):
             return response_text
             
         except Exception as e:
-            error_msg = f"API Error: {str(e)}"
+            error_msg = f"API Error during Gemini call: {str(e)}"
+            # Log the error with the tracker before raising
             self.tracker.log_api_call(
                 prompt=prompt,
-                response=error_msg,
-                model="gemini-1.5-pro",
+                response=error_msg, # Log the error message as the "response"
+                model=self.model._model_name if self.model else "gemini-1.5-pro", # Try to get actual model name
                 timestamp=timestamp
             )
-            print(f"❌ API call failed: {error_msg}")
-            return error_msg
+            print(f"❌ API call failed: {error_msg}") # Keep existing print or use logger
+            raise APIError(error_msg) # Raise the custom APIError
     
     def process_document(self, file_path: str, filename: str, doc_category: str, purpose: str) -> Dict[str, Any]:
         """Process a document and track all API calls"""
@@ -209,7 +177,7 @@ def create_gradio_interface():
         
         try:
             # Initialize processor with API key
-            processor = GeminiDocumentProcessor(api_key=api_key)
+            processor = GeminiDocumentProcessor(api_key=api_key if api_key.strip() else GEMINI_API_KEY)
             
             # Process the document
             result = processor.process_document(
@@ -274,9 +242,14 @@ FULL RESPONSE:
             
             return main_response, api_calls_display, detailed_logs
             
-        except Exception as e:
-            error_msg = f"❌ Error processing file: {str(e)}"
-            return error_msg, "Error occurred", str(e)
+        except (APIError, FileProcessingError, ParsingError, ConfigurationError) as e:
+            # Already a custom error, re-raise or handle for Gradio
+            error_msg = f"Error processing file: {str(e)}"
+            # Ensure Gradio gets three string outputs for its Textbox components
+            return error_msg, f"Details: {str(e)}", f"Type: {type(e).__name__}"
+        except Exception as e: # Catch any other unexpected errors
+            error_msg = f"Unexpected error processing file: {str(e)}"
+            return error_msg, f"Details: {str(e)}", f"Type: {type(e).__name__}"
     
     # Create the interface
     with gr.Blocks(title="Gemini API Call Tracker", theme=gr.themes.Soft()) as demo:
