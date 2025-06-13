@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/workspace/ProjectKnowledgeGiani/')
+
 import gradio as gr
 import json
 import os
@@ -7,10 +10,11 @@ from datetime import datetime
 import google.generativeai as genai
 from dotenv import load_dotenv
 from giani_pkb.utils.constants import DocumentCategory, DocumentGroup # Added
-from preprocessing.Processing import MainProcessing
+from giani_pkb.preprocessing.Processing import MainProcessing
+
 
 # Import your existing classes (ensure these are in the same directory or properly imported)
-from .OldSummary import DocumentSummarizer, DocumentMetadata # DocumentCategory, DocumentGroup removed & path fixed
+from OldSummary import DocumentSummarizer, DocumentMetadata # DocumentCategory, DocumentGroup removed & path fixed
 
 # load_dotenv() # Removed
 

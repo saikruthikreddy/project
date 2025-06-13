@@ -220,41 +220,32 @@ class DocumentSummarizer:
                         continue
                     return None
 
-                # Try to parse the JSON response
+                # Clean the response text - sometimes Gemini wraps JSON in markdown
+                response_text = response.text.strip()
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:]  # Remove ```json
+                if response_text.endswith('```'):
+                    response_text = response_text[:-3]  # Remove ```
+                response_text = response_text.strip()
+
+                # Parse JSON
                 try:
-                    # Clean the response text - sometimes Gemini wraps JSON in markdown
-                    response_text = response.text.strip()
-                    if response_text.startswith('```json'):
-                        response_text = response_text[7:]  # Remove ```json
-                    if response_text.endswith('```'):
-                        response_text = response_text[:-3]  # Remove ```
+                    llm_response = json.loads(response_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON response from Gemini: {e} - Raw: {response_text[:200]}...")
+                    # No retry for parsing error, raise immediately
+                    raise ParsingError(f"Failed to parse JSON response from Gemini: {e}", filename="API Response")
 
-                    response_text = response_text.strip()
+                # Add model information to response
+                llm_response["llm_used_for_processing"] = f"gemini-{self.gemini_model}"
 
-                    # Parse JSON
-                    try:
-                        # Clean the response text - sometimes Gemini wraps JSON in markdown
-                        if response_text.startswith('```json'):
-                            response_text = response_text[7:]  # Remove ```json
-                        if response_text.endswith('```'):
-                            response_text = response_text[:-3]  # Remove ```
-                        response_text = response_text.strip()
-                        llm_response = json.loads(response_text)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse JSON response from Gemini: {e} - Raw: {response_text[:200]}...")
-                        # No retry for parsing error, raise immediately
-                        raise ParsingError(f"Failed to parse JSON response from Gemini: {e}", filename="API Response")
+                logger.info("Successfully received and parsed Gemini API response")
+                return llm_response
 
-                    # Add model information to response
-                    llm_response["llm_used_for_processing"] = f"gemini-{self.gemini_model}"
-
-                    logger.info("Successfully received and parsed Gemini API response")
-                    return llm_response
-
-            except ParsingError as pe: # Re-raise ParsingError from JSON decoding
-                logger.error(f"JSON ParsingError in call_llm_api: {pe}") # Log it here
-                raise # Re-raise the original ParsingError
-            except Exception as e: # Catch other API communication errors
+            except ParsingError as pe:  # Re-raise ParsingError from JSON decoding
+                logger.error(f"JSON ParsingError in call_llm_api: {pe}")
+                raise  # Re-raise the original ParsingError
+            except Exception as e:  # Catch other API communication errors
                 logger.error(f"Error calling Gemini API on attempt {attempt + 1}/{max_retries}: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff

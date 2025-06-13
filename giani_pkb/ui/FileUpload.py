@@ -1,3 +1,7 @@
+import sys
+
+sys.path.append('/workspace/ProjectKnowledgeGiani/')
+
 import gradio as gr
 from giani_pkb.utils.constants import DOCUMENT_TYPES, AI_CLASSIFICATIONS, PRIORITY_LEVELS
 import os
@@ -16,6 +20,7 @@ import shutil
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_FLASH_MODEL
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.preprocessing.Processing import MainProcessing
+
 
 # Load environment variables
 # load_dotenv() # Removed

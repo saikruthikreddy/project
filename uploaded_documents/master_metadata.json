@@ -1,8 +1,8 @@
 {
   "metadata_version": "1.0",
   "created_date": "2025-06-08T15:27:17.628254",
-  "last_updated": "2025-06-08T15:27:17.628331",
-  "total_documents": 1,
+  "last_updated": "2025-06-13T12:57:40.061682",
+  "total_documents": 2,
   "documents": [
     {
       "document_id": "3248a09f-e1d3-4ce2-85d2-96aff62a819d",
@@ -18,20 +18,36 @@
       "project_id": "project_001",
       "document_purpose": "This document outlines a standardized process for summarizing and extracting metadata from various client and internal documents within a management consulting project.  It provides detailed grouping and prompts for AI-assisted analysis to ensure consistency and efficiency in information processing.  The goal is to facilitate the extraction of key insights and facilitate report generation for client deliverables.",
       "metadata_file_path": "uploaded_documents/Client-Provided Material/Sumarization and metadata extarction detailed grouping and prompts_metadata.json"
+    },
+    {
+      "document_id": "19d7730e-671f-49f0-9cde-c432cf576933",
+      "original_filename": "Back end structuring and data storage.docx",
+      "file_path": "uploaded_documents/Client-Provided Material/Back end structuring and data storage.docx",
+      "document_type": "Client-Provided Material",
+      "ai_classification": "19. Technical Specification Document",
+      "priority": "Medium",
+      "file_size": 8144,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-06-13T12:57:40.061205",
+      "user_id": "user_001",
+      "project_id": "project_001",
+      "document_purpose": "This document provides a detailed technical specification for the backend architecture and data storage of a project knowledge base system.  It outlines the proposed structure, including core services, API layers, and database design. This specification serves as a blueprint for developers to build the system.",
+      "metadata_file_path": "uploaded_documents/Client-Provided Material/Back end structuring and data storage_metadata.json"
     }
   ],
   "statistics": {
     "document_types": {
-      "Client-Provided Material": 1
+      "Client-Provided Material": 2
     },
     "ai_classifications": {
-      "29. Internal Process Document/Playbook": 1
+      "29. Internal Process Document/Playbook": 1,
+      "19. Technical Specification Document": 1
     },
     "priority_levels": {
-      "Medium": 1
+      "Medium": 2
     },
     "file_types": {
-      ".docx": 1
+      ".docx": 2
     }
   }
 }
