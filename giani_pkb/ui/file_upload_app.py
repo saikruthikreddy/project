@@ -1,6 +1,7 @@
 import sys
 sys.path.append('/workspace/ProjectKnowledgeGiani/')
 
+import logging
 import gradio as gr
 from giani_pkb.utils.constants import DOCUMENT_TYPES, AI_CLASSIFICATIONS, PRIORITY_LEVELS
 import os
@@ -23,6 +24,8 @@ from giani_pkb.core.metadata_manager import MetadataManagerService
 from giani_pkb.core.models import DocumentMetadata
 from giani_pkb.core.classification_service import ClassificationService # Added import
 
+logger = logging.getLogger(__name__)
+
 # Load environment variables
 # load_dotenv() # Removed
 
@@ -42,12 +45,12 @@ genai.configure(api_key=GEMINI_API_KEY)
 # PRIORITY_LEVELS = ["High", "Medium", "Low"] # Removed, now imported from constants
 
 # Create base directories
-BASE_DIR = "uploaded_documents" # Retained for file operations, though MASTER_METADATA_PATH is gone
+BASE_DIR = "data/uploaded_documents" # Updated base directory for uploaded files
 # MASTER_METADATA_PATH = os.path.join(BASE_DIR, "master_metadata.json") # Removed
 
 # Instantiate MetadataManagerService
 # This service will now handle all master metadata operations.
-# Its own __init__ will default to "uploaded_documents/master_metadata.json"
+# Its own __init__ will default to "data/master_metadata.json" # Updated comment
 metadata_manager_service = MetadataManagerService()
 classification_service = ClassificationService() # Added instantiation
 
@@ -402,17 +405,34 @@ with gr.Blocks(title="Document Upload & Classification System", theme=gr.themes.
 
 if __name__ == "__main__":
     # Check if API key is configured
+    # Configure basic logging for the application
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout) # Ensure logs go to stdout
+        ]
+    )
+
+    # Check if API key is configured
     try:
         # Test API connection
-        test_model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
-        print("✅ Gemini API configured successfully")
+        genai.GenerativeModel(GEMINI_FLASH_MODEL) # Test instantiation
+        logger.info("Gemini API configured successfully and model available.")
     except Exception as e:
-        print(f"❌ Gemini API configuration error: {e}")
-        print("Please ensure GEMINI_API_KEY is set in your .env file")
+        logger.error(f"Gemini API configuration error or model ({GEMINI_FLASH_MODEL}) unavailable: {e}")
+        logger.error("Please ensure GEMINI_API_KEY is correctly set and the model name is valid.")
+        # Depending on severity, you might choose to exit or let Gradio app launch with limited functionality.
+        # For now, it will continue to launch the app.
 
     # Initialize master metadata on startup using the service
     # The service's load_master_metadata will create if not exists.
-    master_metadata = metadata_manager_service.load_master_metadata()
-    print(f"📊 Master metadata initialized with {master_metadata.get('total_documents', 0)} documents")
+    try:
+        master_metadata = metadata_manager_service.load_master_metadata()
+        logger.info(f"Master metadata initialized/loaded with {master_metadata.get('total_documents', 0)} documents.")
+    except Exception as e:
+        logger.error(f"Failed to initialize/load master metadata: {e}")
+        # Handle cases where metadata cannot be loaded, perhaps by initializing an empty structure
+        # For now, the app might fail later if metadata_manager_service relies on this.
 
     app.launch(server_name="0.0.0.0", server_port=7860, share=True)

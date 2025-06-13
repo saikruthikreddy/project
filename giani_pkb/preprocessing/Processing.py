@@ -1,14 +1,13 @@
 import os
+import logging
 from giani_pkb.utils.config import GEMINI_API_KEY
 from giani_pkb.preprocessing.Text import PDF
 from giani_pkb.preprocessing.Images import Image
 from giani_pkb.preprocessing.CSV import CSVProcessor
 from giani_pkb.preprocessing.PPTX import PPTX
 from giani_pkb.preprocessing.Docx import Docx
-import tqdm
 
-
-
+logger = logging.getLogger(__name__)
 
 class MainProcessing:
     def __init__(self, api_key=None):
@@ -18,7 +17,7 @@ class MainProcessing:
         if not used_api_key:
             # This case should ideally not happen if GEMINI_API_KEY is set in config.
             # Or if the calling code (FileUpload, OldSummary) always passes it.
-            print("WARNING: MainProcessing initialized for CSVProcessor without a valid API key.")
+            logger.warning("MainProcessing initialized for CSVProcessor without a valid API key.")
             # CSVProcessor might fail if used_api_key is None/empty and it strictly needs one for genai.configure
         self.CSV = CSVProcessor(api_key=used_api_key)
         self.PPTX=PPTX()

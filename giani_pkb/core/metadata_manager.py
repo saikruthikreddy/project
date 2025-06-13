@@ -11,7 +11,7 @@ from giani_pkb.core.models import DocumentMetadata
 
 logger = logging.getLogger(__name__)
 
-MASTER_METADATA_PATH = "uploaded_documents/master_metadata.json"
+MASTER_METADATA_PATH = "data/master_metadata.json" # Updated path
 
 class MetadataManagerService:
     def __init__(self, master_metadata_path: Optional[str] = None):
@@ -22,6 +22,8 @@ class MetadataManagerService:
 
         # Ensure the directory for master_metadata_path exists
         Path(self.master_metadata_path).parent.mkdir(parents=True, exist_ok=True)
+        # Ensure the base directory for document uploads also exists
+        Path("data/uploaded_documents").mkdir(parents=True, exist_ok=True)
 
 
     def load_master_metadata(self) -> Dict[str, Any]:
@@ -160,6 +162,36 @@ class MetadataManagerService:
 
         return doc_id
 
+    def update_document_metadata_entry(self, document_id: str, updates: Dict[str, Any]) -> bool:
+        """
+        Update specific fields for a document entry in master_metadata.json.
+        Note: This method updates the raw dictionary entry in master_metadata.
+        It does not directly interact with DocumentMetadata objects after loading.
+        """
+        try:
+            master_metadata = self.load_master_metadata()
+            document_found = False
+            for doc_entry in master_metadata.get("documents", []):
+                if doc_entry.get("document_id") == document_id:
+                    # Apply updates to the document entry
+                    for key, value in updates.items():
+                        doc_entry[key] = value
+                    document_found = True
+                    break
+
+            if document_found:
+                self.save_master_metadata(master_metadata)
+                logger.info(f"Successfully updated metadata for document ID: {document_id} with fields: {list(updates.keys())}")
+                return True
+            else:
+                logger.warning(f"Document ID: {document_id} not found in master metadata. No update performed.")
+                return False
+        except Exception as e:
+            logger.error(f"Failed to update metadata for document ID: {document_id}. Error: {e}")
+            # Depending on the desired error handling, you might re-raise specific exceptions
+            # For example, if FileProcessingError or ParsingError occur during load/save.
+            return False
+
     def get_document_metadata_by_id(self, doc_id: str) -> Optional[DocumentMetadata]:
         """Retrieve a document's metadata by its ID."""
         master_metadata = self.load_master_metadata()
@@ -218,27 +250,36 @@ if __name__ == '__main__':
     # print(json.dumps(meta, indent=2))
 
     # Example of adding a document
-    sample_doc_meta = DocumentMetadata(
+    sample_doc_meta = DocumentMetadata( # type: ignore
         id=str(uuid.uuid4()), # Provide an ID or let update_master_metadata create one
         originalFilename="test_document.pdf",
-        fileSize=1024,
-        fileMimeType="application/pdf",
-        dateAddedToGiani=datetime.now().isoformat(),
-        userID="test_user",
-        projectID="test_project",
-        textPreview="This is a test document.",
-        finalCategory="1. Strategy Document/Deck",
-        finalPurpose="To test the metadata manager.",
-        priority="High",
-        finalizedAt=datetime.now().isoformat(),
-        storagePath="uploaded_documents/Strategy/test_document.pdf",
-        categoryFolder="Strategy", # Example: "Strategy"
-        storedFilename="uploaded_documents/Strategy/test_document_metadata.json", # Example
-        savedAt=datetime.now().isoformat()
+        fileSize=1024, # type: ignore
+        fileMimeType="application/pdf", # type: ignore
+        dateAddedToGiani=datetime.now().isoformat(), # type: ignore
+        userID="test_user", # type: ignore
+        projectID="test_project", # type: ignore
+        textPreview="This is a test document.", # type: ignore
+        finalCategory="1. Strategy Document/Deck", # type: ignore
+        finalPurpose="To test the metadata manager.", # type: ignore
+        priority="High", # type: ignore
+        finalizedAt=datetime.now().isoformat(), # type: ignore
+        storagePath="data/uploaded_documents/Strategy/test_document.pdf", # Updated path # type: ignore
+        categoryFolder="Strategy", # Example: "Strategy" # type: ignore
+        storedFilename="data/uploaded_documents/Strategy/test_document_metadata.json", # Updated path # type: ignore
+        savedAt=datetime.now().isoformat(), # type: ignore
+        summaryStoragePath=None # type: ignore
     )
     print(f"\nAdding/Updating document: {sample_doc_meta.originalFilename}")
     new_id = metadata_service.update_master_metadata(sample_doc_meta)
     print(f"Document ID: {new_id}")
+
+    # Example of updating a specific field
+    print(f"\nUpdating summaryStoragePath for document ID: {new_id}")
+    update_success = metadata_service.update_document_metadata_entry(new_id, {"summaryStoragePath": "data/summaries/test_summary.json", "priority": "Very High"})
+    if update_success:
+        print("Document metadata entry updated successfully.")
+    else:
+        print("Failed to update document metadata entry.")
 
     print("\nLoading metadata again:")
     meta = metadata_service.load_master_metadata()
@@ -249,7 +290,7 @@ if __name__ == '__main__':
 
     retrieved_doc = metadata_service.get_document_metadata_by_id(new_id)
     if retrieved_doc:
-        print(f"\nRetrieved document by ID ({new_id}): {retrieved_doc.originalFilename}")
+        print(f"\nRetrieved document by ID ({new_id}): {retrieved_doc.originalFilename}, Summary Path: {retrieved_doc.summaryStoragePath}, Priority: {retrieved_doc.priority}") # type: ignore
 
     all_docs = metadata_service.get_all_document_metadata()
     print(f"\nTotal documents retrieved: {len(all_docs)}")

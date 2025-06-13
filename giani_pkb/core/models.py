@@ -19,6 +19,7 @@ class DocumentMetadata:
     categoryFolder: str
     storedFilename: str
     savedAt: str
+    summaryStoragePath: Optional[str] = None # Path to the individual summary JSON
     # Optional fields that might be present
     tempFilePath: Optional[str] = None
     processedContent: Optional[str] = None

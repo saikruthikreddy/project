@@ -4,25 +4,55 @@ import logging
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_FLASH_MODEL
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.utils.constants import AI_CLASSIFICATIONS
-from giani_pkb.utils.exceptions import APIError
+import google.api_core.exceptions # For more specific exception handling
+from giani_pkb.utils.exceptions import APIError, ConfigurationError, ParsingError
 
 # Configure genai if not already configured (though it's often done at application entry point)
+# This configuration is global.
+# Attempt to configure only if it seems unconfigured or misconfigured.
+# A more robust approach might involve a dedicated app setup phase.
 try:
-    # Attempt to get a model to see if it's configured. This is a bit of a workaround.
-    # A more direct genai.is_configured() or similar would be better if available.
-    genai.get_model(GEMINI_FLASH_MODEL)
-except Exception: # Broad exception because specific configuration error isn't clearly documented
+    # A simple check: try to list models. If it fails, assume not configured.
+    # This is still a workaround as genai doesn't have a direct is_configured() check.
+    models = [m for m in genai.list_models() if GEMINI_FLASH_MODEL in m.name]
+    if not models:
+        # If the specific model is not found, it might be a name issue or configuration issue.
+        # This log helps in debugging.
+        logging.getLogger(__name__).warning(
+            f"Model {GEMINI_FLASH_MODEL} not found in list_models(). Attempting genai.configure()."
+        )
+        if not GEMINI_API_KEY:
+            logging.getLogger(__name__).error("GEMINI_API_KEY is not set. Cannot configure genai.")
+            raise ConfigurationError("GEMINI_API_KEY is not set. Cannot initialize ClassificationService.")
+        genai.configure(api_key=GEMINI_API_KEY)
+except google.api_core.exceptions.GoogleAPIError as e:
+    logging.getLogger(__name__).warning(f"GoogleAPIError during initial genai check: {e}. Attempting genai.configure().")
+    if not GEMINI_API_KEY:
+        logging.getLogger(__name__).error("GEMINI_API_KEY is not set. Cannot configure genai.")
+        raise ConfigurationError("GEMINI_API_KEY is not set. Cannot initialize ClassificationService.")
+    genai.configure(api_key=GEMINI_API_KEY)
+except Exception as e: # Catch any other unexpected error during this initial setup
+    logging.getLogger(__name__).error(f"Unexpected error during initial genai check: {type(e).__name__} - {e}. Attempting genai.configure().")
+    if not GEMINI_API_KEY:
+        logging.getLogger(__name__).error("GEMINI_API_KEY is not set. Cannot configure genai.")
+        raise ConfigurationError("GEMINI_API_KEY is not set. Cannot initialize ClassificationService.")
     genai.configure(api_key=GEMINI_API_KEY)
 
 
 class ClassificationService:
     def __init__(self):
-        self.model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
         self.logger = logging.getLogger(__name__)
-        # Ensure API key is available for the service, though genai.configure is global
         if not GEMINI_API_KEY:
-            self.logger.error("GEMINI_API_KEY not found. ClassificationService may not function.")
-            # Depending on strictness, could raise ConfigurationError here
+            self.logger.error("GEMINI_API_KEY not found in environment/config. ClassificationService requires it.")
+            raise ConfigurationError("GEMINI_API_KEY not found. ClassificationService cannot be initialized.")
+
+        try:
+            self.model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
+            # Test with a lightweight call if necessary, e.g., count_tokens (if model seems lazy loaded)
+            # For now, assume constructor failure or first use failure will be caught.
+        except Exception as e: # Broad exception, as genai model initialization can have various issues
+            self.logger.error(f"Failed to initialize GenerativeModel ({GEMINI_FLASH_MODEL}) for ClassificationService: {type(e).__name__} - {e}")
+            raise ConfigurationError(f"Failed to initialize GenerativeModel for ClassificationService. Check API key and model name ('{GEMINI_FLASH_MODEL}'). Original error: {e}")
 
     def _get_classification_prompt(self, filename: str, text_preview: str) -> str:
         """Generates the prompt for document classification."""
@@ -122,14 +152,28 @@ class ClassificationService:
                 raise APIError(f"LLM returned empty response for {filename}")
 
             self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") # Log snippet
-            classification, purpose = self._parse_llm_response(response.text.strip())
-            self.logger.info(f"LLM classification for {filename}: {classification}, Purpose: {purpose}")
-            return classification, purpose, prompt_text
+            self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") # Log snippet
+            try:
+                classification, purpose = self._parse_llm_response(response.text.strip())
+                self.logger.info(f"LLM classification for {filename}: {classification}, Purpose: {purpose}")
+                return classification, purpose, prompt_text
+            except Exception as parse_ex: # Catching exceptions specifically from _parse_llm_response
+                self.logger.error(f"Error parsing LLM response for {filename}: {type(parse_ex).__name__} - {parse_ex}. Attempting fallback.")
+                # Raise a specific parsing error, though the current flow falls back.
+                # If we wanted to propagate, it would be: raise ParsingError(f"Failed to parse LLM response for {filename}: {parse_ex}")
+                # For now, we log and proceed to fallback.
 
-        except Exception as e: # Catch broader exceptions during API call or parsing
-            self.logger.error(f"Error during LLM classification for {filename}: {e}. Attempting fallback.")
-            # If the error is not already an APIError, wrap it or log appropriately.
-            # For now, any exception here triggers fallback.
-            classification, purpose = self._fallback_classification(filename)
-            return classification, purpose, prompt_text # Still return the prompt used for the attempt
+        except APIError as ae: # Catch APIError (e.g., if we raised it from empty response)
+            self.logger.error(f"APIError during LLM classification for {filename}: {ae}. Attempting fallback.")
+            # Fallback is handled below
+        except google.api_core.exceptions.GoogleAPIError as gae: # Catch specific Google API errors
+            self.logger.error(f"GoogleAPIError during LLM classification for {filename}: {gae}. Attempting fallback.")
+            # Fallback is handled below
+        except Exception as e: # Catch other broader exceptions (e.g., network issues not caught by GoogleAPIError, unexpected issues)
+            self.logger.error(f"Unexpected error during LLM classification for {filename}: {type(e).__name__} - {e}. Attempting fallback.")
+            # Fallback is handled below
+
+        # Fallback logic if any of the above exceptions occurred
+        classification, purpose = self._fallback_classification(filename)
+        return classification, purpose, prompt_text # Still return the prompt used for the attempt
 
