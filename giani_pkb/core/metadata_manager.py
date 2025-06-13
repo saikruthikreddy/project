@@ -254,4 +254,4 @@ if __name__ == '__main__':
     all_docs = metadata_service.get_all_document_metadata()
     print(f"\nTotal documents retrieved: {len(all_docs)}")
 
-```
+

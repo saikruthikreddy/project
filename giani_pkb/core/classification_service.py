@@ -132,4 +132,4 @@ class ClassificationService:
             # For now, any exception here triggers fallback.
             classification, purpose = self._fallback_classification(filename)
             return classification, purpose, prompt_text # Still return the prompt used for the attempt
-```
+

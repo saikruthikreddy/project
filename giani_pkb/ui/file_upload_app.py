@@ -1,5 +1,4 @@
 import sys
-
 sys.path.append('/workspace/ProjectKnowledgeGiani/')
 
 import gradio as gr
@@ -185,7 +184,7 @@ def save_document(session_id, selected_file, doc_type, ai_classification, purpos
             dateAddedToGiani=datetime.now().isoformat(), # Overwrites if already set in file_data
             userID=file_data["user_id"],
             projectID=file_data["project_id"],
-            textPreview=file_data["text_preview"][:5000] + "..." if len(file_data["text_preview"]) > 5000 else file_data["text_preview"],
+            textPreview=file_data["text_preview"],
             finalCategory=ai_classification, # From UI
             finalPurpose=purpose, # From UI
             priority=priority, # From UI
@@ -411,9 +410,9 @@ if __name__ == "__main__":
         print(f"❌ Gemini API configuration error: {e}")
         print("Please ensure GEMINI_API_KEY is set in your .env file")
 
-  # Initialize master metadata on startup using the service
-  # The service's load_master_metadata will create if not exists.
-  master_metadata = metadata_manager_service.load_master_metadata()
-  print(f"📊 Master metadata initialized with {master_metadata.get('total_documents', 0)} documents")
+    # Initialize master metadata on startup using the service
+    # The service's load_master_metadata will create if not exists.
+    master_metadata = metadata_manager_service.load_master_metadata()
+    print(f"📊 Master metadata initialized with {master_metadata.get('total_documents', 0)} documents")
 
     app.launch(server_name="0.0.0.0", server_port=7860, share=True)

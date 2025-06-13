@@ -16,8 +16,8 @@ from giani_pkb.preprocessing.Processing import MainProcessing # For extract_docu
 
 # Configure genai if not already configured (though it's often done at application entry point)
 # This is a simple check; more robust application-level configuration might be preferred.
-if not genai.get_model(GEMINI_PRO_MODEL): # Check if a model can be retrieved
-    genai.configure(api_key=GEMINI_API_KEY)
+# Check if a model can be retrieved
+genai.configure(api_key=GEMINI_API_KEY)
 
 
 class APICallTracker: # Definition added here
@@ -347,4 +347,3 @@ class SummarizationService:
     def get_api_call_summary(self) -> Dict[str, Any]:
         return self.api_call_tracker.get_summary()
 
-```

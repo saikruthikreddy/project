@@ -1,8 +1,8 @@
 {
   "metadata_version": "1.0",
   "created_date": "2025-06-08T15:27:17.628254",
-  "last_updated": "2025-06-13T12:57:40.061682",
-  "total_documents": 2,
+  "last_updated": "2025-06-13T14:19:31.736694",
+  "total_documents": 3,
   "documents": [
     {
       "document_id": "3248a09f-e1d3-4ce2-85d2-96aff62a819d",
@@ -33,21 +33,36 @@
       "project_id": "project_001",
       "document_purpose": "This document provides a detailed technical specification for the backend architecture and data storage of a project knowledge base system.  It outlines the proposed structure, including core services, API layers, and database design. This specification serves as a blueprint for developers to build the system.",
       "metadata_file_path": "uploaded_documents/Client-Provided Material/Back end structuring and data storage_metadata.json"
+    },
+    {
+      "document_id": "2fd47a0c-a6ce-46cc-886a-351908294a11",
+      "original_filename": "Usage limits and statistics.docx",
+      "file_path": "uploaded_documents/Client-Provided Material/Usage limits and statistics.docx",
+      "document_type": "Client-Provided Material",
+      "ai_classification": "29. Internal Process Document/Playbook",
+      "priority": "Medium",
+      "file_size": 8125,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-06-13T14:19:31.736134",
+      "user_id": "user_001",
+      "project_id": "project_001",
+      "document_purpose": "This document outlines the implementation strategy for usage limits and statistics tracking within the Giani.ai platform.  It details methods for cost control, fair use enforcement, and data analytics to inform product development and improvement.  The document serves as an internal playbook for engineering and product teams to implement these features.",
+      "metadata_file_path": "uploaded_documents/Client-Provided Material/Usage limits and statistics_metadata.json"
     }
   ],
   "statistics": {
     "document_types": {
-      "Client-Provided Material": 2
+      "Client-Provided Material": 3
     },
     "ai_classifications": {
-      "29. Internal Process Document/Playbook": 1,
+      "29. Internal Process Document/Playbook": 2,
       "19. Technical Specification Document": 1
     },
     "priority_levels": {
-      "Medium": 2
+      "Medium": 3
     },
     "file_types": {
-      ".docx": 2
+      ".docx": 3
     }
   }
 }

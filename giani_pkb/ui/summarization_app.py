@@ -1,3 +1,6 @@
+import sys
+sys.path.append('/workspace/ProjectKnowledgeGiani/')
+
 import gradio as gr
 import json
 import logging
@@ -276,4 +279,3 @@ if __name__ == "__main__":
         debug=True   # For development
     )
     logger.info("Summarization App launched on port 7862.")
-```
