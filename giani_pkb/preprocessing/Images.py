@@ -6,6 +6,7 @@ import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 
 
+
 class Image:
     def __init__(self, tesseract_path=None):
         if tesseract_path:
