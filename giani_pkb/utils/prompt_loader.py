@@ -1,8 +1,6 @@
 import os
 from giani_pkb.utils.exceptions import FileProcessingError
 
-# Correctly determine PROMPTS_DIR relative to this file's location (utils)
-# utils -> giani_pkb -> prompts
 PROMPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "prompts"))
 
 def load_prompt_template(template_filename: str) -> str:
@@ -23,7 +21,6 @@ def load_prompt_template(template_filename: str) -> str:
         with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        # Add a check to see if the prompts directory itself exists, for better error reporting
         if not os.path.isdir(PROMPTS_DIR):
             raise FileProcessingError(f"Prompts directory not found at {PROMPTS_DIR}. Cannot load template {template_filename}.", filepath=PROMPTS_DIR)
         raise FileProcessingError(f"Prompt template file not found: {filepath}", filepath=filepath)

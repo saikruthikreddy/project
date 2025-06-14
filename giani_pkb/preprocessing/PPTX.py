@@ -1,7 +1,6 @@
-# PPTX.py
 from pptx import Presentation
 import os
-import tempfile # Added
+import tempfile 
 from io import BytesIO
 from PIL import Image as PILImage
 
@@ -30,7 +29,7 @@ class PPTX:
                         md_content += f"{shape.text}\n\n"
                     elif shape.shape_type == 13:
                         if self.image_processor:
-                            temp_image_filepath = None # Initialize here for the finally block
+                            temp_image_filepath = None 
                             try:
                                 pil_image = self._extract_image_from_shape(shape)
                                 if pil_image:
@@ -39,7 +38,7 @@ class PPTX:
                                     pil_image.save(temp_image_filepath, format="PNG")
 
                                     ocr_text_content = self.image_processor.process_image(temp_image_filepath)
-                                    if ocr_text_content: # Make sure this is the text string
+                                    if ocr_text_content: 
                                         md_content += f"**Image Text Content:**\n\n{ocr_text_content}\n\n"
 
                             except Exception as img_err:

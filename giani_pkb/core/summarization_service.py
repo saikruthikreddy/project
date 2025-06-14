@@ -3,7 +3,7 @@ import os
 import logging
 import time
 from typing import Dict, List, Any, Optional
-from pathlib import Path # Added Path
+from pathlib import Path 
 
 import google.generativeai as genai
 
@@ -13,15 +13,13 @@ from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingErr
 from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
-from giani_pkb.preprocessing.Processing import MainProcessing # For extract_document_chunks
+from giani_pkb.preprocessing.Processing import MainProcessing 
 
-# Configure genai if not already configured (though it's often done at application entry point)
-# This is a simple check; more robust application-level configuration might be preferred.
-# Check if a model can be retrieved
+
 genai.configure(api_key=GEMINI_API_KEY)
 
 
-class APICallTracker: # Definition added here
+class APICallTracker: 
     def __init__(self):
         self.api_calls = []
         self.call_count = 0
@@ -33,21 +31,20 @@ class APICallTracker: # Definition added here
             "timestamp": timestamp,
             "model": model,
             "prompt_preview": prompt[:200] + "..." if len(prompt) > 200 else prompt,
-            "full_prompt": prompt, # Storing full prompt
+            "full_prompt": prompt, 
             "response_preview": response[:200] + "..." if len(response) > 200 else response,
-            "full_response": response, # Storing full response
+            "full_response": response, 
             "prompt_length": len(prompt),
             "response_length": len(response)
         }
         self.api_calls.append(call_info)
-        # No need to return call_info from log_api_call for this use case
 
-    def get_summary(self) -> Dict[str, Any]: # Added type hint
+    def get_summary(self) -> Dict[str, Any]: 
         return {
-            "total_api_calls": self.call_count, # Renamed for clarity
-            "total_prompt_characters": sum(call["prompt_length"] for call in self.api_calls), # Renamed
-            "total_response_characters": sum(call["response_length"] for call in self.api_calls), # Renamed
-            "individual_api_calls": self.api_calls # Renamed
+            "total_api_calls": self.call_count, 
+            "total_prompt_characters": sum(call["prompt_length"] for call in self.api_calls), 
+            "total_response_characters": sum(call["response_length"] for call in self.api_calls), 
+            "individual_api_calls": self.api_calls 
         }
 
 
@@ -66,16 +63,12 @@ class SummarizationService:
             self.logger.error("Gemini API key must be provided for SummarizationService.")
             raise ConfigurationError("Gemini API key must be provided either as parameter or via GEMINI_API_KEY in config/env")
 
-        # Configure genai specifically for this instance if key was passed,
-        # or rely on global config if key from env/config.
-        # Note: genai.configure is global. If multiple instances with different keys are needed, this needs care.
-        # For this setup, assuming one primary key for the application run.
-        if gemini_api_key: # If a specific key is provided for this instance
+        if gemini_api_key: 
              genai.configure(api_key=current_api_key)
 
         try:
             self.model = genai.GenerativeModel(self.gemini_model)
-        except Exception as e: # Catching a broad exception here as various issues can occur with genai initialization
+        except Exception as e: 
             self.logger.error(f"Failed to initialize GenerativeModel with {self.gemini_model}. Error: {type(e).__name__} - {e}")
             raise ConfigurationError(f"Failed to initialize GenerativeModel with {self.gemini_model}. Please check model name and API key configuration. Original error: {e}")
 
@@ -87,11 +80,9 @@ class SummarizationService:
             max_output_tokens=8192,
         )
 
-        # Initialize MainProcessing for extract_document_chunks
         self.processor = MainProcessing(api_key=current_api_key)
-        self.api_call_tracker = APICallTracker() # Initialize tracker
+        self.api_call_tracker = APICallTracker() 
 
-        # Ensure the directory for individual summaries exists
         Path("data/summaries").mkdir(parents=True, exist_ok=True)
         self.logger.info("SummarizationService initialized. Summary directory 'data/summaries' ensured.")
 
@@ -103,7 +94,7 @@ class SummarizationService:
         """Extract key document content chunks from the document file."""
         try:
             if not os.path.isabs(document_path):
-                full_path = os.path.join(os.getcwd(), document_path) # Consider base path carefully
+                full_path = os.path.join(os.getcwd(), document_path) 
             else:
                 full_path = document_path
 
@@ -111,24 +102,22 @@ class SummarizationService:
                 self.logger.warning(f"Document file not found for extraction: {full_path}")
                 raise FileProcessingError(f"Document file not found: {full_path}", filepath=full_path)
 
-            # Use self.processor instance
             content = self.processor.process_files(str(full_path))
             return content
 
-        except FileNotFoundError as e: # Specific catch for FileNotFoundError
+        except FileNotFoundError as e: 
             self.logger.error(f"Document file not found during chunk extraction: {document_path}: {e}")
             raise FileProcessingError(f"Document file not found: {document_path}", filepath=document_path)
-        except ParsingError as e: # Catch ParsingError from self.processor.process_files
+        except ParsingError as e: 
             self.logger.error(f"Parsing error extracting content from {document_path}: {e}")
-            raise # Re-raise as it's already the correct type
-        except Exception as e: # Catch other potential errors during processing
+            raise 
+        except Exception as e: 
             self.logger.error(f"Unexpected error extracting content from {document_path}: {type(e).__name__} - {e}")
-            # Wrap unexpected errors in ParsingError or FileProcessingError as appropriate
             raise ParsingError(f"Unexpected error extracting content from {document_path}: {e}", filename=document_path)
 
     def call_llm_api(self, prompt: str, max_retries: int = 3, retry_delay: float = 1.0) -> Optional[Dict[str, Any]]:
         """Call Gemini API with the generated prompt and return parsed JSON response."""
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()) # Moved earlier as per plan
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()) 
 
         for attempt in range(max_retries):
             try:
@@ -145,14 +134,12 @@ class SummarizationService:
                     model=self.gemini_model,
                     timestamp=timestamp
                 )
-                # self.logger.debug(f"Prompt sent to Gemini: {prompt}") # Optional: log prompt if needed
 
                 if not response.text:
                     self.logger.error(f"Gemini API returned empty response for model {self.gemini_model} (attempt {attempt + 1})")
                     if attempt < max_retries - 1:
                         time.sleep(retry_delay)
                         continue
-                    # APIError will be caught by the generic Exception handler below, where it's logged to tracker
                     raise APIError(f"Gemini API returned empty response after {max_retries} attempts for model {self.gemini_model}.")
 
 
@@ -167,7 +154,6 @@ class SummarizationService:
                     llm_response = json.loads(response_text_cleaned)
                 except json.JSONDecodeError as e:
                     self.logger.error(f"Failed to parse JSON response from Gemini: {e} - Raw: {response_text_cleaned[:200]}...")
-                    # Logging to tracker happens in the ParsingError handler below
                     raise ParsingError(f"Failed to parse JSON response from Gemini: {e}", filename="API Response")
 
                 llm_response["llm_used_for_processing"] = f"gemini-{self.gemini_model}"
@@ -183,30 +169,26 @@ class SummarizationService:
                     timestamp=timestamp
                 )
                 raise
-            except Exception as e: # Includes APIError, google.api_core.exceptions (like DeadlineExceeded, ServiceUnavailable) etc.
+            except Exception as e: 
                 self.logger.error(f"Error calling Gemini API on attempt {attempt + 1}/{max_retries} with model {self.gemini_model}: {type(e).__name__} - {e}")
                 self.api_call_tracker.log_api_call(
                     prompt=prompt,
-                    response=f"APIError or other exception: {type(e).__name__} - {str(e)}", # Generalized error response
+                    response=f"APIError or other exception: {type(e).__name__} - {str(e)}", 
                     model=self.gemini_model,
                     timestamp=timestamp
                 )
                 if attempt < max_retries - 1:
                     time.sleep(retry_delay * (2 ** attempt))
                     continue
-                # If all retries failed, raise the last error as APIError
                 raise APIError(f"Failed to call Gemini API after {max_retries} attempts with model {self.gemini_model}: {e}")
 
-        # Fallback if loop completes without returning/raising (should be rare)
-        # This part is less likely to be hit due to exceptions being raised within the loop.
-        # However, if it were, logging it to the tracker would be consistent.
         final_error_msg = f"Failed to get valid response from Gemini API after {max_retries} attempts (loop exhausted)."
         self.logger.error(final_error_msg)
         self.api_call_tracker.log_api_call(
             prompt=prompt,
             response=final_error_msg,
             model=self.gemini_model,
-            timestamp=timestamp # Use the initial timestamp for this overall failure
+            timestamp=timestamp 
         )
         raise APIError(final_error_msg)
 
@@ -264,7 +246,6 @@ class SummarizationService:
         self.logger.info(f"Starting summarization for document ID: {document.id}, Filename: {document.originalFilename}")
         try:
             key_document_chunks = self.extract_document_chunks(document.storagePath)
-            # Removed check for "Document file not found:" as extract_document_chunks now raises FileProcessingError
 
             prompt = self.get_appropriate_prompt(document, key_document_chunks)
             llm_response = self.call_llm_api(prompt)
@@ -280,53 +261,43 @@ class SummarizationService:
                     "llm_analysis": llm_response
                 }
 
-                # Save the individual summary
                 summary_file_name = f"{document.id}_summary.json"
                 summary_file_path = Path("data/summaries") / summary_file_name
                 try:
                     with open(summary_file_path, 'w', encoding='utf-8') as sf:
                         json.dump(result, sf, indent=2, ensure_ascii=False)
                     self.logger.info(f"Successfully saved individual summary for document {document.id} to {summary_file_path}")
-                    result["summaryStoragePath"] = str(summary_file_path) # Add path to the returned result
+                    result["summaryStoragePath"] = str(summary_file_path) 
 
-                    # Update master_metadata.json with the summaryStoragePath
                     update_success = self.metadata_manager.update_document_metadata_entry(
                         document.id,
                         {"summaryStoragePath": str(summary_file_path)}
                     )
                     if not update_success:
                         self.logger.warning(f"Failed to update master_metadata.json with summaryStoragePath for document {document.id}")
-                        # Decide if this should be a critical error or just a warning
                 except IOError as e:
                     self.logger.error(f"IOError saving individual summary for document {document.id} to {summary_file_path}: {e}")
-                    # Optionally, remove summaryStoragePath from result or handle error
-                    # For now, the result will be returned without summaryStoragePath if saving fails before it's set
-                    # Or it will have it, but the file won't exist. This error should ideally be propagated or handled more gracefully.
 
                 self.logger.info(f"Successfully summarized document: {document.originalFilename} (ID: {document.id})")
                 return result
             else:
-                # This case should be covered by call_llm_api raising an error if it can't get a valid response.
                 self.logger.error(f"LLM API call failed to return a response for document: {document.originalFilename} (ID: {document.id})")
                 return None
 
         except (FileProcessingError, ParsingError, APIError) as e:
             self.logger.error(f"Error summarizing document {document.id} ({document.originalFilename}): {e}")
-            # Optionally, re-raise or handle by returning None or a specific error structure
-            raise # Re-raise the caught known errors (FileProcessingError, ParsingError, APIError)
-        except GianiBaseError as e: # Catch any other Giani-specific errors that might not have been caught
+            raise 
+        except GianiBaseError as e: 
             self.logger.error(f"A Giani specific error occurred summarizing document {document.id} ({document.originalFilename}): {type(e).__name__} - {e}")
-            raise # Re-raise
-        except Exception as e: # General fallback for truly unexpected errors
+            raise 
+        except Exception as e: 
             self.logger.error(f"Unexpected error summarizing document {document.id} ({document.originalFilename}): {type(e).__name__} - {e}")
-            # Wrap this unexpected error into a FileProcessingError or a more generic GianiBaseError
             raise FileProcessingError(f"Unexpected error during summarization of document {document.id}: {e}", filepath=document.storagePath)
 
 
     def process_all_documents(self) -> List[Dict[str, Any]]:
         """Process all documents found by the metadata manager."""
         self.logger.info("Starting processing of all documents for summarization.")
-        # Use get_all_document_metadata which returns List[DocumentMetadata]
         all_document_objects = self.metadata_manager.get_all_document_metadata()
         results = []
 
@@ -338,13 +309,12 @@ class SummarizationService:
 
         for document_obj in all_document_objects:
             try:
-                # document_obj is already a DocumentMetadata instance
                 result = self.summarize_document(document_obj)
                 if result:
                     results.append(result)
                 else:
                     self.logger.warning(f"Failed to process document (summarize_document returned None): {document_obj.originalFilename} (ID: {document_obj.id})")
-            except Exception as e: # Catch exceptions from summarize_document if they weren't re-raised or to add context
+            except Exception as e: 
                 self.logger.error(f"Error processing document {document_obj.id} ({document_obj.originalFilename}) in process_all_documents loop: {e}")
 
         self.logger.info(f"Finished processing all documents. {len(results)} summaries generated.")
@@ -361,14 +331,13 @@ class SummarizationService:
                 "total_documents_processed": len(results),
                 "total_summaries_successfully_saved": len(individual_summary_paths),
                 "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "version": "1.1" # Updated version for new format
+                "version": "1.1" 
             },
             "individual_summary_paths": individual_summary_paths,
             "api_call_summary": self.get_api_call_summary()
         }
 
         try:
-            # Ensure directory for output_path exists
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
             with open(output_path, 'w', encoding='utf-8') as file:

@@ -1,5 +1,3 @@
-# Defines custom exceptions for the Giani PKB application.
-
 class GianiBaseError(Exception):
     """Base class for custom exceptions in the Giani PKB application."""
     pass
@@ -53,34 +51,3 @@ class FileProcessingError(GianiBaseError):
         if filepath:
             details += f" (File: {filepath})"
         super().__init__(details)
-
-# Example of how these might be used:
-#
-# from .exceptions import APIError, ParsingError, ConfigurationError
-#
-# def load_config():
-#     api_key = os.getenv("API_KEY")
-#     if not api_key:
-#         raise ConfigurationError("API_KEY is not set in the environment.")
-#
-# def fetch_data_from_api(request):
-#     response = make_api_call(request)
-#     if response.status_code != 200:
-#         raise APIError(f"API request failed with status {response.status_code}", status_code=response.status_code)
-#     try:
-#         data = json.loads(response.text)
-#         return data
-#     except json.JSONDecodeError as e:
-#         raise ParsingError(f"Failed to parse JSON response from API: {e}")
-#
-# def process_document(filepath):
-#     try:
-#         with open(filepath, 'r') as f:
-#             content = f.read()
-#         # Further processing...
-#         if not content:
-#             raise ParsingError("File is empty or could not be read.", filename=filepath)
-#     except FileNotFoundError:
-#         raise FileProcessingError("File not found.", filepath=filepath)
-#     except Exception as e:
-#         raise FileProcessingError(f"An unexpected error occurred: {e}", filepath=filepath)

@@ -1,15 +1,14 @@
-# CSV.py
 import pandas as pd
 from giani_pkb.utils.exceptions import ParsingError, APIError, FileProcessingError
 from giani_pkb.utils.prompt_loader import load_prompt_template
 import google.generativeai as genai
-from giani_pkb.utils.config import GEMINI_FLASH_ALIAS # Using the alias as per original subtask script
+from giani_pkb.utils.config import GEMINI_FLASH_ALIAS 
 
 
 class CSVProcessor:
     def __init__(self, api_key):
-        genai.configure(api_key=api_key) # This is fine, MainProcessing will pass the key
-        self.model = genai.GenerativeModel(GEMINI_FLASH_ALIAS)  # Initialize model once
+        genai.configure(api_key=api_key) 
+        self.model = genai.GenerativeModel(GEMINI_FLASH_ALIAS)  
 
 
     def process_csv(self, path):
@@ -33,11 +32,11 @@ class CSVProcessor:
             response = self.model.generate_content(prompt)
             description = response.parts[0].text.strip()
             return description
-        except ValueError as e: # Keep specific ValueError for unsupported format, but raise as ParsingError
+        except ValueError as e: 
             raise ParsingError(str(e), filename=path)
-        except APIError as e: # If generate_content itself could raise APIError (hypothetical for this model)
+        except APIError as e: 
             print(f"API Error processing CSV {path}: {e}")
-            raise # Re-raise
-        except Exception as e: # For other errors (e.g., file read, unexpected issues)
-            print(f"Error processing CSV {path}: {e}") # Keep print for now or change to logger
+            raise 
+        except Exception as e: #
+            print(f"Error processing CSV {path}: {e}") 
             raise FileProcessingError(f"Error processing file {path}: {e}", filepath=path)

@@ -4,22 +4,17 @@ sys.path.append('/workspace/ProjectKnowledgeGiani/')
 import gradio as gr
 import json
 import logging
-import os # For potential path operations, though less direct need now
-from typing import Dict, List, Any, Optional # Keep typing for clarity
-
-# Import core services and models
+import os 
+from typing import Dict, List, Any, Optional 
 from giani_pkb.core.summarization_service import SummarizationService
 from giani_pkb.core.metadata_manager import MetadataManagerService
 from giani_pkb.core.models import DocumentMetadata
 
-# Global variables for services and data
+
 summarization_service: Optional[SummarizationService] = None
 metadata_manager_service: Optional[MetadataManagerService] = None
-# This list will store DocumentMetadata objects directly
 documents_list: List[DocumentMetadata] = []
 
-# Configure logging
-# Basic config, can be overridden by a central logging config if the app grows
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -32,18 +27,14 @@ def initialize_app():
     logger.info("Attempting to initialize the Summarization application...")
     initialization_status = "Initializing services..."
     try:
-        # Instantiate services
-        # Assuming services can be instantiated without parameters or use environment/config defaults
         metadata_manager_service = MetadataManagerService()
         summarization_service = SummarizationService()
 
         initialization_status = "Services initialized. Loading documents..."
         logger.info("Services initialized. Loading documents...")
 
-        # Load documents using MetadataManagerService
-        # get_all_document_metadata() should return List[DocumentMetadata]
         loaded_docs = metadata_manager_service.get_all_document_metadata()
-        documents_list = loaded_docs # Store the DocumentMetadata objects directly
+        documents_list = loaded_docs 
 
         count = len(documents_list)
         initialization_status = f"Initialization complete. Loaded {count} documents."
@@ -56,7 +47,6 @@ def initialize_app():
     except Exception as e:
         initialization_status = f"Error during initialization: {str(e)}"
         logger.error(f"Error during application initialization: {e}", exc_info=True)
-        # Reset globals if init fails to prevent partial states
         summarization_service = None
         metadata_manager_service = None
         documents_list = []
@@ -66,16 +56,12 @@ def get_document_choices():
     """Get list of document choices for dropdown, using DocumentMetadata objects."""
     global documents_list
 
-    if not documents_list: # If list is empty, maybe try to initialize or log
+    if not documents_list: 
         logger.warning("get_document_choices called but documents_list is empty.")
-        # Optionally, could call initialize_app() here if it's safe and desired.
-        # For now, just return empty choices.
         return gr.Dropdown(choices=[], value=None)
 
-    # Create choices like "filename.txt (ID: abc12345)"
     choices = []
     for doc in documents_list:
-        # Ensure doc.id is available and not None
         doc_id_short = doc.id[:8] if doc.id else "N/A"
         choices.append(f"{doc.originalFilename} (ID: {doc_id_short})")
 
@@ -89,9 +75,8 @@ def find_document_by_display_name(display_name: str) -> Optional[DocumentMetadat
     if not display_name or not documents_list:
         return None
 
-    # Extract ID from display name like "filename.txt (ID: abc12345)"
     try:
-        id_part = display_name.split('(ID: ')[1][:-1] # Get 'abc12345'
+        id_part = display_name.split('(ID: ')[1][:-1] 
     except IndexError:
         logger.warning(f"Could not parse ID from display name: {display_name}")
         return None
@@ -123,14 +108,10 @@ def process_selected_document(selected_document_display_name: str):
     logger.info(f"Found document: {selected_doc_object.originalFilename} (ID: {selected_doc_object.id}). Initiating summarization.")
 
     try:
-        # Call the summarize_document method from the service
-        # This method should handle its own exceptions and logging for the summarization part
         summarization_result = summarization_service.summarize_document(selected_doc_object)
 
-        # Get API call summary from the service
         api_logs_summary_data = summarization_service.get_api_call_summary()
 
-        # Format summarization_result for display
         if summarization_result:
             formatted_result = json.dumps(summarization_result, indent=2, ensure_ascii=False)
             logger.info(f"Summarization successful for {selected_doc_object.originalFilename}.")
@@ -138,7 +119,6 @@ def process_selected_document(selected_document_display_name: str):
             formatted_result = "Summarization failed or returned no result. Check service logs."
             logger.warning(f"Summarization failed or returned None for {selected_doc_object.originalFilename}.")
 
-        # Format API logs for display
         formatted_api_logs = f"Total API Calls: {api_logs_summary_data.get('total_api_calls', 0)}\n"
         formatted_api_logs += f"Total Prompt Characters: {api_logs_summary_data.get('total_prompt_characters', 0)}\n"
         formatted_api_logs += f"Total Response Characters: {api_logs_summary_data.get('total_response_characters', 0)}\n\n"
@@ -216,7 +196,7 @@ def create_gradio_interface():
 
         document_dropdown = gr.Dropdown(
             label="Select Document",
-            choices=[], # Populated by init_and_update_choices
+            choices=[], 
             interactive=True,
             info="Choose a document from the list loaded via MetadataManagerService."
         )
@@ -234,7 +214,6 @@ def create_gradio_interface():
         with gr.Tab("Full Prompt Preview"):
             full_prompt_display = gr.Textbox(label="Full Generated Prompt", lines=20, interactive=False, show_copy_button=True)
 
-        # Event handlers
         def init_and_update_choices_ui():
             status = initialize_app()
             choices_dropdown = get_document_choices()
@@ -257,7 +236,6 @@ def create_gradio_interface():
             outputs=[full_prompt_display]
         )
 
-        # Load documents when the app interface is ready
         app.load(
             fn=init_and_update_choices_ui,
             outputs=[init_status_display, document_dropdown]
@@ -267,15 +245,11 @@ def create_gradio_interface():
 
 if __name__ == "__main__":
     logger.info("Starting Summarization App directly.")
-    # Perform initial setup, like ensuring API keys are available or directories exist, if necessary.
-    # This is already handled by service initializations to some extent.
-
-    # Create and launch the Gradio app
     summarization_gradio_app = create_gradio_interface()
     summarization_gradio_app.launch(
         server_name="0.0.0.0",
-        server_port=7862, # Different port from FileUploadApp
-        share=False, # Set to True if sharing is needed and ngrok is available/configured
-        debug=True   # For development
+        server_port=7862, 
+        share=False, 
+        debug=True   
     )
     logger.info("Summarization App launched on port 7862.")

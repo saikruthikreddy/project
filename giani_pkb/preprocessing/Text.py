@@ -1,4 +1,3 @@
-# Text.py
 from PyPDF2 import PdfReader
 import pdfplumber
 from PIL import Image
@@ -33,7 +32,6 @@ class PDF:
                 page_content = page.get_text()
                 text += page_content
                 
-                # Extract images from the page
                 image_list = page.get_images(full=True)
                 for img_index, img in enumerate(image_list):
                     xref = img[0]
@@ -41,14 +39,10 @@ class PDF:
                     image_bytes = base_image["image"]
                     image_rect = fitz.Rect(img[1:5])
                     
-                    # Extract relevant text near the image
                     descriptive_text = self.extract_text_near_image(page, image_rect)
                     
-                    # Process the image - note the way we handle the result
                     image_result = self.image_processor.process_image_bytes(image_bytes)
-                    
-                    # The result is already a string based on the Image class implementation
-                    # Append it to our text output
+
                     text += f"\n\n--- Image on {self.ordinal(page_num + 1)} page ---\n"
                     text += f"Context: {descriptive_text}\n"
                     text += f"{image_result}\n\n"

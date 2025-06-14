@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional # Added Optional
 import logging
 
-from giani_pkb.utils.exceptions import FileProcessingError, ParsingError, ConfigurationError # Added ConfigurationError
+from giani_pkb.utils.exceptions import FileProcessingError, ParsingError, ConfigurationError 
 from giani_pkb.core.models import DocumentMetadata
 
 logger = logging.getLogger(__name__)
 
-MASTER_METADATA_PATH = "data/master_metadata.json" # Updated path
+MASTER_METADATA_PATH = "data/master_metadata.json" 
 
 class MetadataManagerService:
     def __init__(self, master_metadata_path: Optional[str] = None):
@@ -20,16 +20,13 @@ class MetadataManagerService:
         else:
             self.master_metadata_path = MASTER_METADATA_PATH
 
-        # Ensure the directory for master_metadata_path exists
         Path(self.master_metadata_path).parent.mkdir(parents=True, exist_ok=True)
-        # Ensure the base directory for document uploads also exists
         Path("data/uploaded_documents").mkdir(parents=True, exist_ok=True)
 
 
     def load_master_metadata(self) -> Dict[str, Any]:
         """Load the master metadata JSON file."""
         try:
-            # Check if the file exists and is not empty
             if not Path(self.master_metadata_path).is_file() or os.path.getsize(self.master_metadata_path) == 0:
                 logger.info(f"Master metadata file not found or empty at {self.master_metadata_path}. Creating a new one.")
                 return self._create_new_master_metadata()
@@ -37,17 +34,15 @@ class MetadataManagerService:
             with open(self.master_metadata_path, 'r', encoding='utf-8') as file:
                 data = json.load(file)
 
-            # Basic validation for expected structure (can be expanded)
             if not isinstance(data, dict) or "documents" not in data or "total_documents" not in data:
                 logger.warning(f"Master metadata file at {self.master_metadata_path} has an unexpected format. Initializing anew.")
                 return self._create_new_master_metadata()
 
-            # Compatibility for old format from OldSummary.py (totalDocuments vs total_documents)
-            if "totalDocuments" in data and "total_documents" not in data: # Old format check
+            if "totalDocuments" in data and "total_documents" not in data: 
                  return {
                     "documents": data.get('documents', []),
-                    "total_documents": data.get('totalDocuments', 0), # Map totalDocuments
-                    "metadata_version": data.get('metadata_version', "0.9"), # Old version
+                    "total_documents": data.get('totalDocuments', 0), 
+                    "metadata_version": data.get('metadata_version', "0.9"), 
                     "created_date": data.get('created_date', datetime.now().isoformat()),
                     "last_updated": data.get('last_updated', datetime.now().isoformat()),
                     "statistics": data.get('statistics', self._get_default_statistics())
@@ -59,7 +54,6 @@ class MetadataManagerService:
             return self._create_new_master_metadata()
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing master metadata JSON from {self.master_metadata_path}: {e}. Returning new metadata structure.")
-            # It might be safer to raise an error or try to recover/backup the corrupted file
             raise ParsingError(f"Error parsing master metadata JSON: {e}", filename=self.master_metadata_path)
         except Exception as e:
             logger.error(f"Unexpected error loading master metadata from {self.master_metadata_path}: {e}")
@@ -76,7 +70,7 @@ class MetadataManagerService:
     def _create_new_master_metadata(self) -> Dict[str, Any]:
         """Creates a new master metadata structure."""
         return {
-            "metadata_version": "1.1", # Current version
+            "metadata_version": "1.1", 
             "created_date": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat(),
             "total_documents": 0,
@@ -88,7 +82,6 @@ class MetadataManagerService:
         """Save master metadata to file."""
         master_metadata["last_updated"] = datetime.now().isoformat()
         try:
-            # Ensure the directory exists
             Path(self.master_metadata_path).parent.mkdir(parents=True, exist_ok=True)
             with open(self.master_metadata_path, 'w', encoding='utf-8') as f:
                 json.dump(master_metadata, f, indent=2, ensure_ascii=False)
@@ -109,39 +102,31 @@ class MetadataManagerService:
             doc_meta_object.id = doc_id
         else:
             doc_id = doc_meta_object.id
-            # Optional: Check if doc_id already exists and handle update vs new logic
-            # For now, we assume if ID is present, we might be updating an existing entry,
-            # but the current logic appends. If updates are needed, this needs refinement.
-            # For simplicity, this implementation currently always adds if called.
-            # A more robust way would be to have separate add_document and update_document_entry methods.
 
         document_entry = {
             "document_id": doc_id,
             "original_filename": doc_meta_object.originalFilename,
-            "file_path": doc_meta_object.storagePath, # Mapped from storagePath
-            "document_type": doc_meta_object.categoryFolder, # Mapped from categoryFolder
-            "ai_classification": doc_meta_object.finalCategory, # Mapped from finalCategory
+            "file_path": doc_meta_object.storagePath, 
+            "document_type": doc_meta_object.categoryFolder, 
+            "ai_classification": doc_meta_object.finalCategory, 
             "priority": doc_meta_object.priority,
             "file_size": doc_meta_object.fileSize,
             "file_mime_type": doc_meta_object.fileMimeType,
             "date_added": doc_meta_object.dateAddedToGiani,
             "user_id": doc_meta_object.userID,
             "project_id": doc_meta_object.projectID,
-            "document_purpose": doc_meta_object.finalPurpose, # Mapped from finalPurpose
-            "metadata_file_path": doc_meta_object.storedFilename # Mapped from storedFilename
+            "document_purpose": doc_meta_object.finalPurpose, 
+            "metadata_file_path": doc_meta_object.storedFilename 
         }
 
-        # Avoid duplicate entries if the same doc_id is processed multiple times by this method
-        # This is a simple check; more sophisticated update logic might be needed
         existing_doc_index = next((index for (index, d) in enumerate(master_metadata["documents"]) if d["document_id"] == doc_id), None)
         if existing_doc_index is not None:
             master_metadata["documents"][existing_doc_index] = document_entry
         else:
             master_metadata["documents"].append(document_entry)
-            master_metadata["total_documents"] = len(master_metadata["documents"]) # Only increment if new
+            master_metadata["total_documents"] = len(master_metadata["documents"]) 
 
-        # Update statistics
-        stats = master_metadata.get("statistics", self._get_default_statistics()) # Ensure stats exist
+        stats = master_metadata.get("statistics", self._get_default_statistics()) 
 
         doc_type = doc_meta_object.categoryFolder
         stats["document_types"][doc_type] = stats["document_types"].get(doc_type, 0) + 1
@@ -154,7 +139,7 @@ class MetadataManagerService:
 
         if doc_meta_object.originalFilename:
              file_ext = Path(doc_meta_object.originalFilename).suffix.lower()
-             if file_ext: # Ensure file_ext is not empty
+             if file_ext: 
                 stats["file_types"][file_ext] = stats["file_types"].get(file_ext, 0) + 1
 
         master_metadata["statistics"] = stats
@@ -173,7 +158,6 @@ class MetadataManagerService:
             document_found = False
             for doc_entry in master_metadata.get("documents", []):
                 if doc_entry.get("document_id") == document_id:
-                    # Apply updates to the document entry
                     for key, value in updates.items():
                         doc_entry[key] = value
                     document_found = True
@@ -188,8 +172,6 @@ class MetadataManagerService:
                 return False
         except Exception as e:
             logger.error(f"Failed to update metadata for document ID: {document_id}. Error: {e}")
-            # Depending on the desired error handling, you might re-raise specific exceptions
-            # For example, if FileProcessingError or ParsingError occur during load/save.
             return False
 
     def get_document_metadata_by_id(self, doc_id: str) -> Optional[DocumentMetadata]:
@@ -197,8 +179,6 @@ class MetadataManagerService:
         master_metadata = self.load_master_metadata()
         for doc_data in master_metadata.get("documents", []):
             if doc_data.get("document_id") == doc_id:
-                # Convert dict back to DocumentMetadata object
-                # This assumes DocumentMetadata.from_dict can handle this structure
                 return DocumentMetadata.from_dict(doc_data)
         return None
 
@@ -233,21 +213,15 @@ class MetadataManagerService:
 
         return summary
 
-# Example Usage (can be removed or kept for testing)
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    # Ensure the base directory exists for the example to run without errors if master file doesn't exist
     Path(MASTER_METADATA_PATH).parent.mkdir(parents=True, exist_ok=True)
-
     metadata_service = MetadataManagerService()
-
-    # Create a dummy master metadata if it doesn't exist for testing
     if not Path(MASTER_METADATA_PATH).is_file():
         metadata_service.save_master_metadata(metadata_service._create_new_master_metadata())
-
     print("Loading metadata:")
     meta = metadata_service.load_master_metadata()
-    # print(json.dumps(meta, indent=2))
+
 
     # Example of adding a document
     sample_doc_meta = DocumentMetadata( # type: ignore
@@ -273,7 +247,6 @@ if __name__ == '__main__':
     new_id = metadata_service.update_master_metadata(sample_doc_meta)
     print(f"Document ID: {new_id}")
 
-    # Example of updating a specific field
     print(f"\nUpdating summaryStoragePath for document ID: {new_id}")
     update_success = metadata_service.update_document_metadata_entry(new_id, {"summaryStoragePath": "data/summaries/test_summary.json", "priority": "Very High"})
     if update_success:
@@ -283,7 +256,6 @@ if __name__ == '__main__':
 
     print("\nLoading metadata again:")
     meta = metadata_service.load_master_metadata()
-    # print(json.dumps(meta, indent=2))
 
     print("\nSummary Text:")
     print(metadata_service.get_master_metadata_summary_text())

@@ -1,7 +1,5 @@
 from enum import Enum
 
-# Document type categories (originally from FileUpload.py)
-# Renamed from DOCUMENT_TYPES to USER_DOCUMENT_TYPES for clarity if needed, or keep as DOCUMENT_TYPES
 DOCUMENT_TYPES = [
     "Client-Provided Material",
     "Internal Research & Analysis",
@@ -13,7 +11,6 @@ DOCUMENT_TYPES = [
     "Other"
 ]
 
-# AI Classification categories (originally from FileUpload.py)
 AI_CLASSIFICATIONS = [
     "1. Strategy Document/Deck",
     "2. Operational Report/Review Deck",
@@ -57,13 +54,8 @@ AI_CLASSIFICATIONS = [
     "40. User Specified (Other)"
 ]
 
-# Priority levels (originally from FileUpload.py)
 PRIORITY_LEVELS = ["High", "Medium", "Low"]
 
-# DocumentCategory Enum (consolidated from NewSummary.py and OldSummary.py)
-# This enum seems to overlap significantly with AI_CLASSIFICATIONS.
-# Consider whether both are needed or if AI_CLASSIFICATIONS should be the primary source.
-# For now, I will replicate the structure from OldSummary.py as it's more comprehensive.
 class DocumentCategory(Enum):
     STRATEGY_DOCUMENT = "1. Strategy Document/Deck"
     OPERATIONAL_REPORT = "2. Operational Report/Review Deck"
@@ -110,20 +102,12 @@ class DocumentCategory(Enum):
     def get_all_values(cls):
         return [item.value for item in cls]
 
-# DocumentGroup Enum (consolidated from NewSummary.py and OldSummary.py)
 class DocumentGroup(Enum):
     GROUP_A = "Strategic & Formal Client-Facing Deliverables/Inputs"
     GROUP_B = "Research, Analysis & Informational Inputs"
     GROUP_C = "Project Execution & Iterative Work Products"
     GROUP_D = "Conversational & Interaction Records"
 
-# Mapping from DocumentCategory (the Enum) to AI_CLASSIFICATIONS (the list) might be useful
-# if AI_CLASSIFICATIONS is intended to be the display source for Gradio and
-# DocumentCategory is used internally for logic.
-# For now, keeping them separate as per original structure.
-
-# Mapping from DocumentCategory values to DocumentGroup
-# This was present in OldSummary.py. Replicating it here.
 CATEGORY_TO_GROUP_MAPPING = {
     DocumentCategory.STRATEGY_DOCUMENT.value: DocumentGroup.GROUP_A,
     DocumentCategory.OPERATIONAL_REPORT.value: DocumentGroup.GROUP_A,
@@ -132,7 +116,7 @@ CATEGORY_TO_GROUP_MAPPING = {
     DocumentCategory.PROPOSAL_DOCUMENT.value: DocumentGroup.GROUP_A,
     DocumentCategory.FORMAL_CLIENT_DELIVERABLE_REPORT.value: DocumentGroup.GROUP_A,
     DocumentCategory.FORMAL_CLIENT_DELIVERABLE_PRESENTATION.value: DocumentGroup.GROUP_A,
-    DocumentCategory.CLIENT_BRIEF_RFP.value: DocumentGroup.GROUP_D, # Note: OldSummary put this in D
+    DocumentCategory.CLIENT_BRIEF_RFP.value: DocumentGroup.GROUP_D, 
     DocumentCategory.MARKET_RESEARCH_REPORT.value: DocumentGroup.GROUP_B,
     DocumentCategory.MARKET_DATA_DUMP.value: DocumentGroup.GROUP_B,
     DocumentCategory.MARKET_SIZING_MODEL.value: DocumentGroup.GROUP_B,
@@ -143,11 +127,11 @@ CATEGORY_TO_GROUP_MAPPING = {
     DocumentCategory.INDUSTRY_ANALYST_REPORT.value: DocumentGroup.GROUP_B,
     DocumentCategory.ACADEMIC_RESEARCH_PAPER.value: DocumentGroup.GROUP_B,
     DocumentCategory.NEWS_ARTICLE.value: DocumentGroup.GROUP_B,
-    DocumentCategory.TECHNICAL_SPECIFICATION.value: DocumentGroup.GROUP_B, # Was B in OldSummary
+    DocumentCategory.TECHNICAL_SPECIFICATION.value: DocumentGroup.GROUP_B, 
     DocumentCategory.WORKING_DRAFT_PRESENTATION.value: DocumentGroup.GROUP_C,
     DocumentCategory.WORKING_DRAFT_REPORT.value: DocumentGroup.GROUP_C,
-    DocumentCategory.INTERNAL_HYPOTHESES.value: DocumentGroup.GROUP_B, # Was B
-    DocumentCategory.PRELIMINARY_ANALYSIS.value: DocumentGroup.GROUP_B, # Was B
+    DocumentCategory.INTERNAL_HYPOTHESES.value: DocumentGroup.GROUP_B, 
+    DocumentCategory.PRELIMINARY_ANALYSIS.value: DocumentGroup.GROUP_B, 
     DocumentCategory.PROJECT_PLAN.value: DocumentGroup.GROUP_C,
     DocumentCategory.PROJECT_TIMELINE.value: DocumentGroup.GROUP_C,
     DocumentCategory.RISK_REGISTER.value: DocumentGroup.GROUP_C,
@@ -163,16 +147,7 @@ CATEGORY_TO_GROUP_MAPPING = {
     DocumentCategory.CLIENT_FEEDBACK.value: DocumentGroup.GROUP_D,
     DocumentCategory.EMAIL_CORRESPONDENCE.value: DocumentGroup.GROUP_D,
     DocumentCategory.STAKEHOLDER_COMMUNICATION.value: DocumentGroup.GROUP_D,
-    DocumentCategory.GENERIC_TEXT.value: DocumentGroup.GROUP_D, # Was D
-    DocumentCategory.USER_SPECIFIED.value: DocumentGroup.GROUP_D # Was D
+    DocumentCategory.GENERIC_TEXT.value: DocumentGroup.GROUP_D, 
+    DocumentCategory.USER_SPECIFIED.value: DocumentGroup.GROUP_D 
 }
 
-# Note: NewSummary.py had a more limited DocumentCategory Enum.
-# The one from OldSummary.py is more comprehensive and matches AI_CLASSIFICATIONS.
-# AI_CLASSIFICATIONS is a list of strings, while DocumentCategory is an Enum.
-# FileUpload.py uses AI_CLASSIFICATIONS for its dropdown.
-# OldSummary.py and NewSummary.py use the Enum internally.
-# This constants file will provide both.
-# If DocumentCategory Enum is the source of truth, AI_CLASSIFICATIONS list can be generated from it.
-# e.g., AI_CLASSIFICATIONS = [cat.value for cat in DocumentCategory]
-# For now, keeping them as defined in original files to minimize behavioral change before refactoring logic.

@@ -4,20 +4,13 @@ import logging
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_FLASH_MODEL
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.utils.constants import AI_CLASSIFICATIONS
-import google.api_core.exceptions # For more specific exception handling
+import google.api_core.exceptions 
 from giani_pkb.utils.exceptions import APIError, ConfigurationError, ParsingError
 
-# Configure genai if not already configured (though it's often done at application entry point)
-# This configuration is global.
-# Attempt to configure only if it seems unconfigured or misconfigured.
-# A more robust approach might involve a dedicated app setup phase.
+
 try:
-    # A simple check: try to list models. If it fails, assume not configured.
-    # This is still a workaround as genai doesn't have a direct is_configured() check.
     models = [m for m in genai.list_models() if GEMINI_FLASH_MODEL in m.name]
     if not models:
-        # If the specific model is not found, it might be a name issue or configuration issue.
-        # This log helps in debugging.
         logging.getLogger(__name__).warning(
             f"Model {GEMINI_FLASH_MODEL} not found in list_models(). Attempting genai.configure()."
         )
@@ -31,7 +24,7 @@ except google.api_core.exceptions.GoogleAPIError as e:
         logging.getLogger(__name__).error("GEMINI_API_KEY is not set. Cannot configure genai.")
         raise ConfigurationError("GEMINI_API_KEY is not set. Cannot initialize ClassificationService.")
     genai.configure(api_key=GEMINI_API_KEY)
-except Exception as e: # Catch any other unexpected error during this initial setup
+except Exception as e: 
     logging.getLogger(__name__).error(f"Unexpected error during initial genai check: {type(e).__name__} - {e}. Attempting genai.configure().")
     if not GEMINI_API_KEY:
         logging.getLogger(__name__).error("GEMINI_API_KEY is not set. Cannot configure genai.")
@@ -48,16 +41,13 @@ class ClassificationService:
 
         try:
             self.model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
-            # Test with a lightweight call if necessary, e.g., count_tokens (if model seems lazy loaded)
-            # For now, assume constructor failure or first use failure will be caught.
-        except Exception as e: # Broad exception, as genai model initialization can have various issues
+        except Exception as e: 
             self.logger.error(f"Failed to initialize GenerativeModel ({GEMINI_FLASH_MODEL}) for ClassificationService: {type(e).__name__} - {e}")
             raise ConfigurationError(f"Failed to initialize GenerativeModel for ClassificationService. Check API key and model name ('{GEMINI_FLASH_MODEL}'). Original error: {e}")
 
     def _get_classification_prompt(self, filename: str, text_preview: str) -> str:
         """Generates the prompt for document classification."""
-        # Ensure text_preview is not excessively long for the prompt
-        max_preview_length = 5000 # As used in original FileUpload.py
+        max_preview_length = 5000 
         safe_text_preview = text_preview[:max_preview_length]
 
         classification_list = "\n".join(
@@ -73,15 +63,15 @@ class ClassificationService:
     def _parse_llm_response(self, ai_response: str) -> tuple[str, str]:
         """Parses the raw LLM response to extract classification and purpose."""
         lines = ai_response.split('\n')
-        classification = "39. Generic Text Document"  # Default
-        purpose = "Document classification pending - unable to determine specific purpose from available content."  # Default
+        classification = "39. Generic Text Document"  
+        purpose = "Document classification pending - unable to determine specific purpose from available content."  
 
         for line in lines:
             line = line.strip()
             if line.startswith('CLASSIFICATION:'):
                 classification_text = line.replace('CLASSIFICATION:', '').strip()
                 for cat in AI_CLASSIFICATIONS:
-                    # Ensure robust matching, e.g. "1. Strategy Document/Deck" should match "Strategy Document/Deck"
+
                     if classification_text == cat or \
                        (isinstance(cat, str) and '. ' in cat and classification_text == cat.split('. ', 1)[1]):
                         classification = cat
@@ -94,8 +84,6 @@ class ClassificationService:
         """Provides a fallback classification based on filename patterns."""
         self.logger.info(f"Executing fallback classification for filename: {filename}")
         filename_lower = filename.lower()
-
-        # Default values
         classification = "39. Generic Text Document"
         purpose = "This document contains information relevant to the consulting project that requires further analysis to determine its specific role and contribution to the engagement."
 
@@ -115,7 +103,7 @@ class ClassificationService:
             classification = "4. Statement of Work (SoW)"
             purpose = "This document outlines the scope, deliverables, and terms of the consulting engagement. It serves as a foundational agreement between the consulting team and client."
         elif any(word in filename_lower for word in ['presentation', 'deck', 'slides', 'workshop materials']):
-            classification = "20. Working Draft - Presentation Section" # Default for presentations
+            classification = "20. Working Draft - Presentation Section" 
             if "final" in filename_lower or "client version" in filename_lower:
                  classification = "2. Client-Facing Presentation/Deck"
             purpose = "This document contains presentation materials or slides being developed for client communication. It represents work-in-progress content for stakeholder engagement."
@@ -151,29 +139,21 @@ class ClassificationService:
                 self.logger.error(f"LLM returned empty response for {filename}. Proceeding to fallback.")
                 raise APIError(f"LLM returned empty response for {filename}")
 
-            self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") # Log snippet
-            self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") # Log snippet
+            self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") 
+            self.logger.info(f"LLM response received for {filename}. Raw: {response.text[:100]}...") 
             try:
                 classification, purpose = self._parse_llm_response(response.text.strip())
                 self.logger.info(f"LLM classification for {filename}: {classification}, Purpose: {purpose}")
                 return classification, purpose, prompt_text
-            except Exception as parse_ex: # Catching exceptions specifically from _parse_llm_response
+            except Exception as parse_ex: 
                 self.logger.error(f"Error parsing LLM response for {filename}: {type(parse_ex).__name__} - {parse_ex}. Attempting fallback.")
-                # Raise a specific parsing error, though the current flow falls back.
-                # If we wanted to propagate, it would be: raise ParsingError(f"Failed to parse LLM response for {filename}: {parse_ex}")
-                # For now, we log and proceed to fallback.
 
-        except APIError as ae: # Catch APIError (e.g., if we raised it from empty response)
+        except APIError as ae: 
             self.logger.error(f"APIError during LLM classification for {filename}: {ae}. Attempting fallback.")
-            # Fallback is handled below
-        except google.api_core.exceptions.GoogleAPIError as gae: # Catch specific Google API errors
+        except google.api_core.exceptions.GoogleAPIError as gae: 
             self.logger.error(f"GoogleAPIError during LLM classification for {filename}: {gae}. Attempting fallback.")
-            # Fallback is handled below
-        except Exception as e: # Catch other broader exceptions (e.g., network issues not caught by GoogleAPIError, unexpected issues)
+        except Exception as e: 
             self.logger.error(f"Unexpected error during LLM classification for {filename}: {type(e).__name__} - {e}. Attempting fallback.")
-            # Fallback is handled below
 
-        # Fallback logic if any of the above exceptions occurred
         classification, purpose = self._fallback_classification(filename)
-        return classification, purpose, prompt_text # Still return the prompt used for the attempt
-
+        return classification, purpose, prompt_text 

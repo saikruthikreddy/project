@@ -42,18 +42,15 @@ class Image:
     def process_image_bytes(self, image_bytes, lang='eng', config='', caption=True):
         try:
             image = PILImage.open(BytesIO(image_bytes))
-            # Convert image to RGB if it's not
             if image.mode != 'RGB':
                 image = image.convert('RGB')
             
-            # Extract text from the image using OCR
             ocr_text = pytesseract.image_to_string(image, lang=lang, config=config).strip()
             
             result = {
                 'ocr_text': ocr_text
             }
             
-            # Generate image caption using BLIP if requested
             if caption:
                 caption_text = self._generate_caption(image)
                 result['caption'] = caption_text
