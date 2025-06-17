@@ -64,8 +64,6 @@ class CSVProcessor:
                     try:
                         # Extract image data
                         image_data = zip_file.read(media_file)
-                        
-                        # Process image using your Image processor
                         image_text = self.image_processor.process_image_bytes(image_data)
                         if image_text and image_text.strip():
                             extracted_images_text.append(f"Image from file '{media_file}': {image_text}")
