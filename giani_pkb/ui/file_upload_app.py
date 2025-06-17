@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/workspace/ProjectKnowledgeGiani/')
+sys.path.append('/home/user/projectknowledge-2')
 
 import logging
 import gradio as gr

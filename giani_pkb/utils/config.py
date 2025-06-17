@@ -5,6 +5,7 @@ from giani_pkb.utils.exceptions import ConfigurationError
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not GEMINI_API_KEY:
     raise ConfigurationError("GEMINI_API_KEY environment variable not found or not set. Please ensure it is defined in your .env file or environment.")
