@@ -1,6 +1,6 @@
-# PPTX.py
 from pptx import Presentation
 import os
+import tempfile 
 from io import BytesIO
 from PIL import Image as PILImage
 
@@ -29,18 +29,23 @@ class PPTX:
                         md_content += f"{shape.text}\n\n"
                     elif shape.shape_type == 13:
                         if self.image_processor:
+                            temp_image_filepath = None 
                             try:
-                                image = self._extract_image_from_shape(shape)
-                                if image:
-                                    temp_path = f"temp_image_{i}_{shape.id}.png"
-                                    image.save(temp_path)
-                                    ocr_text = self.image_processor.process_image(temp_path)
-                                    if os.path.exists(temp_path):
-                                        os.remove(temp_path)
-                                    if ocr_text:
-                                        md_content += f"**Image Text Content:**\n\n``````\n\n"
+                                pil_image = self._extract_image_from_shape(shape)
+                                if pil_image:
+                                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+                                        temp_image_filepath = tmp_file.name
+                                    pil_image.save(temp_image_filepath, format="PNG")
+
+                                    ocr_text_content = self.image_processor.process_image(temp_image_filepath)
+                                    if ocr_text_content: 
+                                        md_content += f"**Image Text Content:**\n\n{ocr_text_content}\n\n"
+
                             except Exception as img_err:
                                 md_content += f"*Error processing image: {str(img_err)}*\n\n"
+                            finally:
+                                if temp_image_filepath and os.path.exists(temp_image_filepath):
+                                    os.remove(temp_image_filepath)
             
                 md_content += "---\n\n"
         
