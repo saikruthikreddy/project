@@ -2,8 +2,8 @@
 # ================================
 import os
 import google.generativeai as genai
-from utils.prompt_loader import load_prompt_template
-from core.project_service import get_project_purpose
+from giani_pkb.utils.prompt_loader import load_prompt_template
+from giani_pkb.core.project_service import get_project_purpose
 
 # Configure Gemini API
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -28,19 +28,21 @@ def generate_titles(payload):
         project_purpose = get_project_purpose(project_id) if project_id else "General presentation"
 
         # Load prompt template
-        prompt_template = load_prompt("prompts/ppt_addin_prompts/title_generation_prompt.txt")
+        prompt_template = load_prompt_template("ppt_addin_prompts/title_generation_prompt.txt")
+
 
         # Fill prompt template
         filled_prompt = prompt_template.format(
-            userIntentTopic=topic,
-            userIntentInstructions=instructions,
-            specificInstructionforNewset=specific_instruction,
-            currentSlideTitle=current_title,
-            currentSlideContent=content,
-            previousSlidesTitle="\n".join(prev_titles) if prev_titles else "None",
-            alreadySuggested="\n".join(already_suggested) if already_suggested else "None",
-            projectPurpose=project_purpose
-        )
+        userIntentTopic=topic,
+        userIntentInstructions=instructions,
+        specificInstructionforNewset=specific_instruction,
+        currentSlideTitle=current_title,
+        currentSlideContent=content,
+        previousSlidesTitle="\n".join(prev_titles) if prev_titles else "None",
+        alreadySuggested="\n".join(already_suggested) if already_suggested else "None",
+        currentProjectPurpose=project_purpose  # ✅ this fixes the KeyError
+    )
+
 
         # Generate content using Gemini
         response = model.generate_content(filled_prompt)
