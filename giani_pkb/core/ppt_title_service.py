@@ -2,7 +2,7 @@
 # ================================
 import os
 import google.generativeai as genai
-from utils.prompt_loader import load_prompt
+from utils.prompt_loader import load_prompt_template
 from core.project_service import get_project_purpose
 
 # Configure Gemini API
