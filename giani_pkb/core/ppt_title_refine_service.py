@@ -2,7 +2,7 @@
 # ================================
 import os
 import google.generativeai as genai
-from utils.prompt_loader import load_prompt
+from giani_pkb.utils.prompt_loader import load_prompt_template
 
 # Configure Gemini API
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
@@ -20,7 +20,7 @@ def refine_title(payload):
         content = payload.get("currentSlideContent", "")
         prev_titles = payload.get("previousSlidesTitle", [])
         title_to_refine = payload.get("titleToBeRefined", "")
-        project_purpose = payload.get("projectPurpose", "General presentation")
+        currentProjectPurpose = payload.get("projectPurpose", "General presentation")
 
         # Validate essential fields
         if not title_to_refine:
@@ -32,18 +32,19 @@ def refine_title(payload):
             }
 
         # Load prompt template
-        prompt_template = load_prompt("prompts/ppt_addin_prompts/title_refine_prompt.txt")
+        prompt_template = load_prompt_template("ppt_addin_prompts/title_refine_prompt.txt")
 
         # Fill prompt template
         filled_prompt = prompt_template.format(
-            userIntentTopic=topic,
-            userIntentInstructions=instructions,
-            currentSlideTitle=current_title,
-            currentSlideContent=content,
-            previousSlidesTitle="\n".join(prev_titles) if prev_titles else "None",
-            titleToBeRefined=title_to_refine,
-            projectPurpose=project_purpose
-        )
+        userIntentTopic=topic,
+        userIntentInstructions=instructions,
+        specificInstructionforNewset=specific_instruction,
+        currentSlideTitle=current_title,
+        currentSlideContent=content,
+        previousSlidesTitle="\n".join(prev_titles) if prev_titles else "None",
+        currentProjectPurpose=project_purpose  # ✅ this fixes the KeyError
+    )
+
 
         # Generate refined suggestions using Gemini
         response = model.generate_content(filled_prompt)
