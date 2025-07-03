@@ -6,6 +6,7 @@ from giani_pkb.core.ppt_title_refine_service import refine_title
 from giani_pkb.core.project_service import get_projects_for_user, get_project_purpose
 from giani_pkb.core.ppt_slide_structure import generate_slide_structure 
 from giani_pkb.core.ppt_improve_selected_text_service import refine_selected_text
+from giani_pkb.core.ppt_parallelize_content_service import parallelize_statements
 
 
 ppt_bp = Blueprint("ppt", __name__)
@@ -103,6 +104,24 @@ def refine_selected_text_endpoint():
             payload["currentProjectPurpose"] = project_purpose
 
         result = refine_selected_text(payload)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}"
+        }), 500
+
+# ✅ Endpoint to parallelize statements based on a reference
+@ppt_bp.route("/ppt/parallelize-statements", methods=["POST"])
+def parallelize_statements_endpoint():
+    try:
+        payload = request.get_json()
+
+        if not payload:
+            return jsonify({"error": "No JSON payload provided"}), 400
+
+        # Call the service function
+        result = parallelize_statements(payload)
         return jsonify(result)
 
     except Exception as e:
