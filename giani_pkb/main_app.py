@@ -2,7 +2,7 @@
 # ================================
 from flask import Flask
 from flask_cors import CORS
-from api_endpoint.ppt_addin_controller import ppt_bp
+from controllers.ppt_addin_controller import ppt_bp
 from dotenv import load_dotenv
 import os
 
