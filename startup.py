@@ -26,14 +26,6 @@ try:
     # Import the Flask app
     from main import app
 
-    # Initialize database if needed
-    try:
-        from giani_pkb.database.database_initialize import DatabaseInitializer
-        DatabaseInitializer().initialize_database()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.warning(f"Database initialization warning: {e}")
-
     logger.info("Application started successfully")
 
 except Exception as e:
