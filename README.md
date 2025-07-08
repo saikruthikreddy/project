@@ -19,9 +19,17 @@ projectknowledge/
 ├── main.py                    # Main application entry point
 ├── run.py                     # Development server runner
 ├── wsgi.py                    # Production WSGI entry point
+├── startup.py                 # Startup script for Azure App Service deployment
 ├── requirements.txt           # Python dependencies
+├── requirements-2.txt         # Alternative requirements
+├── requirements-azure.txt     # Azure-specific dependencies
 ├── .env                       # Environment configuration
 ├── users.db                   # SQLite database (auto-generated)
+├── test_database.py           # Database-related tests
+├── API_ROUTES_ORGANIZATION.md # API routes documentation
+├── README.md                  # Project documentation
+├── .gitignore                 # Git ignore rules
+├── .gitpod.yml                # Gitpod configuration
 │
 ├── giani_pkb/                 # Main application package
 │   ├── __init__.py
@@ -32,22 +40,33 @@ projectknowledge/
 │   │   ├── project_routes.py  # Project management endpoints
 │   │   ├── document_routes.py # Document processing endpoints
 │   │   ├── user_routes.py     # User management endpoints
-│   │   └── health_routes.py   # Health check endpoints
+│   │   ├── health_routes.py   # Health check endpoints
+│   │   └── ppt_addin_routes.py # PPT add-in endpoints
 │   │
 │   ├── services/              # Business logic services
 │   │   ├── __init__.py
 │   │   ├── project_service.py # Project business logic
 │   │   ├── document_upload_service.py # Document upload handling
-│   │   └── classification_service.py # AI classification logic
+│   │   ├── ppt_title_service.py # PPT title generation
+│   │   ├── ppt_title_refine_service.py # PPT title refinement
+│   │   ├── ppt_improve_selected_text_service.py # PPT text improvement
+│   │   ├── ppt_parallelize_content_service.py # PPT content parallelization
+│   │   ├── ppt_slide_structure.py # PPT slide structure
+│   │   ├── slide_review_service.py # Slide review
+│   │   ├── summarization.py # Summarization logic
+│   │   ├── metadata_manager.py # Metadata management
+│   │   └── classification.py # AI classification logic
 │   │
 │   ├── models/                # Data models
 │   │   ├── __init__.py
-│   │   └── database_models.py # SQLAlchemy ORM models
+│   │   ├── database_models.py # SQLAlchemy ORM models
+│   │   └── document.py        # Document model helpers
 │   │
 │   ├── database/              # Database layer
 │   │   ├── __init__.py
 │   │   ├── database_manager.py # Unified database operations
-│   │   └── database_initialize.py # Database initialization
+│   │   ├── database_initialize.py # Database initialization
+│   │   └── database_migration.py # Database migration logic
 │   │
 │   ├── preprocessing/         # Document processing
 │   │   ├── __init__.py
@@ -57,20 +76,57 @@ projectknowledge/
 │   │   ├── pptx_processor.py  # PowerPoint processing
 │   │   ├── csv_processor.py   # CSV/Excel processing
 │   │   ├── image_processor.py # Image processing with OCR
+│   │   ├── test_chunking_strategies.py # Chunking tests
+│   │   ├── test_processing.py # Processing tests
 │   │   └── chunking/          # Document chunking strategies
 │   │       ├── __init__.py
 │   │       ├── strategies.py  # Chunking algorithms
 │   │       ├── token_counter.py # Token counting utilities
-│   │       └── nlp_processor.py # NLP processing utilities
+│   │       ├── nlp_processor.py # NLP processing utilities
+│   │       └── models.py      # Chunking models
 │   │
-│   └── utils/                 # Utilities and helpers
-│       ├── __init__.py
-│       ├── config.py          # Configuration management
-│       ├── auth_utils.py      # Authentication utilities
-│       ├── response_utils.py  # API response formatting
-│       ├── exceptions.py      # Custom exception classes
-│       └── database.py        # Database connection utilities
+│   ├── utils/                 # Utilities and helpers
+│   │   ├── __init__.py
+│   │   ├── config.py          # Configuration management
+│   │   ├── auth_utils.py      # Authentication utilities
+│   │   ├── response_utils.py  # API response formatting
+│   │   ├── exceptions.py      # Custom exception classes
+│   │   ├── database.py        # Database connection utilities
+│   │   ├── database_utils.py  # Database utility functions
+│   │   ├── constants.py       # Project constants
+│   │   ├── prompt_generators.py # Prompt generation helpers
+│   │   ├── prompt_loader.py   # Prompt loading utilities
+│   │   ├── gemini_client.py   # Gemini AI client
+│   │   ├── api_tracker.py     # API usage tracking
+│   │   └── classification_utils.py # Classification helpers
+│   │
+│   ├── ui/                    # UI applications
+│   │   ├── __init__.py
+│   │   ├── file_upload_app.py # File upload UI
+│   │   └── summarization_app.py # Summarization UI
+│   │
+│   ├── prompts/               # Prompt templates
+│   │   ├── __init__.py
+│   │   ├── summarization_group_a_prompt.txt
+│   │   ├── summarization_group_b_prompt.txt
+│   │   ├── summarization_group_c_prompt.txt
+│   │   ├── summarization_group_d_prompt.txt
+│   │   ├── csv_analysis_prompt.txt
+│   │   ├── file_classification_prompt.txt
+│   │   └── ppt_addin_prompts/
+│   │       ├── title_generation_prompt.txt
+│   │       ├── title_refine_prompt.txt
+│   │       ├── title_regeneration_prompt.txt
+│   │       ├── Parallelize_content_prompt.txt
+│   │       ├── Slide_structure_regenerate_prompt.txt
+│   │       ├── improveSelectedText_prompt.txt
+│   │       ├── slide_review_prompt.txt
+│   │       └── slide_structure_prompt.txt
 │
+├── venv/                      # Python virtual environment (not committed)
+├── __pycache__/               # Python bytecode cache
+├── .git/                      # Git repository data
+├── .gradio/                   # Gradio cache/config
 └── temp_uploads/              # Temporary file storage
     └── data/                  # Processed document storage
         └── uploaded_documents/ # Organized by document type
