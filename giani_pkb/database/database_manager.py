@@ -2,7 +2,7 @@
 Unified database manager using SQLAlchemy ORM for all database operations.
 """
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from contextlib import contextmanager
 from sqlalchemy import and_, or_, func, desc, asc
@@ -46,9 +46,22 @@ class DatabaseManager:
         finally:
             session.close()
 
+    def _user_to_dict(self, user: User) -> Dict[str, Any]:
+        """Convert User object to dictionary."""
+        return {
+            'id': user.id,
+            'username': user.username,
+            'email': user.email,
+            'hashed_password': user.hashed_password,
+            'is_active': user.is_active,
+            'is_superuser': user.is_superuser,
+            'created_at': user.created_at,
+            'updated_at': user.updated_at
+        }
+
     # User Operations
     def create_user(self, username: str, email: str, password: str,
-                   is_superuser: bool = False) -> Optional[User]:
+                   is_superuser: bool = False) -> Optional[Dict[str, Any]]:
         """Create a new user with proper password hashing and return user data as dict."""
         try:
             with self.get_session() as session:
@@ -73,41 +86,43 @@ class DatabaseManager:
                 session.add(user)
                 session.flush()  # Get the user ID
 
-                # Copy needed attributes before session closes
-                user_data = {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'is_active': user.is_active,
-                    'is_superuser': user.is_superuser,
-                    'created_at': user.created_at,
-                }
-                return user_data
+                # Return user data as dict
+                return self._user_to_dict(user)
 
         except SQLAlchemyError as e:
             logger.error(f"Database error creating user: {e}")
             raise DatabaseError(f"Failed to create user: {e}")
 
     def get_user_by_id(self, user_id) -> Optional[User]:
-        """Get user by ID with optimized query. user_id should be a UUID or uuid.UUID."""
+        """Get user by ID with optimized query. Returns detached User object."""
         try:
             with self.get_session() as session:
-                return session.query(User).filter(
+                user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
                 ).first()
+                
+                if user:
+                    # Detach from session to prevent lazy loading issues
+                    session.expunge(user)
+                    
+                return user
+                
         except SQLAlchemyError as e:
             logger.error(f"Database error getting user by ID: {e}")
             return None
 
     def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email with optimized query."""
+        """Get user by email with optimized query. Returns detached User object."""
         try:
             with self.get_session() as session:
                 user = session.query(User).filter(
                     and_(User.email == email, User.is_active == True)
                 ).first()
 
-                session.expunge_all()
+                if user:
+                    # Detach from session to prevent lazy loading issues
+                    session.expunge(user)
+                    
                 return user
 
         except SQLAlchemyError as e:
@@ -115,18 +130,25 @@ class DatabaseManager:
             return None
 
     def get_user_by_username(self, username: str) -> Optional[User]:
-        """Get user by username with optimized query."""
+        """Get user by username with optimized query. Returns detached User object."""
         try:
             with self.get_session() as session:
-                return session.query(User).filter(
+                user = session.query(User).filter(
                     and_(User.username == username, User.is_active == True)
                 ).first()
+                
+                if user:
+                    # Detach from session to prevent lazy loading issues
+                    session.expunge(user)
+                    
+                return user
+                
         except SQLAlchemyError as e:
             logger.error(f"Database error getting user by username: {e}")
             return None
 
     def verify_user_credentials(self, email: str, password: str) -> Optional[User]:
-        """Verify user credentials and return user if valid."""
+        """Verify user credentials and return user if valid. Returns detached User object."""
         try:
             with self.get_session() as session:
                 user = session.query(User).filter(
@@ -134,12 +156,30 @@ class DatabaseManager:
                 ).first()
 
                 if user and verify_password(password, user.hashed_password):
+                    # Detach from session to prevent lazy loading issues
+                    session.expunge(user)
                     return user
                 return None
 
         except SQLAlchemyError as e:
             logger.error(f"Database error verifying credentials: {e}")
             return None
+
+    # Alternative methods that return dictionaries (for APIs)
+    def get_user_dict_by_id(self, user_id) -> Optional[Dict[str, Any]]:
+        """Get user by ID as dictionary."""
+        user = self.get_user_by_id(user_id)
+        return self._user_to_dict(user) if user else None
+
+    def get_user_dict_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user by email as dictionary."""
+        user = self.get_user_by_email(email)
+        return self._user_to_dict(user) if user else None
+
+    def verify_user_credentials_dict(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+        """Verify user credentials and return user data as dict."""
+        user = self.verify_user_credentials(email, password)
+        return self._user_to_dict(user) if user else None
 
     def update_user(self, user_id: int, **kwargs) -> Optional[User]:
         """Update user fields."""
@@ -157,6 +197,9 @@ class DatabaseManager:
 
                 user.updated_at = datetime.utcnow()
                 session.flush()
+
+                # Detach from session
+                session.expunge(user)
 
                 logger.info(f"Updated user: {user.username}")
                 return user
@@ -205,6 +248,9 @@ class DatabaseManager:
                 session.add(project)
                 session.flush()
 
+                # Detach from session
+                session.expunge(project)
+
                 logger.info(f"Created project: {name} for user: {owner.username}")
                 return project
 
@@ -225,7 +271,13 @@ class DatabaseManager:
                 query = session.query(Project).filter(Project.id == project_id)
                 if user_id:
                     query = query.filter(Project.owner_id == user_id)
-                return query.first()
+                project = query.first()
+                
+                if project:
+                    session.expunge(project)
+                    
+                return project
+                
         except Exception as e:
             logger.error(f"Database error getting project: {e}")
             return None
@@ -234,9 +286,15 @@ class DatabaseManager:
         """Get all projects for a user with optimized query."""
         try:
             with self.get_session() as session:
-                return session.query(Project).filter(
+                projects = session.query(Project).filter(
                     and_(Project.owner_id == user_id, Project.is_active == True)
                 ).order_by(desc(Project.updated_at)).all()
+                
+                # Detach all projects from session
+                for project in projects:
+                    session.expunge(project)
+                    
+                return projects
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting user projects: {e}")
@@ -261,6 +319,9 @@ class DatabaseManager:
 
                 project.updated_at = datetime.utcnow()
                 session.flush()
+
+                # Detach from session
+                session.expunge(project)
 
                 logger.info(f"Updated project: {project.name}")
                 return project
@@ -312,6 +373,9 @@ class DatabaseManager:
                 session.add(document)
                 session.flush()
 
+                # Detach from session
+                session.expunge(document)
+
                 logger.info(f"Created document: {document.original_filename}")
                 return document
 
@@ -328,7 +392,12 @@ class DatabaseManager:
                 if user_id:
                     query = query.filter(Document.user_id == user_id)
 
-                return query.first()
+                document = query.first()
+                
+                if document:
+                    session.expunge(document)
+                    
+                return document
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting document: {e}")
@@ -343,7 +412,13 @@ class DatabaseManager:
                 if user_id:
                     query = query.filter(Document.user_id == user_id)
 
-                return query.order_by(desc(Document.date_added_to_giani)).all()
+                documents = query.order_by(desc(Document.date_added_to_giani)).all()
+                
+                # Detach all documents from session
+                for document in documents:
+                    session.expunge(document)
+                    
+                return documents
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting project documents: {e}")
@@ -364,7 +439,13 @@ class DatabaseManager:
                 if user_id:
                     query = query.filter(Document.user_id == user_id)
 
-                return query.order_by(desc(Document.date_added_to_giani)).all()
+                documents = query.order_by(desc(Document.date_added_to_giani)).all()
+                
+                # Detach all documents from session
+                for document in documents:
+                    session.expunge(document)
+                    
+                return documents
 
         except SQLAlchemyError as e:
             logger.error(f"Database error searching documents: {e}")
@@ -392,6 +473,9 @@ class DatabaseManager:
 
                 document.updated_at = datetime.utcnow()
                 session.flush()
+
+                # Detach from session
+                session.expunge(document)
 
                 logger.info(f"Updated document: {document.original_filename}")
                 return document
@@ -433,6 +517,10 @@ class DatabaseManager:
                 chunk = DocumentChunk(**kwargs)
                 session.add(chunk)
                 session.flush()
+                
+                # Detach from session
+                session.expunge(chunk)
+                
                 return chunk
 
         except SQLAlchemyError as e:
@@ -443,9 +531,15 @@ class DatabaseManager:
         """Get all chunks for a document."""
         try:
             with self.get_session() as session:
-                return session.query(DocumentChunk).filter(
+                chunks = session.query(DocumentChunk).filter(
                     DocumentChunk.document_id == document_id
                 ).order_by(asc(DocumentChunk.id)).all()
+                
+                # Detach all chunks from session
+                for chunk in chunks:
+                    session.expunge(chunk)
+                    
+                return chunks
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting document chunks: {e}")
@@ -459,6 +553,10 @@ class DatabaseManager:
                 summary = DocumentSummary(**kwargs)
                 session.add(summary)
                 session.flush()
+                
+                # Detach from session
+                session.expunge(summary)
+                
                 return summary
 
         except SQLAlchemyError as e:
@@ -469,9 +567,15 @@ class DatabaseManager:
         """Get all summaries for a document."""
         try:
             with self.get_session() as session:
-                return session.query(DocumentSummary).filter(
+                summaries = session.query(DocumentSummary).filter(
                     DocumentSummary.document_id == document_id
                 ).order_by(desc(DocumentSummary.processing_timestamp)).all()
+                
+                # Detach all summaries from session
+                for summary in summaries:
+                    session.expunge(summary)
+                    
+                return summaries
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting document summaries: {e}")
@@ -489,6 +593,10 @@ class DatabaseManager:
                 api_log = APICallLog(call_number=call_number, **kwargs)
                 session.add(api_log)
                 session.flush()
+                
+                # Detach from session
+                session.expunge(api_log)
+                
                 return api_log
 
         except SQLAlchemyError as e:
@@ -499,9 +607,15 @@ class DatabaseManager:
         """Get recent API call logs."""
         try:
             with self.get_session() as session:
-                return session.query(APICallLog).order_by(
+                logs = session.query(APICallLog).order_by(
                     desc(APICallLog.timestamp)
                 ).limit(limit).all()
+                
+                # Detach all logs from session
+                for log in logs:
+                    session.expunge(log)
+                    
+                return logs
 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting API call logs: {e}")
