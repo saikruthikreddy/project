@@ -4,6 +4,10 @@ Database initialization using SQLAlchemy ORM.
 import logging
 from sqlalchemy import inspect
 from sqlalchemy import text
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
 
 from giani_pkb.utils.database import get_db, create_tables, drop_tables, engine
 from giani_pkb.models.database_models import User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
