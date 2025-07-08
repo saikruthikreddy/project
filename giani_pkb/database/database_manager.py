@@ -2,26 +2,6 @@
 Unified database manager using SQLAlchemy ORM for all database operations.
 """
 import logging
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from contextlib import contextmanager
-from sqlalchemy import and_, or_, func, desc, asc
-from sqlalchemy.exc import SQLAlchemyError
-import uuid
-
-from giani_pkb.utils.database import SessionLocal, engine
-from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
-)
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
-from giani_pkb.utils.auth_utils import hash_password, verify_password
-
-logger = logging.getLogger(__name__)
-
-"""
-Unified database manager using SQLAlchemy ORM for all database operations.
-"""
-import logging
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from contextlib import contextmanager
