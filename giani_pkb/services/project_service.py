@@ -34,8 +34,8 @@ class ProjectService:
 
         try:
             project = self.db_manager.create_project(
-                user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-                project_name=project_name,
+                owner_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                name=project_name,
                 description=description,
             )
 

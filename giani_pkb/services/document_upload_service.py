@@ -95,11 +95,32 @@ class DocumentUploadService:
     def extract_text_preview(self, file_path: str, max_chars: int = 5000) -> str:
         """Extract text preview from file."""
         try:
-            content = self.document_processor.process_files(file_path)
-            return content[:max_chars] if content else ""
+            # Generate temporary IDs for processing
+            temp_doc_id = str(uuid.uuid4())
+            temp_proj_id = str(uuid.uuid4())
+            
+            # Use process_single_file instead of process_files
+            parsed_blocks, chunks = self.document_processor.process_single_file(
+                file_path=file_path,
+                document_id=temp_doc_id,
+                project_id=temp_proj_id
+            )
+            
+            if parsed_blocks:
+                # Extract text from the first few blocks
+                text_content = ""
+                for block_text, block_metadata in parsed_blocks:
+                    text_content += block_text + "\n"
+                    if len(text_content) >= max_chars:
+                        break
+                return text_content[:max_chars]
+            
+            return ""
+            
         except Exception as e:
             logger.error(f"Error extracting text preview from {file_path}: {e}")
             raise FileProcessingError(f"Error extracting preview from {file_path}: {str(e)}", filepath=file_path)
+
 
     def save_temp_document(self, file_path: str, project_id: str, user_id: str) -> Dict[str, Any]:
         """Save uploaded file to temporary location and create database entry."""
@@ -132,8 +153,7 @@ class DocumentUploadService:
                 'status': 'UPLOADED'
             }
 
-            # TODO: Implement temp_document creation in DatabaseManager
-            # self.db_manager.create_temp_document(**temp_doc)
+            self.db_manager.create_temp_document(**temp_doc)
 
             logger.info(f"Saved temp document: {original_filename}")
             return temp_doc
@@ -145,15 +165,14 @@ class DocumentUploadService:
     def get_ai_suggestions(self, temp_document_id: str, project_id: str, user_id: str) -> Dict[str, Any]:
         """Get AI suggestions for document classification."""
         try:
-            # TODO: Implement temp_document retrieval in DatabaseManager
-            # temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
-
-            # For now, we'll use a placeholder
-            temp_doc = {
-                'original_filename': 'placeholder.pdf',
-                'text_preview': 'Placeholder text preview'
-            }
-
+            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
+# 
+            # # For now, we'll use a placeholder
+            # temp_doc = {
+            #     'original_filename': 'placeholder.pdf',
+            #     'text_preview': 'Placeholder text preview'
+            # }
+            print(temp_doc['text_preview'],"SocService",flush=True)
             # Get AI classification
             ai_classification, ai_purpose, gemini_prompt = self.classification_service.classify_document(
                 temp_doc['original_filename'], temp_doc['text_preview']
@@ -176,24 +195,51 @@ class DocumentUploadService:
                              document_data: List[Dict[str, Any]]) -> str:
         """Process a batch of documents."""
         batch_id = str(uuid.uuid4())
-
         try:
+            # Debug document_data structure
+            print(f"document_data type: {type(document_data)}")
+            print(f"document_data content: {document_data}")
+            
+            # Convert single dict to list of dicts
+            if isinstance(document_data, dict):
+                document_data = [document_data]  # Wrap in list
+                print(f"Converted to list: {document_data}")
+            
+            # Ensure document_data is a list
+            if not isinstance(document_data, list):
+                raise FileProcessingError(f"document_data must be a list, got {type(document_data)}")
+            
             # Create batch record using database manager
-            # TODO: Implement batch creation in DatabaseManager
-            # self.db_manager.create_processing_batch(batch_id, project_id, user_id, len(document_data))
+            self.db_manager.create_processing_batch(batch_id, project_id, user_id, len(document_data))
+            print("inside process_doc_batch")
 
             # Add tasks to processing queue
-            for doc_data in document_data:
+            for i, doc_data in enumerate(document_data):
+                print(f"Processing item {i}: {doc_data} (type: {type(doc_data)})")
+                
+                # Check if doc_data is a dictionary
+                if not isinstance(doc_data, dict):
+                    logger.error(f"Expected dict but got {type(doc_data)} at index {i}: {doc_data}")
+                    continue
+                
+                # Now safely extract the data
                 task = {
                     'batch_id': batch_id,
                     'project_id': project_id,
                     'user_id': user_id,
-                    'temp_document_id': doc_data['temp_document_id'],
-                    'ai_classification': doc_data['ai_classification'],
-                    'ai_purpose': doc_data['ai_purpose'],
+                    'temp_document_id': doc_data.get('temp_document_id'),
+                    'ai_classification': doc_data.get('ai_classification'),
+                    'ai_purpose': doc_data.get('ai_purpose'),
                     'user_purpose_note': doc_data.get('user_purpose_note', ''),
                     'document_priority': doc_data.get('document_priority', 'Medium')
                 }
+                
+                # Validate required fields
+                if not task['temp_document_id']:
+                    logger.error(f"Missing temp_document_id in item {i}")
+                    continue
+                    
+                print(f"Adding task: {task}")
                 self.processing_queue.put(task)
 
             # Update batch status
@@ -209,7 +255,11 @@ class DocumentUploadService:
 
         except Exception as e:
             logger.error(f"Database error creating batch: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise FileProcessingError(f"Failed to create batch: {e}")
+
+
 
     def _process_document_task(self, task: Dict[str, Any]):
         """Process a single document task."""
@@ -235,8 +285,7 @@ class DocumentUploadService:
         user_id = task['user_id']
 
         try:
-            # TODO: Get temp document using DatabaseManager
-            # temp_doc = self.db_manager.get_temp_document(temp_document_id)
+            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
 
             # For now, we'll use placeholder data
             temp_doc = {
@@ -305,9 +354,7 @@ class DocumentUploadService:
             # Update master metadata
             self.metadata_manager.update_master_metadata(doc_meta)
 
-            # TODO: Delete temp document using DatabaseManager
-            # self.db_manager.delete_temp_document(temp_document_id)
-
+            self.db_manager.delete_temp_document(temp_document_id, user_id)
             logger.info(f"Processed document: {original_filename}")
 
         except Exception as e:
@@ -337,8 +384,7 @@ class DocumentUploadService:
     def get_batch_status(self, batch_id: str) -> Dict[str, Any]:
         """Get batch processing status."""
         try:
-            # TODO: Get batch status using DatabaseManager
-            # batch_info = self.db_manager.get_processing_batch(batch_id)
+            batch_info = self.db_manager.get_processing_batch(batch_id)
 
             # For now, return status from memory
             if batch_id in self.batch_status:

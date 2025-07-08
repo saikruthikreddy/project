@@ -5,7 +5,7 @@ from flask import Blueprint, request
 import logging
 from werkzeug.utils import secure_filename
 import os
-
+import uuid
 from giani_pkb.services.project_service import ProjectService
 from giani_pkb.services.document_upload_service import DocumentUploadService
 from giani_pkb.utils.auth_utils import AuthUtils
@@ -60,13 +60,14 @@ def create_project_routes():
 
             user_id = request.current_user['user_id']
 
-            project = project_service.create_project(user_id, project_name, description)
+
+            project = project_service.create_project(user_id, project_name,  description)
 
             # Update user's projects list
             db_utils.update_user_projects_list(user_id, project_name, 'add')
 
             return api_success(
-                {'project': project},
+                {'project': project.to_dict()},
                 'Project created successfully',
                 201
             )
@@ -79,19 +80,21 @@ def create_project_routes():
             logger.error(f"Error creating project: {e}")
             return api_internal_server_error('Failed to create project', str(e))
 
-    @projects.route('/projects/', methods=['GET'])
+    @projects.route('/projects', methods=['GET'])
     @auth_utils.auth_required
     def get_user_projects():
         """Get all projects for the current user."""
         try:
             user_id = request.current_user['user_id']
             projects_list = project_service.get_user_projects(user_id)
-
+            
+            # Convert each project to dictionary
+            projects_dict = [project.to_dict() for project in projects_list]
+            
             return api_success({
-                'projects': projects_list,
-                'total': len(projects_list)
+                'projects': projects_dict,
+                'total': len(projects_dict)
             }, 'Projects retrieved successfully')
-
         except ProjectError as e:
             return api_database_error(str(e))
         except Exception as e:
@@ -116,7 +119,7 @@ def create_project_routes():
             documents = project_service.get_project_documents(project_id, user_id)
 
             return api_success({
-                'project': project,
+                'project': project.to_dict(),
                 'document_count': len(documents)
             }, 'Project details retrieved successfully')
 
@@ -146,7 +149,7 @@ def create_project_routes():
                 project_name = data['project_name'].strip()
                 if not project_name:
                     return api_validation_error('Project name cannot be empty')
-                updates['project_name'] = project_name
+                updates['name'] = project_name
 
             if 'description' in data:
                 updates['description'] = data['description'].strip()
@@ -284,6 +287,7 @@ def create_project_routes():
                 return api_validation_error('documents array is required')
 
             documents = data['documents']
+            print(documents)
             if not documents:
                 return api_validation_error('No documents provided for processing')
 

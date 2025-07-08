@@ -69,6 +69,7 @@ class ClassificationService:
         Returns:
             tuple[str, str, str]: (classification, purpose, prompt_text)
         """
+        print(text_preview)
         prompt_text = self._get_classification_prompt(filename, text_preview)
 
         try:

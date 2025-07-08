@@ -30,7 +30,8 @@ class DatabaseUtils:
     def verify_project_access(self, project_id: str, user_id: str) -> bool:
         """Verify user has access to the project."""
         try:
-            project = self.db_manager.get_project(uuid.UUID(project_id) if isinstance(project_id, str) else project_id, uuid.UUID(user_id) if isinstance(user_id, str) else user_id)
+            print('reached get_project in dbutils')
+            project = self.db_manager.get_project(int(project_id) if isinstance(project_id, str) else project_id, uuid.UUID(user_id) if isinstance(user_id, str) else user_id)
             return project is not None
         except Exception as e:
             logger.error(f"Error verifying project access: {e}")
@@ -65,7 +66,7 @@ class DatabaseUtils:
         """Get temporary document information."""
         try:
             # TODO: Implement temp_document retrieval in DatabaseManager
-            # temp_doc = self.db_manager.get_temp_document(temp_document_id, int(project_id), int(user_id))
+            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
 
             # For now, return None as placeholder
             logger.warning("get_temp_document not yet implemented in DatabaseManager")
@@ -78,7 +79,7 @@ class DatabaseUtils:
         """Update temporary document status."""
         try:
             # TODO: Implement temp_document status update in DatabaseManager
-            # success = self.db_manager.update_temp_document_status(temp_document_id, status)
+            success = self.db_manager.update_temp_document_status(temp_document_id, status)
 
             # For now, return True as placeholder
             logger.warning("update_temp_document_status not yet implemented in DatabaseManager")
@@ -91,9 +92,9 @@ class DatabaseUtils:
         """Create a new processing batch."""
         try:
             # TODO: Implement batch creation in DatabaseManager
-            # success = self.db_manager.create_processing_batch(
-            #     batch_id, int(project_id), int(user_id), total_documents
-            # )
+            success = self.db_manager.create_processing_batch(
+                batch_id, project_id, user_id, total_documents
+            )
 
             # For now, return True as placeholder
             logger.warning("create_processing_batch not yet implemented in DatabaseManager")
@@ -106,9 +107,9 @@ class DatabaseUtils:
         """Update batch processing status."""
         try:
             # TODO: Implement batch status update in DatabaseManager
-            # success = self.db_manager.update_processing_batch(
-            #     batch_id, status=status, processed_documents=processed_documents
-            # )
+            success = self.db_manager.update_processing_batch(
+                batch_id, status=status, processed_documents=processed_documents
+            )
 
             # For now, return True as placeholder
             logger.warning("update_batch_status not yet implemented in DatabaseManager")
@@ -121,7 +122,7 @@ class DatabaseUtils:
         """Get batch processing status."""
         try:
             # TODO: Implement batch status retrieval in DatabaseManager
-            # batch_info = self.db_manager.get_processing_batch(batch_id, int(user_id))
+            batch_info = self.db_manager.get_processing_batch(uuid.UUID(batch_id))
 
             # For now, return None as placeholder
             logger.warning("get_batch_status not yet implemented in DatabaseManager")
@@ -134,7 +135,7 @@ class DatabaseUtils:
         """Clean up temporary document."""
         try:
             # TODO: Implement temp_document cleanup in DatabaseManager
-            # success = self.db_manager.delete_temp_document(temp_document_id)
+            success = self.db_manager.delete_temp_document(temp_document_id)
 
             # For now, return True as placeholder
             logger.warning("cleanup_temp_document not yet implemented in DatabaseManager")
