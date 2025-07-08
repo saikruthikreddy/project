@@ -1,0 +1,63 @@
+# Core dependencies
+google-generativeai>=0.3.0
+python-dotenv>=1.0.0
+
+# Web framework
+flask>=3.0.0
+flask-cors>=6.0.0
+
+# Authentication
+PyJWT>=2.10.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0  # For PostgreSQL support
+
+# File processing
+python-docx>=0.8.11
+openpyxl>=3.1.0
+pandas>=2.0.0
+Pillow>=10.0.0
+pymupdf>=1.26.0  # PDF processing
+python-pptx>=0.6.0  # PowerPoint processing
+pytesseract>=0.3.0  # OCR for images
+
+# AI/ML and Language Processing
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-experimental>=0.3.0
+langchain-openai>=0.3.0
+langchain-text-splitters>=0.3.0
+tiktoken>=0.9.0  # Token counting
+spacy>=3.8.0  # NLP processing
+transformers>=4.53.0  # Image captioning
+torch>=2.7.0  # PyTorch for transformers
+
+# UI
+gradio>=4.0.0
+
+# Utilities
+pydantic>=2.0.0
+python-multipart>=0.0.6
+psutil>=5.9.0  # System monitoring
+requests>=2.28.0  # HTTP library
+urllib3>=1.26.0  # HTTP client
+certifi>=2022.9.0  # SSL certificates
+charset-normalizer>=3.0.0  # Character encoding
+idna>=3.3.0  # Internationalized domain names
+six>=1.16.0  # Python 2/3 compatibility
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Additional utilities
+click>=8.0.0  # Command line interface
+werkzeug>=3.0.0  # WSGI utilities
+jinja2>=3.0.0  # Template engine
+markupsafe>=2.0.0  # Safe string handling
+itsdangerous>=2.0.0  # Data signing
+blinker>=1.6.0  # Fast dispatching
