@@ -30,7 +30,6 @@ class DatabaseUtils:
     def verify_project_access(self, project_id: str, user_id: str) -> bool:
         """Verify user has access to the project."""
         try:
-            print('reached get_project in dbutils')
             project = self.db_manager.get_project(int(project_id) if isinstance(project_id, str) else project_id, uuid.UUID(user_id) if isinstance(user_id, str) else user_id)
             return project is not None
         except Exception as e:

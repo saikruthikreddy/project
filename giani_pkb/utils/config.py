@@ -57,7 +57,7 @@ class Config:
     API_VERSION = 'v1'
 
     # CORS configuration
-    CORS_ORIGINS = ["https://82bcdd6111e0.ngrok-free.app"]
+    CORS_ORIGINS = ["https://a1d5a537b696.ngrok-free.app"]
 
     # Logging configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
