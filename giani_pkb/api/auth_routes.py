@@ -7,13 +7,11 @@ import requests
 import base64
 import json
 import os
-
 from giani_pkb.utils.response_utils import (
     api_success, api_error, api_validation_error, api_authentication_error,
     api_internal_server_error, ApiResponseBuilder
 )
 from giani_pkb.utils.auth_utils import AuthUtils, hash_password, verify_password
-
 logger = logging.getLogger(__name__)
 
 # Microsoft OAuth configuration
