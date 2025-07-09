@@ -39,6 +39,7 @@ class Project(Base):
     client_industry = Column(Text)
     target_audience = Column(Text)
     key_client_stakeholders_profiles = Column(Text)
+    objectives = Column(Text)
     # owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
@@ -49,6 +50,18 @@ class Project(Base):
     # Relationships
     owner: Mapped["User"] = relationship("User", back_populates="projects")
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="project")
+
+    def to_dict(self):
+        """Convert project to dictionary for JSON serialization."""
+        return {
+            'id': str(self.id),  # Convert UUID to string
+            'name': self.name,
+            'description': self.description,
+            'owner_id': str(self.owner_id),  # Convert UUID to string
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
+        }
 
 class Document(Base):
     """Document model for storing document metadata and information."""

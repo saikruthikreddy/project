@@ -25,18 +25,21 @@ class ProjectService:
         self.metadata_manager = MetadataManagerService()
         self.classification_service = ClassificationService()
 
-    def create_project(
-        self, user_id: str, project_name: str, description: str = None
-    ) -> Dict[str, Any]:
+    def create_project(self, user_id, project_name, description, client_name, client_industry, targetAudience, stakeholders, objectives) -> Dict[str, Any]:
         """Create a new project."""
         if not project_name.strip():
             raise ValidationError("Project name cannot be empty")
 
         try:
             project = self.db_manager.create_project(
-                user_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
-                project_name=project_name,
+                owner_id=uuid.UUID(user_id) if isinstance(user_id, str) else user_id,
+                name=project_name,
                 description=description,
+                client_name=client_name,
+                client_industry=client_industry,
+                targetAudience=targetAudience,
+                stakeholders=stakeholders, 
+                objectives=objectives
             )
 
             logger.info(f"Created project: {project_name} for user: {user_id}")

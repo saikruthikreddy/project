@@ -181,7 +181,7 @@ class DatabaseManager:
         user = self.verify_user_credentials(email, password)
         return self._user_to_dict(user) if user else None
 
-    def update_user(self, user_id: int, **kwargs) -> Optional[User]:
+    def update_user(self, user_id: uuid.UUID, **kwargs) -> Optional[User]:
         """Update user fields."""
         try:
             with self.get_session() as session:
@@ -227,7 +227,7 @@ class DatabaseManager:
             raise DatabaseError(f"Failed to delete user: {e}")
 
     # Project Operations
-    def create_project(self, name: str, owner_id: int, description: str = None) -> Project:
+    def create_project(self, name: str, owner_id: uuid.UUID, description, client_name, client_industry, targetAudience, stakeholders, objectives) -> Project:
         """Create a new project."""
         try:
             with self.get_session() as session:
@@ -242,6 +242,11 @@ class DatabaseManager:
                     name=name,
                     description=description,
                     owner_id=owner_id,
+                    client_name=client_name,
+                    client_industry=client_industry, 
+                    target_audience=targetAudience,
+                    key_client_stakeholders_profiles=stakeholders, 
+                    objectives=objectives,
                     is_active=True
                 )
 
@@ -267,7 +272,7 @@ class DatabaseManager:
         try:
             with self.get_session() as session:
                 if isinstance(project_id, str):
-                    project_id = uuid.UUID(project_id)
+                    project_id = int(project_id)
                 query = session.query(Project).filter(Project.id == project_id)
                 if user_id:
                     query = query.filter(Project.owner_id == user_id)
@@ -303,6 +308,7 @@ class DatabaseManager:
     def update_project(self, project_id: int, user_id: int, **kwargs) -> Optional[Project]:
         """Update project fields with ownership verification."""
         try:
+            print('inside update_project in db manager')
             with self.get_session() as session:
                 project = session.query(Project).filter(
                     and_(Project.id == project_id, Project.owner_id == user_id, Project.is_active == True)
@@ -350,6 +356,247 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting project: {e}")
             raise DatabaseError(f"Failed to delete project: {e}")
+
+    def delete_temp_document(self, temp_document_id: str, user_id: Union[str, uuid.UUID] = None, 
+                        cleanup_file: bool = True) -> bool:
+        """
+        Delete a temporary document and optionally clean up the file.
+        
+        Args:
+            temp_document_id: ID of the temporary document to delete
+            user_id: Optional user ID for access control
+            cleanup_file: Whether to delete the physical file as well
+            
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        try:
+            with self.get_session() as session:
+                from giani_pkb.models.database_models import TempDocument
+                import os
+                
+                # Convert user_id to UUID if provided and is string
+                if user_id and isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                        return False
+                
+                # Build query with optional user access control
+                query = session.query(TempDocument).filter(
+                    TempDocument.temp_document_id == temp_document_id
+                )
+                
+                if user_id:
+                    query = query.filter(TempDocument.user_id == user_id)
+                
+                temp_document = query.first()
+                
+                if not temp_document:
+                    logger.warning(f"Temp document {temp_document_id} not found" + 
+                                (f" for user {user_id}" if user_id else ""))
+                    return False
+                
+                # Store info for logging and file cleanup
+                filename = temp_document.original_filename
+                file_path = temp_document.file_path
+                
+                # Delete the database record
+                session.delete(temp_document)
+                session.flush()
+                
+                # Clean up physical file if requested
+                if cleanup_file and file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        logger.info(f"Deleted file: {file_path}")
+                    except OSError as e:
+                        logger.warning(f"Failed to delete file {file_path}: {e}")
+                
+                logger.info(f"Deleted temp document: {filename} (ID: {temp_document_id})")
+                return True
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error deleting temp document: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error deleting temp document: {e}")
+            return False
+
+    
+    def create_temp_document(self, **kwargs) -> Optional[Dict[str, Any]]:
+        """
+        Create a new temporary document.
+        
+        Args:
+            **kwargs: Document data including temp_document_id, project_id, user_id, 
+                    original_filename, file_path, file_size, mime_type, text_preview, status
+            
+        Returns:
+            Dictionary containing created document data or None if failed
+        """
+        try:
+            with self.get_session() as session:
+                from giani_pkb.models.database_models import TempDocument
+                
+                # Convert user_id to UUID if it's a string
+                user_id = kwargs.get('user_id')
+                if isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                        kwargs['user_id'] = user_id
+                    except ValueError as e:
+                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                        raise ValidationError(f"Invalid user_id format: {user_id}")
+                
+                # Ensure project_id is an integer
+                project_id = kwargs.get('project_id')
+                if isinstance(project_id, str):
+                    try:
+                        project_id = int(project_id)
+                        kwargs['project_id'] = project_id
+                    except ValueError as e:
+                        logger.error(f"Invalid project_id format: {project_id}")
+                        raise ValidationError(f"Invalid project_id format: {project_id}")
+                
+                # Verify user exists and is active
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                if not user:
+                    raise ValidationError(f"User with ID {user_id} not found or inactive")
+
+                # Verify project exists and is active
+                project = session.query(Project).filter(
+                    and_(Project.id == project_id, Project.is_active == True)
+                ).first()
+                if not project:
+                    raise ValidationError(f"Project with ID {project_id} not found or inactive")
+
+                # Verify user has access to the project
+                if project.owner_id != user_id:
+                    raise ValidationError(f"User {user_id} does not have access to project {project_id}")
+
+                # Create the temporary document
+                temp_document = TempDocument(**kwargs)
+                session.add(temp_document)
+                session.flush()  # Get the ID
+
+                # Convert to dictionary for return
+                temp_doc_dict = {
+                    'id': temp_document.id,
+                    'temp_document_id': temp_document.temp_document_id,
+                    'project_id': temp_document.project_id,
+                    'user_id': str(temp_document.user_id),  # Convert UUID to string
+                    'original_filename': temp_document.original_filename,
+                    'file_path': temp_document.file_path,
+                    'file_size': temp_document.file_size,
+                    'mime_type': temp_document.mime_type,
+                    'upload_timestamp': temp_document.upload_timestamp.isoformat() if temp_document.upload_timestamp else None,
+                    'status': temp_document.status,
+                    'text_preview': temp_document.text_preview
+                }
+
+                logger.info(f"Created temp document: {temp_document.original_filename} for user: {user.username}")
+                return temp_doc_dict
+
+        except ValidationError:
+            raise  # Re-raise validation errors
+        except SQLAlchemyError as e:
+            logger.error(f"Database error creating temp document: {e}")
+            raise DatabaseError(f"Failed to create temp document: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error creating temp document: {e}")
+            raise DatabaseError(f"Unexpected error creating temp document: {e}")
+
+
+    def get_temp_document(self, temp_document_id: str, project_id: int, user_id: Union[str, uuid.UUID]) -> Optional[Dict[str, Any]]:
+        """
+        Get temporary document by ID with project and user access verification.
+        
+        Args:
+            temp_document_id: ID of the temporary document (string)
+            project_id: Project ID for access control
+            user_id: User ID for access control (string or UUID)
+            
+        Returns:
+            Dictionary containing document data or None if not found
+        """
+        try:
+            with self.get_session() as session:
+                # Import TempDocument here to avoid circular imports
+                from giani_pkb.models.database_models import TempDocument
+                
+                # Convert user_id to UUID if it's a string
+                if isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                        return None
+                
+                # Ensure project_id is an integer
+                if isinstance(project_id, str):
+                    try:
+                        project_id = int(project_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid project_id format: {project_id}")
+                        return None
+                
+                # Query for temporary document with access control
+                temp_document = session.query(TempDocument).filter(
+                    and_(
+                        TempDocument.temp_document_id == temp_document_id,
+                        TempDocument.project_id == project_id,
+                        TempDocument.user_id == user_id
+                    )
+                ).first()
+                
+                if not temp_document:
+                    logger.warning(f"Temp document lookup failed - ID: {temp_document_id}, "
+                                f"Project: {project_id}, User: {user_id}")
+                    
+                    # Check if document exists without access control
+                    exists = session.query(TempDocument).filter(
+                        TempDocument.temp_document_id == temp_document_id
+                    ).first()
+                    
+                    if exists:
+                        logger.warning(f"Document exists but access denied - "
+                                    f"Expected user: {user_id}, Actual user: {exists.user_id}")
+                    else:
+                        logger.warning(f"Document {temp_document_id} does not exist in database")
+                        
+                    return None
+                
+                # Convert to dictionary format expected by your application
+                temp_doc = {
+                    'id': temp_document.id,
+                    'temp_document_id': temp_document.temp_document_id,
+                    'original_filename': temp_document.original_filename,
+                    'text_preview': temp_document.text_preview or 'No preview available',
+                    'file_path': temp_document.file_path,
+                    'file_size': temp_document.file_size,
+                    'mime_type': temp_document.mime_type,
+                    'upload_timestamp': temp_document.upload_timestamp,
+                    'status': temp_document.status,
+                    'project_id': temp_document.project_id,
+                    'user_id': str(temp_document.user_id)  # Convert UUID back to string for JSON serialization
+                }
+                
+                logger.info(f"Retrieved temp document: {temp_document.original_filename}")
+                return temp_doc
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting temp document: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error getting temp document: {e}")
+            return None
+
+
+
 
     # Document Operations
     def create_document(self, **kwargs) -> Document:
@@ -646,6 +893,103 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error getting statistics: {e}")
             return {}
+
+    def add_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
+        """Add a project to user's projects relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return False
+                
+                # Check if project with that name exists
+                existing_project = session.query(Project).filter(
+                    and_(Project.name == project_name, Project.owner_id == user_id)
+                ).first()
+
+                if existing_project:
+                    if existing_project not in user.projects:
+                        user.projects.append(existing_project)
+                        user.updated_at = datetime.utcnow()
+                        session.flush()
+                        logger.info(f"Added existing project '{project_name}' to user {user.username}")
+                    else:
+                        logger.info(f"Project '{project_name}' already exists for user {user.username}")
+                    return True
+                else:
+                    # Create and add new project
+                    new_project = Project(name=project_name, owner_id=user.id)
+                    session.add(new_project)
+                    user.projects.append(new_project)
+                    user.updated_at = datetime.utcnow()
+                    session.flush()
+                    logger.info(f"Created and added new project '{project_name}' for user {user.username}")
+                    return True
+                    
+        except SQLAlchemyError as e:
+            logger.error(f"Database error adding project to user: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error adding project to user: {e}")
+            return False
+
+
+    def remove_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
+        """Remove a project from user's projects relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return False
+
+                project_to_remove = next((p for p in user.projects if p.name == project_name), None)
+                
+                if project_to_remove:
+                    user.projects.remove(project_to_remove)
+                    user.updated_at = datetime.utcnow()
+                    session.flush()
+                    logger.info(f"Removed project '{project_name}' from user {user.username}")
+                    return True
+                else:
+                    logger.info(f"Project '{project_name}' not found for user {user.username}")
+                    return True
+                    
+        except SQLAlchemyError as e:
+            logger.error(f"Database error removing project from user: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error removing project from user: {e}")
+            return False
+
+
+    def get_user_projects_list(self, user_id: uuid.UUID) -> List[str]:
+        """Get the project names from user's relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return []
+                
+                return [p.name for p in user.projects] if user.projects else []
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting user projects list: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting user projects list: {e}")
+            return []
 
     def verify_database_integrity(self) -> bool:
         """Verify database integrity and relationships."""

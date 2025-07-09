@@ -287,12 +287,14 @@ class PdfProcessor:
                 processed_blocks.extend(image_blocks)
 
             # Close document
+            num_pages = len(pdf_document)
             pdf_document.close()
+            
 
             if not processed_blocks:
                 logger.warning(f"No content blocks extracted from {file_path}")
 
-            logger.info(f"Successfully processed {file_path}: {len(processed_blocks)} blocks from {len(pdf_document)} pages")
+            logger.info(f"Successfully processed {file_path}: {len(processed_blocks)} blocks from {num_pages} pages")
             return processed_blocks
 
         except Exception as e:

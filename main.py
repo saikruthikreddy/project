@@ -1,7 +1,7 @@
 """
 Main application entry point for Giani AI Project Knowledge Base.
 """
-from flask import Flask
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from giani_pkb.api import (
     create_auth_routes,
@@ -17,25 +17,26 @@ from giani_pkb.utils.config import config
 def create_app():
     """Application factory pattern for creating Flask app."""
     app = Flask(__name__)
-
-    # Configure CORS for the combined app
+    
+    # Configure CORS for the combined app - IMPORTANT: No wildcard origins when using credentials
     CORS(app,
          resources={
              r"/api/v1/*": {
-                 "origins": config.CORS_ORIGINS,
-                 "supports_credentials": True
+                 "origins": config.CORS_ORIGINS,  # Must be specific origins, not '*'
+                 "supports_credentials": True,
+                 "allow_headers": ["Content-Type", "Authorization", "X-Client-Type"],
+                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"]
              },
              r"/auth/*": {
-                 "origins": config.CORS_ORIGINS,
+                 "origins": config.CORS_ORIGINS,  # Must be specific origins, not '*'
                  "supports_credentials": True,
                  "allow_headers": ["Content-Type", "Authorization", "X-Client-Type"],
                  "methods": ["GET", "POST", "OPTIONS"]
              }
          })
-
-    # Ensure directories exist
+    
     config.ensure_directories_exist()
-
+    
     # Register all route blueprints
     app.register_blueprint(create_auth_routes())
     app.register_blueprint(create_project_routes())
@@ -43,8 +44,7 @@ def create_app():
     app.register_blueprint(create_user_routes())
     app.register_blueprint(create_health_routes())
     app.register_blueprint(create_ppt_routes())
-
-
+    
     @app.route('/')
     def home():
         """Root endpoint with API information."""
@@ -66,7 +66,7 @@ def create_app():
                 "health_check": "/api/v1/health/detailed"
             }
         }, "Giani AI Project Knowledge Base API")
-
+    
     @app.route('/api/v1')
     def api_v1_root():
         """API v1 root endpoint."""
@@ -85,7 +85,7 @@ def create_app():
                 "get_user_profile": "GET /api/v1/users/profile"
             }
         }, "API v1 Root")
-
+    
     @app.route('/api/v1/test')
     def api_test():
         """Test endpoint for API v1."""
@@ -93,13 +93,16 @@ def create_app():
             "message": "API v1 is working!",
             "endpoints_available": [
                 "projects",
-                "documents",
+                "documents", 
                 "users",
                 "health"
             ]
         }, "API v1 Test Endpoint")
-
+    
     return app
 
 # Create the Flask application
 app = create_app()
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
