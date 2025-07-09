@@ -39,6 +39,7 @@ class Project(Base):
     client_industry = Column(Text)
     target_audience = Column(Text)
     key_client_stakeholders_profiles = Column(Text)
+    objectives = Column(Text)
     # owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 

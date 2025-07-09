@@ -191,10 +191,24 @@ class DocumentUploadService:
             logger.error(f"Database error getting AI suggestions: {e}")
             raise FileProcessingError(f"Failed to get AI suggestions: {e}")
 
+    def _verify_document_exists(self, temp_document_id: str) -> bool:
+        """Verify document exists and is accessible"""
+        try:
+            file_path = self._get_document_path(temp_document_id)
+            exists = os.path.exists(file_path)
+            if not exists:
+                logger.warning(f"Document verification failed for {temp_document_id}: {file_path}")
+            return exists
+        except Exception as e:
+            logger.error(f"Error verifying document {temp_document_id}: {e}")
+            return False
+
+
     def process_document_batch(self, project_id: str, user_id: str,
                              document_data: List[Dict[str, Any]]) -> str:
         """Process a batch of documents."""
         batch_id = str(uuid.uuid4())
+        print("INside DocUploadService")
         try:
             # Debug document_data structure
             print(f"document_data type: {type(document_data)}")
@@ -208,9 +222,22 @@ class DocumentUploadService:
             # Ensure document_data is a list
             if not isinstance(document_data, list):
                 raise FileProcessingError(f"document_data must be a list, got {type(document_data)}")
+
+            
+            valid_documents = 0
+            for doc_data in document_data:
+                temp_doc_id = doc_data.get('temp_document_id')
+                print("Temp Doc ID are : ", temp_doc_id)
+                if temp_doc_id and self._verify_document_exists(temp_doc_id):
+                    valid_documents += 1
+                else:
+                    logger.warning(f"Document not found or invalid: {temp_doc_id}")
+            if valid_documents == 0:
+                raise ValidationError("No valid documents found for processing")
+                
             
             # Create batch record using database manager
-            self.db_manager.create_processing_batch(batch_id, project_id, user_id, len(document_data))
+            self.db_manager.create_processing_batch(batch_id, project_id, user_id, valid_documents)
             print("inside process_doc_batch")
 
             # Add tasks to processing queue
@@ -287,14 +314,12 @@ class DocumentUploadService:
         try:
             temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
 
-            # For now, we'll use placeholder data
-            temp_doc = {
-                'original_filename': 'sample_document.pdf',
-                'file_path': '/path/to/file',
-                'file_size': 1024000,
-                'mime_type': 'application/pdf',
-                'text_preview': 'Sample document content...'
-            }
+            if not temp_doc:
+                raise FileProcessingError(f"Temp document {temp_document_id} not found")
+            
+            # Validate file exists
+            if not os.path.exists(temp_doc['file_path']):
+                raise FileProcessingError(f"File not found:{temp_doc['file_path']}") 
 
             original_filename = temp_doc['original_filename']
             file_path = temp_doc['file_path']

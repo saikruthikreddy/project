@@ -227,7 +227,7 @@ class DatabaseManager:
             raise DatabaseError(f"Failed to delete user: {e}")
 
     # Project Operations
-    def create_project(self, name: str, owner_id: uuid.UUID, description: str = None) -> Project:
+    def create_project(self, name: str, owner_id: uuid.UUID, description, client_name, client_industry, targetAudience, stakeholders, objectives) -> Project:
         """Create a new project."""
         try:
             with self.get_session() as session:
@@ -242,6 +242,11 @@ class DatabaseManager:
                     name=name,
                     description=description,
                     owner_id=owner_id,
+                    client_name=client_name,
+                    client_industry=client_industry, 
+                    target_audience=targetAudience,
+                    key_client_stakeholders_profiles=stakeholders, 
+                    objectives=objectives,
                     is_active=True
                 )
 
@@ -404,12 +409,13 @@ class DatabaseManager:
                 if project.owner_id != user_id:
                     raise ValidationError(f"User {user_id} does not have access to project {project_id}")
 
-                # Create the processing batch
+                
+                # Create batch with actual valid document count
                 processing_batch = ProcessingBatch(
                     batch_id=batch_id,
                     project_id=project_id,
                     user_id=user_id,
-                    total_documents=total_documents,
+                    total_documents=total_documents,  # Use actual count
                     status='QUEUED'
                 )
                 
@@ -825,7 +831,20 @@ class DatabaseManager:
                 ).first()
                 
                 if not temp_document:
-                    logger.warning(f"Temp document {temp_document_id} not found or access denied for user {user_id}")
+                    logger.warning(f"Temp document lookup failed - ID: {temp_document_id}, "
+                                f"Project: {project_id}, User: {user_id}")
+                    
+                    # Check if document exists without access control
+                    exists = session.query(TempDocument).filter(
+                        TempDocument.temp_document_id == temp_document_id
+                    ).first()
+                    
+                    if exists:
+                        logger.warning(f"Document exists but access denied - "
+                                    f"Expected user: {user_id}, Actual user: {exists.user_id}")
+                    else:
+                        logger.warning(f"Document {temp_document_id} does not exist in database")
+                        
                     return None
                 
                 # Convert to dictionary format expected by your application
@@ -1151,6 +1170,103 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error getting statistics: {e}")
             return {}
+
+    def add_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
+        """Add a project to user's projects relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return False
+                
+                # Check if project with that name exists
+                existing_project = session.query(Project).filter(
+                    and_(Project.name == project_name, Project.owner_id == user_id)
+                ).first()
+
+                if existing_project:
+                    if existing_project not in user.projects:
+                        user.projects.append(existing_project)
+                        user.updated_at = datetime.utcnow()
+                        session.flush()
+                        logger.info(f"Added existing project '{project_name}' to user {user.username}")
+                    else:
+                        logger.info(f"Project '{project_name}' already exists for user {user.username}")
+                    return True
+                else:
+                    # Create and add new project
+                    new_project = Project(name=project_name, owner_id=user.id)
+                    session.add(new_project)
+                    user.projects.append(new_project)
+                    user.updated_at = datetime.utcnow()
+                    session.flush()
+                    logger.info(f"Created and added new project '{project_name}' for user {user.username}")
+                    return True
+                    
+        except SQLAlchemyError as e:
+            logger.error(f"Database error adding project to user: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error adding project to user: {e}")
+            return False
+
+
+    def remove_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
+        """Remove a project from user's projects relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return False
+
+                project_to_remove = next((p for p in user.projects if p.name == project_name), None)
+                
+                if project_to_remove:
+                    user.projects.remove(project_to_remove)
+                    user.updated_at = datetime.utcnow()
+                    session.flush()
+                    logger.info(f"Removed project '{project_name}' from user {user.username}")
+                    return True
+                else:
+                    logger.info(f"Project '{project_name}' not found for user {user.username}")
+                    return True
+                    
+        except SQLAlchemyError as e:
+            logger.error(f"Database error removing project from user: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error removing project from user: {e}")
+            return False
+
+
+    def get_user_projects_list(self, user_id: uuid.UUID) -> List[str]:
+        """Get the project names from user's relationship."""
+        try:
+            with self.get_session() as session:
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
+                if not user:
+                    logger.error(f"User with ID {user_id} not found or inactive")
+                    return []
+                
+                return [p.name for p in user.projects] if user.projects else []
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting user projects list: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting user projects list: {e}")
+            return []
 
     def verify_database_integrity(self) -> bool:
         """Verify database integrity and relationships."""

@@ -52,8 +52,13 @@ def create_project_routes():
             if not data:
                 return api_validation_error('No data provided')
 
-            project_name = data.get('project_name', '').strip()
-            description = data.get('description', '').strip()
+            project_name = data.get('projectName', '').strip()
+            description = data.get('projectDescription', '').strip()
+            client_name = data.get('clientName', '').strip()
+            client_industry = data.get('clientIndustry', '').strip()
+            targetAudience = data.get('targetAudience', '').strip()
+            stakeholders = data.get('stakeholders', '').strip()
+            objectives = data.get('objectives','').strip()
 
             if not project_name:
                 return api_validation_error('Project name is required')
@@ -61,7 +66,7 @@ def create_project_routes():
             user_id = request.current_user['user_id']
 
 
-            project = project_service.create_project(user_id, project_name,  description)
+            project = project_service.create_project(user_id, project_name,  description, client_name, client_industry, targetAudience, stakeholders, objectives)
 
             # Update user's projects list
             db_utils.update_user_projects_list(user_id, project_name, 'add')

@@ -30,8 +30,8 @@ def create_auth_routes():
 
     def set_auth_cookies(response, accessToken, refreshToken):
         """Set authentication cookies."""
-        response.set_cookie('accessToken', accessToken, httponly=True, secure=True, samesite='Strict')
-        response.set_cookie('refreshToken', refreshToken, httponly=True, secure=True, samesite='Strict')
+        response.set_cookie('accessToken', accessToken, httponly=True, secure=True, samesite='None')
+        response.set_cookie('refreshToken', refreshToken, httponly=True, secure=True, samesite='None')
         return response
 
     @auth.route('/test', methods=['GET', 'POST', 'OPTIONS'])
@@ -305,26 +305,44 @@ def create_auth_routes():
             if not email or not password:
                 return api_validation_error('Email and password are required')
 
-            # Check if user already exists using auth_utils
+            # Check if user already exists
             existing_user = auth_utils.get_user_by_email(email)
             if existing_user:
                 return api_validation_error('User already exists')
 
-            # Create user using auth_utils
+            # Create user
             user_id = auth_utils.create_user(name, email, password, is_superuser=False)
-
             if not user_id:
                 return api_internal_server_error('Failed to create user')
 
-            return api_success({
-                'user_id': user_id,
-                'email': email,
-                'name': name
-            }, 'User registered successfully', 201)
+            # Fetch the newly created user
+            user = auth_utils.get_user_by_email(email)
+            if not user:
+                return api_internal_server_error('User creation succeeded but user data fetch failed')
 
+            # Create JWT tokens
+            accessToken = auth_utils.create_jwt_token(user_id, email, 30 * 60)  # 30 mins
+            refreshToken = auth_utils.create_jwt_token(user_id, email, 7 * 24 * 60 * 60)  # 7 days
+
+            response_data = {
+                'user': {
+                    'id': user_id,
+                    'email': email,
+                    'name': name
+                },
+                'tokens': {
+                    'accessToken': accessToken,
+                    'refreshToken': refreshToken
+                }
+            }
+
+            response = make_response(api_success(response_data, 'Login successful'))
+            set_auth_cookies(response, accessToken, refreshToken)
+            return response
         except Exception as e:
-            logger.error(f"Error during registration: {e}")
-            return api_internal_server_error('Registration failed', str(e))
+            logger.error(f"Error getting current user: {e}")
+            return api_internal_server_error('Failed to get user information', str(e))
+
 
     @auth.route('/health', methods=['GET'])
     def health_check():
