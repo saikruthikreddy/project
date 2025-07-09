@@ -102,21 +102,21 @@ def create_app():
         return jsonify({'error': 'Origin not allowed'}), 403
     
     # Add after_request handler to ensure consistent CORS headers
-    @app.after_request
-    def after_request(response):
-        """Add CORS headers to all responses."""
-        origin = request.headers.get('Origin')
+    # @app.after_request
+    # def after_request(response):
+    #     """Add CORS headers to all responses."""
+    #     origin = request.headers.get('Origin')
         
-        # Only add CORS headers if origin is allowed and not wildcard
-        if origin and origin in config.CORS_ORIGINS and '*' not in config.CORS_ORIGINS:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-            response.headers.add('Access-Control-Allow-Headers', 
-                               'Content-Type, Authorization, X-Client-Type')
-            response.headers.add('Access-Control-Allow-Methods', 
-                               'GET, POST, PUT, DELETE, OPTIONS, PATCH')
+    #     # Only add CORS headers if origin is allowed and not wildcard
+    #     if origin and origin in config.CORS_ORIGINS and '*' not in config.CORS_ORIGINS:
+    #         response.headers.add('Access-Control-Allow-Origin', origin)
+    #         response.headers.add('Access-Control-Allow-Credentials', 'true')
+    #         response.headers.add('Access-Control-Allow-Headers', 
+    #                            'Content-Type, Authorization, X-Client-Type')
+    #         response.headers.add('Access-Control-Allow-Methods', 
+    #                            'GET, POST, PUT, DELETE, OPTIONS, PATCH')
         
-        return response
+    #     return response
     
     # Ensure directories exist
     config.ensure_directories_exist()
