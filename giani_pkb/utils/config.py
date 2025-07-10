@@ -57,7 +57,10 @@ class Config:
     API_VERSION = 'v1'
 
     # CORS configuration
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS')
+    # read the comma-separated string (or default to empty)
+    _cors = os.getenv("CORS_ORIGINS", "")
+    # split on commas, strip any whitespace, and drop empty strings
+    CORS_ORIGINS = [origin.strip() for origin in _cors.split(",") if origin.strip()]
 
     # Logging configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
