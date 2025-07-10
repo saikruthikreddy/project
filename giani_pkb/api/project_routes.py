@@ -124,7 +124,7 @@ def create_project_routes():
             documents = project_service.get_project_documents(project_id, user_id)
 
             return api_success({
-                'project': project.to_dict(),
+                'project': project.to_dict_detailed(),
                 'document_count': len(documents)
             }, 'Project details retrieved successfully')
 

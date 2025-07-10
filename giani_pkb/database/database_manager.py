@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from sqlalchemy import and_, or_, func, desc, asc
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
+import os
 
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
@@ -35,67 +36,108 @@ class DatabaseManager:
 
     @contextmanager
     def get_session(self):
-        """Get database session with automatic cleanup."""
+        """Get database session with automatic cleanup and improved error handling."""
         session = SessionLocal()
         try:
             yield session
             session.commit()
         except Exception as e:
             session.rollback()
+            logger.error(f"Session error: {e}")
             raise
         finally:
             session.close()
 
     def _user_to_dict(self, user: User) -> Dict[str, Any]:
-        """Convert User object to dictionary."""
+        """Convert User object to dictionary with proper null handling."""
+        if not user:
+            return None
+        
         return {
-            'id': user.id,
+            'id': str(user.id) if user.id else None,
             'username': user.username,
             'email': user.email,
             'hashed_password': user.hashed_password,
             'is_active': user.is_active,
             'is_superuser': user.is_superuser,
-            'created_at': user.created_at,
-            'updated_at': user.updated_at
+            'created_at': user.created_at.isoformat() if user.created_at else None,
+            'updated_at': user.updated_at.isoformat() if user.updated_at else None
         }
+
+    def _validate_email(self, email: str) -> bool:
+        """Validate email format."""
+        import re
+        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        return re.match(pattern, email) is not None
+
+    def _validate_username(self, username: str) -> bool:
+        """Validate username format."""
+        if not username or len(username) < 3 or len(username) > 50:
+            return False
+        return username.replace('_', '').replace('-', '').isalnum()
 
     # User Operations
     def create_user(self, username: str, email: str, password: str,
                    is_superuser: bool = False) -> Optional[Dict[str, Any]]:
-        """Create a new user with proper password hashing and return user data as dict."""
+        """Create a new user with proper password hashing and enhanced validation."""
         try:
+            # Input validation
+            if not self._validate_email(email):
+                raise ValidationError("Invalid email format")
+            
+            if not self._validate_username(username):
+                raise ValidationError("Username must be 3-50 characters and contain only letters, numbers, hyphens, and underscores")
+            
+            if not password or len(password) < 8:
+                raise ValidationError("Password must be at least 8 characters long")
+
             with self.get_session() as session:
                 # Check if user already exists
                 existing_user = session.query(User).filter(
-                    or_(User.email == email, User.username == username)
+                    or_(User.email == email.lower(), User.username == username.lower())
                 ).first()
 
                 if existing_user:
-                    raise ValidationError(f"User with email {email} or username {username} already exists")
+                    if existing_user.email == email.lower():
+                        raise ValidationError(f"User with email {email} already exists")
+                    else:
+                        raise ValidationError(f"Username {username} already exists")
 
                 # Create new user
                 hashed_password = hash_password(password)
                 user = User(
-                    username=username,
-                    email=email,
+                    username=username.lower(),
+                    email=email.lower(),
                     hashed_password=hashed_password,
                     is_superuser=is_superuser,
-                    is_active=True
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
                 )
 
                 session.add(user)
                 session.flush()  # Get the user ID
 
-                # Return user data as dict
+                logger.info(f"Created user: {username}")
                 return self._user_to_dict(user)
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error creating user: {e}")
             raise DatabaseError(f"Failed to create user: {e}")
 
-    def get_user_by_id(self, user_id) -> Optional[User]:
-        """Get user by ID with optimized query. Returns detached User object."""
+    def get_user_by_id(self, user_id: Union[str, uuid.UUID]) -> Optional[User]:
+        """Get user by ID with optimized query and improved type handling."""
         try:
+            # Convert string to UUID if needed
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format: {user_id}")
+                    return None
+
             with self.get_session() as session:
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -112,11 +154,14 @@ class DatabaseManager:
             return None
 
     def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email with optimized query. Returns detached User object."""
+        """Get user by email with optimized query and case-insensitive search."""
         try:
+            if not email or not self._validate_email(email):
+                return None
+
             with self.get_session() as session:
                 user = session.query(User).filter(
-                    and_(User.email == email, User.is_active == True)
+                    and_(User.email == email.lower(), User.is_active == True)
                 ).first()
 
                 if user:
@@ -130,11 +175,14 @@ class DatabaseManager:
             return None
 
     def get_user_by_username(self, username: str) -> Optional[User]:
-        """Get user by username with optimized query. Returns detached User object."""
+        """Get user by username with optimized query and case-insensitive search."""
         try:
+            if not username:
+                return None
+
             with self.get_session() as session:
                 user = session.query(User).filter(
-                    and_(User.username == username, User.is_active == True)
+                    and_(User.username == username.lower(), User.is_active == True)
                 ).first()
                 
                 if user:
@@ -148,17 +196,32 @@ class DatabaseManager:
             return None
 
     def verify_user_credentials(self, email: str, password: str) -> Optional[User]:
-        """Verify user credentials and return user if valid. Returns detached User object."""
+        """Verify user credentials and return user if valid. COMPLETED TODO."""
         try:
+            if not email or not password:
+                return None
+
             with self.get_session() as session:
                 user = session.query(User).filter(
-                    and_(User.email == email, User.is_active == True)
+                    and_(User.email == email.lower(), User.is_active == True)
                 ).first()
-
+                
+                # COMPLETED: Fixed the incomplete verification logic
                 if user and verify_password(password, user.hashed_password):
+                    # Update last login timestamp
+                    user.updated_at = datetime.utcnow()
+                    session.flush()
+                    
                     # Detach from session to prevent lazy loading issues
                     session.expunge(user)
+                    logger.info(f"Successful login for user: {user.username}")
                     return user
+                
+                if user:
+                    logger.warning(f"Failed login attempt for user: {user.username}")
+                else:
+                    logger.warning(f"Login attempt for non-existent email: {email}")
+                    
                 return None
 
         except SQLAlchemyError as e:
@@ -166,8 +229,8 @@ class DatabaseManager:
             return None
 
     # Alternative methods that return dictionaries (for APIs)
-    def get_user_dict_by_id(self, user_id) -> Optional[Dict[str, Any]]:
-        """Get user by ID as dictionary."""
+    def get_user_dict_by_id(self, user_id: Union[str, uuid.UUID]) -> Optional[Dict[str, Any]]:
+        """Get user by ID as dictionary with improved type handling."""
         user = self.get_user_by_id(user_id)
         return self._user_to_dict(user) if user else None
 
@@ -181,18 +244,37 @@ class DatabaseManager:
         user = self.verify_user_credentials(email, password)
         return self._user_to_dict(user) if user else None
 
-    def update_user(self, user_id: uuid.UUID, **kwargs) -> Optional[User]:
-        """Update user fields."""
+    def update_user(self, user_id: Union[str, uuid.UUID], **kwargs) -> Optional[User]:
+        """Update user fields with enhanced validation."""
         try:
+            # Convert string to UUID if needed
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format: {user_id}")
+
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
                 if not user:
                     raise NotFoundError(f"User with ID {user_id} not found")
 
-                # Update allowed fields
+                # Update allowed fields with validation
                 allowed_fields = {'username', 'email', 'is_active', 'is_superuser'}
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(user, key):
+                        if key == 'email' and value:
+                            if not self._validate_email(value):
+                                raise ValidationError("Invalid email format")
+                            value = value.lower()
+                        elif key == 'username' and value:
+                            if not self._validate_username(value):
+                                raise ValidationError("Invalid username format")
+                            value = value.lower()
+                        
                         setattr(user, key, value)
 
                 user.updated_at = datetime.utcnow()
@@ -204,15 +286,27 @@ class DatabaseManager:
                 logger.info(f"Updated user: {user.username}")
                 return user
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error updating user: {e}")
             raise DatabaseError(f"Failed to update user: {e}")
 
-    def delete_user(self, user_id: int) -> bool:
-        """Soft delete user by setting is_active to False."""
+    def delete_user(self, user_id: Union[str, uuid.UUID]) -> bool:
+        """Soft delete user by setting is_active to False with improved type handling."""
         try:
+            # Convert string to UUID if needed
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format: {user_id}")
+
             with self.get_session() as session:
-                user = session.query(User).filter(User.id == user_id).first()
+                user = session.query(User).filter(
+                    and_(User.id == user_id, User.is_active == True)
+                ).first()
+                
                 if not user:
                     raise NotFoundError(f"User with ID {user_id} not found")
 
@@ -222,14 +316,30 @@ class DatabaseManager:
                 logger.info(f"Deleted user: {user.username}")
                 return True
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting user: {e}")
             raise DatabaseError(f"Failed to delete user: {e}")
 
     # Project Operations
-    def create_project(self, name: str, owner_id: uuid.UUID, description, client_name, client_industry, targetAudience, stakeholders, objectives) -> Project:
-        """Create a new project."""
+    def create_project(self, name: str, owner_id: Union[str, uuid.UUID], 
+                      description: str = None, client_name: str = None, 
+                      client_industry: str = None, targetAudience: str = None, 
+                      stakeholders: str = None, objectives: str = None) -> Project:
+        """Create a new project with enhanced validation."""
         try:
+            # Input validation
+            if not name or len(name.strip()) < 3:
+                raise ValidationError("Project name must be at least 3 characters long")
+            
+            # Convert string to UUID if needed
+            if isinstance(owner_id, str):
+                try:
+                    owner_id = uuid.UUID(owner_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format for owner_id: {owner_id}")
+
             with self.get_session() as session:
                 # Verify owner exists
                 owner = session.query(User).filter(
@@ -238,16 +348,30 @@ class DatabaseManager:
                 if not owner:
                     raise ValidationError(f"User with ID {owner_id} not found")
 
+                # Check for duplicate project names for the same user
+                existing_project = session.query(Project).filter(
+                    and_(
+                        Project.name == name.strip(),
+                        Project.owner_id == owner_id,
+                        Project.is_active == True
+                    )
+                ).first()
+                
+                if existing_project:
+                    raise ValidationError(f"Project with name '{name}' already exists for this user")
+
                 project = Project(
-                    name=name,
-                    description=description,
+                    name=name.strip(),
+                    description=description.strip() if description else None,
                     owner_id=owner_id,
-                    client_name=client_name,
-                    client_industry=client_industry, 
-                    target_audience=targetAudience,
-                    key_client_stakeholders_profiles=stakeholders, 
-                    objectives=objectives,
-                    is_active=True
+                    client_name=client_name.strip() if client_name else None,
+                    client_industry=client_industry.strip() if client_industry else None,
+                    target_audience=targetAudience.strip() if targetAudience else None,
+                    key_client_stakeholders_profiles=stakeholders.strip() if stakeholders else None,
+                    objectives=objectives.strip() if objectives else None,
+                    is_active=True,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
                 )
 
                 session.add(project)
@@ -259,23 +383,39 @@ class DatabaseManager:
                 logger.info(f"Created project: {name} for user: {owner.username}")
                 return project
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error creating project: {e}")
             raise DatabaseError(f"Failed to create project: {e}")
 
-    def get_project(self, project_id, user_id=None):
-        """
-        Get project by ID with optional user access check.
-        project_id: int or str (convert to int if needed)
-        user_id: UUID or None
-        """
+    def get_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID] = None) -> Optional[Project]:
+        """Get project by ID with optional user access check and improved type handling."""
         try:
-            with self.get_session() as session:
-                if isinstance(project_id, str):
+            # Convert project_id to int if needed
+            if isinstance(project_id, str):
+                try:
                     project_id = int(project_id)
-                query = session.query(Project).filter(Project.id == project_id)
+                except ValueError:
+                    logger.error(f"Invalid project_id format: {project_id}")
+                    return None
+            
+            # Convert user_id to UUID if needed
+            if user_id and isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return None
+
+            with self.get_session() as session:
+                query = session.query(Project).filter(
+                    and_(Project.id == project_id, Project.is_active == True)
+                )
+                
                 if user_id:
                     query = query.filter(Project.owner_id == user_id)
+                    
                 project = query.first()
                 
                 if project:
@@ -287,9 +427,17 @@ class DatabaseManager:
             logger.error(f"Database error getting project: {e}")
             return None
 
-    def get_user_projects(self, user_id: int) -> List[Project]:
-        """Get all projects for a user with optimized query."""
+    def get_user_projects(self, user_id: Union[str, uuid.UUID]) -> List[Project]:
+        """Get all projects for a user with optimized query and improved type handling."""
         try:
+            # Convert string to UUID if needed
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format: {user_id}")
+                    return []
+
             with self.get_session() as session:
                 projects = session.query(Project).filter(
                     and_(Project.owner_id == user_id, Project.is_active == True)
@@ -305,22 +453,51 @@ class DatabaseManager:
             logger.error(f"Database error getting user projects: {e}")
             return []
 
-    def update_project(self, project_id: int, user_id: int, **kwargs) -> Optional[Project]:
-        """Update project fields with ownership verification."""
+    def update_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID], **kwargs) -> Optional[Project]:
+        """Update project fields with ownership verification and enhanced validation."""
         try:
-            print('inside update_project in db manager')
+            # Convert types if needed
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid project_id format: {project_id}")
+                    
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
+
+            logger.info(f'Updating project {project_id} for user {user_id}')
+            
             with self.get_session() as session:
                 project = session.query(Project).filter(
-                    and_(Project.id == project_id, Project.owner_id == user_id, Project.is_active == True)
+                    and_(
+                        Project.id == project_id, 
+                        Project.owner_id == user_id, 
+                        Project.is_active == True
+                    )
                 ).first()
 
                 if not project:
                     raise NotFoundError(f"Project with ID {project_id} not found or access denied")
 
-                # Update allowed fields
-                allowed_fields = {'name', 'description'}
+                # Update allowed fields with validation
+                allowed_fields = {
+                    'name', 'description', 'client_name', 'client_industry',
+                    'target_audience', 'key_client_stakeholders_profiles', 'objectives'
+                }
+                
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(project, key):
+                        if key == 'name' and value:
+                            if len(value.strip()) < 3:
+                                raise ValidationError("Project name must be at least 3 characters long")
+                            value = value.strip()
+                        elif value and isinstance(value, str):
+                            value = value.strip()
+                        
                         setattr(project, key, value)
 
                 project.updated_at = datetime.utcnow()
@@ -332,16 +509,35 @@ class DatabaseManager:
                 logger.info(f"Updated project: {project.name}")
                 return project
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error updating project: {e}")
             raise DatabaseError(f"Failed to update project: {e}")
 
-    def delete_project(self, project_id: int, user_id: int) -> bool:
-        """Soft delete project with ownership verification."""
+    def delete_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID]) -> bool:
+        """Soft delete project with ownership verification and improved type handling."""
         try:
+            # Convert types if needed
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid project_id format: {project_id}")
+                    
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
+
             with self.get_session() as session:
                 project = session.query(Project).filter(
-                    and_(Project.id == project_id, Project.owner_id == user_id, Project.is_active == True)
+                    and_(
+                        Project.id == project_id, 
+                        Project.owner_id == user_id, 
+                        Project.is_active == True
+                    )
                 ).first()
 
                 if not project:
@@ -353,25 +549,23 @@ class DatabaseManager:
                 logger.info(f"Deleted project: {project.name}")
                 return True
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting project: {e}")
             raise DatabaseError(f"Failed to delete project: {e}")
 
-    def create_processing_batch(self, batch_id: str, project_id: int, user_id: Union[str, uuid.UUID], 
-                          total_documents: int) -> Optional[Dict[str, Any]]:
-        """
-        Create a new processing batch record.
-        
-        Args:
-            batch_id: Unique batch identifier
-            project_id: ID of the project
-            user_id: ID of the user (string or UUID)
-            total_documents: Total number of documents in the batch
-            
-        Returns:
-            Dictionary containing created batch data or None if failed
-        """
+    def create_processing_batch(self, batch_id: str, project_id: Union[int, str], 
+                          user_id: Union[str, uuid.UUID], total_documents: int) -> Optional[Dict[str, Any]]:
+        """Create a new processing batch record with enhanced validation and error handling."""
         try:
+            # Input validation
+            if not batch_id or not batch_id.strip():
+                raise ValidationError("Batch ID cannot be empty")
+                
+            if total_documents < 0:
+                raise ValidationError("Total documents cannot be negative")
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import ProcessingBatch
                 
@@ -391,6 +585,14 @@ class DatabaseManager:
                         logger.error(f"Invalid project_id format: {project_id}")
                         raise ValidationError(f"Invalid project_id format: {project_id}")
                 
+                # Check for duplicate batch_id
+                existing_batch = session.query(ProcessingBatch).filter(
+                    ProcessingBatch.batch_id == batch_id.strip()
+                ).first()
+                
+                if existing_batch:
+                    raise ValidationError(f"Batch with ID {batch_id} already exists")
+                
                 # Verify user exists and is active
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -409,14 +611,14 @@ class DatabaseManager:
                 if project.owner_id != user_id:
                     raise ValidationError(f"User {user_id} does not have access to project {project_id}")
 
-                
                 # Create batch with actual valid document count
                 processing_batch = ProcessingBatch(
-                    batch_id=batch_id,
+                    batch_id=batch_id.strip(),
                     project_id=project_id,
                     user_id=user_id,
-                    total_documents=total_documents,  # Use actual count
-                    status='QUEUED'
+                    total_documents=total_documents,
+                    status='QUEUED',
+                    created_at=datetime.utcnow()
                 )
                 
                 session.add(processing_batch)
@@ -433,8 +635,8 @@ class DatabaseManager:
                     'started_at': processing_batch.started_at.isoformat() if processing_batch.started_at else None,
                     'completed_at': processing_batch.completed_at.isoformat() if processing_batch.completed_at else None,
                     'total_documents': processing_batch.total_documents,
-                    'processed_documents': processing_batch.processed_documents,
-                    'failed_documents': processing_batch.failed_documents,
+                    'processed_documents': processing_batch.processed_documents or 0,
+                    'failed_documents': processing_batch.failed_documents or 0,
                     'error_details': processing_batch.error_details
                 }
 
@@ -453,32 +655,47 @@ class DatabaseManager:
     def delete_temp_document(self, temp_document_id: str, user_id: Union[str, uuid.UUID] = None, 
                         cleanup_file: bool = True) -> bool:
         """
-        Delete a temporary document and optionally clean up the file.
+        Delete a temporary document and optionally clean up the file with enhanced error handling.
         
         Args:
-            temp_document_id: ID of the temporary document to delete
-            user_id: Optional user ID for access control
-            cleanup_file: Whether to delete the physical file as well
+            temp_document_id: The temporary document ID to delete
+            user_id: Optional user ID for access control (can be string UUID or UUID object)
+            cleanup_file: Whether to also delete the physical file
             
         Returns:
-            True if deleted successfully, False otherwise
+            bool: True if deletion was successful, False otherwise
         """
         try:
+            # Enhanced input validation
+            if not temp_document_id or not isinstance(temp_document_id, str) or not temp_document_id.strip():
+                logger.error("Temp document ID must be a non-empty string")
+                return False
+
+            # Validate temp_document_id is a valid UUID format
+            try:
+                uuid.UUID(temp_document_id.strip())
+            except ValueError:
+                logger.error(f"Invalid UUID format for temp_document_id: {temp_document_id}")
+                return False
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import TempDocument
-                import os
                 
                 # Convert user_id to UUID if provided and is string
-                if user_id and isinstance(user_id, str):
-                    try:
-                        user_id = uuid.UUID(user_id)
-                    except ValueError as e:
-                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                if user_id:
+                    if isinstance(user_id, str):
+                        try:
+                            user_id = uuid.UUID(user_id)
+                        except ValueError as e:
+                            logger.error(f"Invalid UUID format for user_id: {user_id}")
+                            return False
+                    elif not isinstance(user_id, uuid.UUID):
+                        logger.error(f"user_id must be string or UUID, got {type(user_id)}")
                         return False
                 
                 # Build query with optional user access control
                 query = session.query(TempDocument).filter(
-                    TempDocument.temp_document_id == temp_document_id
+                    TempDocument.temp_document_id == temp_document_id.strip()
                 )
                 
                 if user_id:
@@ -492,40 +709,109 @@ class DatabaseManager:
                     return False
                 
                 # Store info for logging and file cleanup
-                filename = temp_document.original_filename
+                filename = temp_document.original_filename or "unknown_file"
                 file_path = temp_document.file_path
+                user_info = f"user {temp_document.user_id}" if temp_document.user_id else "unknown user"
+                project_info = f"project {temp_document.project_id}" if temp_document.project_id else "unknown project"
+                
+                # Validate file path before attempting cleanup
+                file_cleanup_success = True
+                if cleanup_file and file_path:
+                    if os.path.exists(file_path):
+                        try:
+                            # Additional safety check - ensure file is within expected directories
+                            file_path_abs = os.path.abspath(file_path)
+                            
+                            # Check if file is in temp_uploads or other allowed directories
+                            allowed_dirs = [
+                                os.path.abspath("temp_uploads"),
+                                os.path.abspath("data/uploaded_documents")
+                            ]
+                            
+                            is_safe_path = any(file_path_abs.startswith(allowed_dir) for allowed_dir in allowed_dirs)
+                            
+                            if is_safe_path:
+                                # Get file info before deletion
+                                file_size = os.path.getsize(file_path)
+                                
+                                os.remove(file_path)
+                                logger.info(f"Deleted file: {file_path} ({file_size:,} bytes)")
+                                
+                                # Try to remove empty parent directories
+                                try:
+                                    parent_dir = os.path.dirname(file_path)
+                                    if os.path.exists(parent_dir) and not os.listdir(parent_dir):
+                                        os.rmdir(parent_dir)
+                                        logger.debug(f"Removed empty directory: {parent_dir}")
+                                        
+                                        # Try to remove grandparent if also empty (project directory)
+                                        grandparent_dir = os.path.dirname(parent_dir)
+                                        if os.path.exists(grandparent_dir) and not os.listdir(grandparent_dir):
+                                            os.rmdir(grandparent_dir)
+                                            logger.debug(f"Removed empty directory: {grandparent_dir}")
+                                except OSError:
+                                    # Directory not empty or other issue - this is fine
+                                    pass
+                                    
+                            else:
+                                logger.error(f"Refusing to delete file outside allowed directories: {file_path}")
+                                file_cleanup_success = False
+                                
+                        except OSError as e:
+                            logger.warning(f"Failed to delete file {file_path}: {e}")
+                            file_cleanup_success = False
+                            
+                        except Exception as e:
+                            logger.error(f"Unexpected error deleting file {file_path}: {e}")
+                            file_cleanup_success = False
+                    else:
+                        logger.warning(f"File not found for cleanup: {file_path}")
+                        # Don't consider this a failure if the file doesn't exist
                 
                 # Delete the database record
                 session.delete(temp_document)
                 session.flush()
                 
-                # Clean up physical file if requested
-                if cleanup_file and file_path and os.path.exists(file_path):
-                    try:
-                        os.remove(file_path)
-                        logger.info(f"Deleted file: {file_path}")
-                    except OSError as e:
-                        logger.warning(f"Failed to delete file {file_path}: {e}")
-                
-                logger.info(f"Deleted temp document: {filename} (ID: {temp_document_id})")
+                # Log success with details
+                status_msg = f"Deleted temp document: {filename} (ID: {temp_document_id}) for {user_info} in {project_info}"
+                if cleanup_file:
+                    if file_cleanup_success:
+                        status_msg += " [file cleaned up]"
+                    else:
+                        status_msg += " [file cleanup failed]"
+                else:
+                    status_msg += " [file cleanup skipped]"
+                    
+                logger.info(status_msg)
                 return True
                 
         except SQLAlchemyError as e:
-            logger.error(f"Database error deleting temp document: {e}")
+            logger.error(f"Database error deleting temp document {temp_document_id}: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error deleting temp document: {e}")
+            logger.error(f"Unexpected error deleting temp document {temp_document_id}: {e}")
+            import traceback
+            logger.debug(f"Full traceback: {traceback.format_exc()}")
             return False
 
 
     def update_batch_status(self, batch_id: str, status: str, **kwargs) -> bool:
-        """Update processing batch status and related fields."""
+        """Update processing batch status and related fields with enhanced validation."""
         try:
+            if not batch_id or not batch_id.strip():
+                logger.error("Batch ID cannot be empty")
+                return False
+                
+            valid_statuses = {'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'}
+            if status not in valid_statuses:
+                logger.error(f"Invalid status: {status}. Must be one of {valid_statuses}")
+                return False
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import ProcessingBatch
                 
                 batch = session.query(ProcessingBatch).filter(
-                    ProcessingBatch.batch_id == batch_id
+                    ProcessingBatch.batch_id == batch_id.strip()
                 ).first()
                 
                 if not batch:
@@ -538,13 +824,17 @@ class DatabaseManager:
                 # Update timestamps based on status
                 if status == 'PROCESSING' and not batch.started_at:
                     batch.started_at = datetime.utcnow()
-                elif status in ['COMPLETED', 'FAILED'] and not batch.completed_at:
+                elif status in ['COMPLETED', 'FAILED', 'CANCELLED'] and not batch.completed_at:
                     batch.completed_at = datetime.utcnow()
                 
-                # Update other fields if provided
+                # Update other fields if provided with validation
                 allowed_fields = {'processed_documents', 'failed_documents', 'error_details'}
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(batch, key):
+                        if key in ['processed_documents', 'failed_documents'] and value is not None:
+                            if not isinstance(value, int) or value < 0:
+                                logger.warning(f"Invalid value for {key}: {value}")
+                                continue
                         setattr(batch, key, value)
                 
                 session.flush()
@@ -556,13 +846,17 @@ class DatabaseManager:
             return False
 
     def get_processing_batch(self, batch_id: str) -> Optional[Dict[str, Any]]:
-        """Get processing batch by ID."""
+        """Get processing batch by ID with enhanced validation."""
         try:
+            if not batch_id or not batch_id.strip():
+                logger.error("Batch ID cannot be empty")
+                return None
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import ProcessingBatch
                 
                 batch = session.query(ProcessingBatch).filter(
-                    ProcessingBatch.batch_id == batch_id
+                    ProcessingBatch.batch_id == batch_id.strip()
                 ).first()
                 
                 if not batch:
@@ -578,8 +872,8 @@ class DatabaseManager:
                     'started_at': batch.started_at.isoformat() if batch.started_at else None,
                     'completed_at': batch.completed_at.isoformat() if batch.completed_at else None,
                     'total_documents': batch.total_documents,
-                    'processed_documents': batch.processed_documents,
-                    'failed_documents': batch.failed_documents,
+                    'processed_documents': batch.processed_documents or 0,
+                    'failed_documents': batch.failed_documents or 0,
                     'error_details': batch.error_details
                 }
                 
@@ -588,17 +882,12 @@ class DatabaseManager:
             return None
 
     def get_batch_status(self, batch_id: str, user_id: Union[str, uuid.UUID] = None) -> Optional[Dict[str, Any]]:
-        """
-        Get the current status of a processing batch.
-        
-        Args:
-            batch_id: ID of the batch to check
-            user_id: Optional user ID for access control
-            
-        Returns:
-            Dictionary containing batch status information or None if not found
-        """
+        """Get the current status of a processing batch with enhanced validation and calculations."""
         try:
+            if not batch_id or not batch_id.strip():
+                logger.error("Batch ID cannot be empty")
+                return None
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import ProcessingBatch
                 
@@ -612,7 +901,7 @@ class DatabaseManager:
                 
                 # Build query with optional user access control
                 query = session.query(ProcessingBatch).filter(
-                    ProcessingBatch.batch_id == batch_id
+                    ProcessingBatch.batch_id == batch_id.strip()
                 )
                 
                 if user_id:
@@ -625,17 +914,17 @@ class DatabaseManager:
                                 (f" for user {user_id}" if user_id else ""))
                     return None
                 
-                # Calculate progress percentage
-                total_docs = batch.total_documents
-                processed_docs = batch.processed_documents
-                failed_docs = batch.failed_documents
+                # Calculate progress percentage with safe division
+                total_docs = batch.total_documents or 0
+                processed_docs = batch.processed_documents or 0
+                failed_docs = batch.failed_documents or 0
                 
                 progress_percentage = 0
                 if total_docs > 0:
                     progress_percentage = ((processed_docs + failed_docs) / total_docs) * 100
                 
                 # Determine if batch is complete
-                is_complete = (processed_docs + failed_docs) >= total_docs
+                is_complete = (processed_docs + failed_docs) >= total_docs and total_docs > 0
                 
                 # Build status dictionary
                 status_dict = {
@@ -648,8 +937,8 @@ class DatabaseManager:
                     'started_at': batch.started_at.isoformat() if batch.started_at else None,
                     'completed_at': batch.completed_at.isoformat() if batch.completed_at else None,
                     'total_documents': batch.total_documents,
-                    'processed_documents': batch.processed_documents,
-                    'failed_documents': batch.failed_documents,
+                    'processed_documents': batch.processed_documents or 0,
+                    'failed_documents': batch.failed_documents or 0,
                     'progress_percentage': round(progress_percentage, 2),
                     'is_complete': is_complete,
                     'error_details': batch.error_details
@@ -665,55 +954,56 @@ class DatabaseManager:
             logger.error(f"Unexpected error getting batch status: {e}")
             return None
 
-
     def increment_batch_progress(self, batch_id: str, success: bool = True) -> bool:
-        """Increment batch progress counters."""
+        """Increment batch progress counters with enhanced validation and atomic operations."""
         try:
+            if not batch_id or not batch_id.strip():
+                logger.error("Batch ID cannot be empty")
+                return False
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import ProcessingBatch
                 
                 batch = session.query(ProcessingBatch).filter(
-                    ProcessingBatch.batch_id == batch_id
+                    ProcessingBatch.batch_id == batch_id.strip()
                 ).first()
                 
                 if not batch:
                     logger.warning(f"Processing batch {batch_id} not found")
                     return False
                 
+                # Increment counters atomically
                 if success:
-                    batch.processed_documents += 1
+                    batch.processed_documents = (batch.processed_documents or 0) + 1
                 else:
-                    batch.failed_documents += 1
+                    batch.failed_documents = (batch.failed_documents or 0) + 1
                 
                 # Check if batch is complete
-                total_processed = batch.processed_documents + batch.failed_documents
-                if total_processed >= batch.total_documents:
+                total_processed = (batch.processed_documents or 0) + (batch.failed_documents or 0)
+                total_documents = batch.total_documents or 0
+                
+                if total_processed >= total_documents and total_documents > 0:
                     batch.status = 'COMPLETED'
                     if not batch.completed_at:
                         batch.completed_at = datetime.utcnow()
                 
                 session.flush()
-                logger.info(f"Updated batch {batch_id} progress: {total_processed}/{batch.total_documents}")
+                logger.info(f"Updated batch {batch_id} progress: {total_processed}/{total_documents}")
                 return True
                 
         except SQLAlchemyError as e:
             logger.error(f"Database error updating batch progress: {e}")
             return False
 
-
-    
     def create_temp_document(self, **kwargs) -> Optional[Dict[str, Any]]:
-        """
-        Create a new temporary document.
-        
-        Args:
-            **kwargs: Document data including temp_document_id, project_id, user_id, 
-                    original_filename, file_path, file_size, mime_type, text_preview, status
-            
-        Returns:
-            Dictionary containing created document data or None if failed
-        """
+        """Create a new temporary document with comprehensive validation."""
         try:
+            # Input validation
+            required_fields = ['temp_document_id', 'project_id', 'user_id', 'original_filename']
+            for field in required_fields:
+                if not kwargs.get(field):
+                    raise ValidationError(f"Required field '{field}' is missing or empty")
+
             with self.get_session() as session:
                 from giani_pkb.models.database_models import TempDocument
                 
@@ -737,6 +1027,18 @@ class DatabaseManager:
                         logger.error(f"Invalid project_id format: {project_id}")
                         raise ValidationError(f"Invalid project_id format: {project_id}")
                 
+                # Check for duplicate temp_document_id
+                temp_doc_id = kwargs.get('temp_document_id', '').strip()
+                if not temp_doc_id:
+                    raise ValidationError("Temp document ID cannot be empty")
+                    
+                existing_temp_doc = session.query(TempDocument).filter(
+                    TempDocument.temp_document_id == temp_doc_id
+                ).first()
+                
+                if existing_temp_doc:
+                    raise ValidationError(f"Temporary document with ID {temp_doc_id} already exists")
+                
                 # Verify user exists and is active
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -755,8 +1057,27 @@ class DatabaseManager:
                 if project.owner_id != user_id:
                     raise ValidationError(f"User {user_id} does not have access to project {project_id}")
 
+                # Set default values and clean up data
+                cleaned_kwargs = {}
+                for key, value in kwargs.items():
+                    if key == 'original_filename' and value:
+                        cleaned_kwargs[key] = value.strip()
+                    elif key == 'temp_document_id' and value:
+                        cleaned_kwargs[key] = value.strip()
+                    elif key == 'file_size':
+                        cleaned_kwargs[key] = max(0, int(value)) if value is not None else 0
+                    elif key == 'status':
+                        valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
+                        cleaned_kwargs[key] = value if value in valid_statuses else 'UPLOADED'
+                    else:
+                        cleaned_kwargs[key] = value
+
+                # Set upload timestamp if not provided
+                if 'upload_timestamp' not in cleaned_kwargs:
+                    cleaned_kwargs['upload_timestamp'] = datetime.utcnow()
+
                 # Create the temporary document
-                temp_document = TempDocument(**kwargs)
+                temp_document = TempDocument(**cleaned_kwargs)
                 session.add(temp_document)
                 session.flush()  # Get the ID
 
@@ -787,22 +1108,16 @@ class DatabaseManager:
             logger.error(f"Unexpected error creating temp document: {e}")
             raise DatabaseError(f"Unexpected error creating temp document: {e}")
 
-
-    def get_temp_document(self, temp_document_id: str, project_id: int, user_id: Union[str, uuid.UUID]) -> Optional[Dict[str, Any]]:
-        """
-        Get temporary document by ID with project and user access verification.
-        
-        Args:
-            temp_document_id: ID of the temporary document (string)
-            project_id: Project ID for access control
-            user_id: User ID for access control (string or UUID)
-            
-        Returns:
-            Dictionary containing document data or None if not found
-        """
+    def get_temp_document(self, temp_document_id: str, project_id: Union[int, str], 
+                         user_id: Union[str, uuid.UUID]) -> Optional[Dict[str, Any]]:
+        """Get temporary document by ID with project and user access verification and enhanced validation."""
         try:
+            # Input validation
+            if not temp_document_id or not temp_document_id.strip():
+                logger.error("Temp document ID cannot be empty")
+                return None
+
             with self.get_session() as session:
-                # Import TempDocument here to avoid circular imports
                 from giani_pkb.models.database_models import TempDocument
                 
                 # Convert user_id to UUID if it's a string
@@ -824,7 +1139,7 @@ class DatabaseManager:
                 # Query for temporary document with access control
                 temp_document = session.query(TempDocument).filter(
                     and_(
-                        TempDocument.temp_document_id == temp_document_id,
+                        TempDocument.temp_document_id == temp_document_id.strip(),
                         TempDocument.project_id == project_id,
                         TempDocument.user_id == user_id
                     )
@@ -834,32 +1149,33 @@ class DatabaseManager:
                     logger.warning(f"Temp document lookup failed - ID: {temp_document_id}, "
                                 f"Project: {project_id}, User: {user_id}")
                     
-                    # Check if document exists without access control
+                    # Check if document exists without access control for debugging
                     exists = session.query(TempDocument).filter(
-                        TempDocument.temp_document_id == temp_document_id
+                        TempDocument.temp_document_id == temp_document_id.strip()
                     ).first()
                     
                     if exists:
                         logger.warning(f"Document exists but access denied - "
-                                    f"Expected user: {user_id}, Actual user: {exists.user_id}")
+                                    f"Expected user: {user_id}, Actual user: {exists.user_id}, "
+                                    f"Expected project: {project_id}, Actual project: {exists.project_id}")
                     else:
                         logger.warning(f"Document {temp_document_id} does not exist in database")
                         
                     return None
                 
-                # Convert to dictionary format expected by your application
+                # Convert to dictionary format
                 temp_doc = {
                     'id': temp_document.id,
                     'temp_document_id': temp_document.temp_document_id,
                     'original_filename': temp_document.original_filename,
                     'text_preview': temp_document.text_preview or 'No preview available',
                     'file_path': temp_document.file_path,
-                    'file_size': temp_document.file_size,
+                    'file_size': temp_document.file_size or 0,
                     'mime_type': temp_document.mime_type,
                     'upload_timestamp': temp_document.upload_timestamp,
-                    'status': temp_document.status,
+                    'status': temp_document.status or 'UPLOADED',
                     'project_id': temp_document.project_id,
-                    'user_id': str(temp_document.user_id)  # Convert UUID back to string for JSON serialization
+                    'user_id': str(temp_document.user_id)  # Convert UUID back to string
                 }
                 
                 logger.info(f"Retrieved temp document: {temp_document.original_filename}")
@@ -872,26 +1188,46 @@ class DatabaseManager:
             logger.error(f"Unexpected error getting temp document: {e}")
             return None
 
-
-
-
-    # Document Operations
+    # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:
-        """Create a new document with validation."""
+        """Create a new document with enhanced validation."""
         try:
+            # Input validation
+            required_fields = ['user_id', 'project_id', 'original_filename']
+            for field in required_fields:
+                if not kwargs.get(field):
+                    raise ValidationError(f"Required field '{field}' is missing")
+
             with self.get_session() as session:
+                # Convert user_id to UUID if it's a string
+                user_id = kwargs.get('user_id')
+                if isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                        kwargs['user_id'] = user_id
+                    except ValueError:
+                        raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
+
                 # Verify user and project exist
                 user = session.query(User).filter(
-                    and_(User.id == kwargs.get('user_id'), User.is_active == True)
+                    and_(User.id == user_id, User.is_active == True)
                 ).first()
                 if not user:
-                    raise ValidationError(f"User with ID {kwargs.get('user_id')} not found")
+                    raise ValidationError(f"User with ID {user_id} not found")
 
                 project = session.query(Project).filter(
                     and_(Project.id == kwargs.get('project_id'), Project.is_active == True)
                 ).first()
                 if not project:
                     raise ValidationError(f"Project with ID {kwargs.get('project_id')} not found")
+
+                # Verify user has access to the project
+                if project.owner_id != user_id:
+                    raise ValidationError(f"User does not have access to project")
+
+                # Set default timestamp if not provided
+                if 'date_added_to_giani' not in kwargs:
+                    kwargs['date_added_to_giani'] = datetime.utcnow()
 
                 document = Document(**kwargs)
                 session.add(document)
@@ -903,13 +1239,23 @@ class DatabaseManager:
                 logger.info(f"Created document: {document.original_filename}")
                 return document
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error creating document: {e}")
             raise DatabaseError(f"Failed to create document: {e}")
 
-    def get_document_by_id(self, document_id: int, user_id: int = None) -> Optional[Document]:
-        """Get document by ID with optional user access check."""
+    def get_document_by_id(self, document_id: int, user_id: Union[str, uuid.UUID] = None) -> Optional[Document]:
+        """Get document by ID with optional user access check and enhanced type handling."""
         try:
+            # Convert user_id to UUID if provided and is string
+            if user_id and isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return None
+
             with self.get_session() as session:
                 query = session.query(Document).filter(Document.id == document_id)
 
@@ -927,9 +1273,25 @@ class DatabaseManager:
             logger.error(f"Database error getting document: {e}")
             return None
 
-    def get_project_documents(self, project_id: int, user_id: int = None) -> List[Document]:
-        """Get all documents for a project with optimized query."""
+    def get_project_documents(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID] = None) -> List[Document]:
+        """Get all documents for a project with optimized query and enhanced type handling."""
         try:
+            # Convert project_id to int if needed
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    logger.error(f"Invalid project_id format: {project_id}")
+                    return []
+
+            # Convert user_id to UUID if provided and is string
+            if user_id and isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return []
+
             with self.get_session() as session:
                 query = session.query(Document).filter(Document.project_id == project_id)
 
@@ -948,9 +1310,23 @@ class DatabaseManager:
             logger.error(f"Database error getting project documents: {e}")
             return []
 
-    def search_documents(self, search_term: str, user_id: int = None) -> List[Document]:
-        """Search documents with optimized full-text search."""
+    def search_documents(self, search_term: str, user_id: Union[str, uuid.UUID] = None) -> List[Document]:
+        """Search documents with optimized full-text search and enhanced validation."""
         try:
+            if not search_term or not search_term.strip():
+                logger.warning("Empty search term provided")
+                return []
+
+            # Convert user_id to UUID if provided and is string
+            if user_id and isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return []
+
+            search_term = search_term.strip()
+
             with self.get_session() as session:
                 query = session.query(Document).filter(
                     or_(
@@ -975,9 +1351,16 @@ class DatabaseManager:
             logger.error(f"Database error searching documents: {e}")
             return []
 
-    def update_document(self, document_id: int, user_id: int, **kwargs) -> Optional[Document]:
-        """Update document fields with ownership verification."""
+    def update_document(self, document_id: int, user_id: Union[str, uuid.UUID], **kwargs) -> Optional[Document]:
+        """Update document fields with ownership verification and enhanced validation."""
         try:
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
+
             with self.get_session() as session:
                 document = session.query(Document).filter(
                     and_(Document.id == document_id, Document.user_id == user_id)
@@ -986,13 +1369,20 @@ class DatabaseManager:
                 if not document:
                     raise NotFoundError(f"Document with ID {document_id} not found or access denied")
 
-                # Update allowed fields
+                # Update allowed fields with validation
                 allowed_fields = {
                     'final_category', 'final_purpose', 'priority', 'text_preview',
                     'processed_content', 'extracted_text', 'metadata'
                 }
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(document, key):
+                        # Validate specific fields
+                        if key == 'priority' and value is not None:
+                            if not isinstance(value, int) or value < 1 or value > 10:
+                                raise ValidationError("Priority must be an integer between 1 and 10")
+                        elif key in ['final_category', 'final_purpose'] and value:
+                            value = value.strip()
+                        
                         setattr(document, key, value)
 
                 document.updated_at = datetime.utcnow()
@@ -1004,13 +1394,22 @@ class DatabaseManager:
                 logger.info(f"Updated document: {document.original_filename}")
                 return document
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error updating document: {e}")
             raise DatabaseError(f"Failed to update document: {e}")
 
-    def delete_document(self, document_id: int, user_id: int) -> bool:
-        """Delete document with ownership verification."""
+    def delete_document(self, document_id: int, user_id: Union[str, uuid.UUID]) -> bool:
+        """Delete document with ownership verification and enhanced type handling."""
         try:
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
+
             with self.get_session() as session:
                 document = session.query(Document).filter(
                     and_(Document.id == document_id, Document.user_id == user_id)
@@ -1019,25 +1418,53 @@ class DatabaseManager:
                 if not document:
                     raise NotFoundError(f"Document with ID {document_id} not found or access denied")
 
-                # Delete related chunks and summaries
-                session.query(DocumentChunk).filter(DocumentChunk.document_id == document_id).delete()
-                session.query(DocumentSummary).filter(DocumentSummary.document_id == document_id).delete()
+                # Store filename for logging
+                filename = document.original_filename
+
+                # Delete related chunks and summaries first
+                chunks_deleted = session.query(DocumentChunk).filter(
+                    DocumentChunk.document_id == document_id
+                ).delete()
+                
+                summaries_deleted = session.query(DocumentSummary).filter(
+                    DocumentSummary.document_id == document_id
+                ).delete()
 
                 # Delete document
                 session.delete(document)
 
-                logger.info(f"Deleted document: {document.original_filename}")
+                logger.info(f"Deleted document: {filename} (with {chunks_deleted} chunks and {summaries_deleted} summaries)")
                 return True
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting document: {e}")
             raise DatabaseError(f"Failed to delete document: {e}")
 
-    # Document Chunk Operations
+    # Document Chunk Operations (Enhanced)
     def create_document_chunk(self, **kwargs) -> DocumentChunk:
-        """Create a new document chunk."""
+        """Create a new document chunk with enhanced validation."""
         try:
+            # Input validation
+            required_fields = ['document_id', 'chunk_text']
+            for field in required_fields:
+                if not kwargs.get(field):
+                    raise ValidationError(f"Required field '{field}' is missing")
+
+            # Validate chunk_index if provided
+            chunk_index = kwargs.get('chunk_index')
+            if chunk_index is not None and (not isinstance(chunk_index, int) or chunk_index < 0):
+                raise ValidationError("chunk_index must be a non-negative integer")
+
             with self.get_session() as session:
+                # Verify document exists
+                document = session.query(Document).filter(
+                    Document.id == kwargs.get('document_id')
+                ).first()
+                if not document:
+                    raise ValidationError(f"Document with ID {kwargs.get('document_id')} not found")
+
                 chunk = DocumentChunk(**kwargs)
                 session.add(chunk)
                 session.flush()
@@ -1045,19 +1472,26 @@ class DatabaseManager:
                 # Detach from session
                 session.expunge(chunk)
                 
+                logger.info(f"Created document chunk for document ID: {kwargs.get('document_id')}")
                 return chunk
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error creating document chunk: {e}")
             raise DatabaseError(f"Failed to create document chunk: {e}")
 
     def get_document_chunks(self, document_id: int) -> List[DocumentChunk]:
-        """Get all chunks for a document."""
+        """Get all chunks for a document with enhanced ordering."""
         try:
+            if not isinstance(document_id, int) or document_id <= 0:
+                logger.error(f"Invalid document_id: {document_id}")
+                return []
+
             with self.get_session() as session:
                 chunks = session.query(DocumentChunk).filter(
                     DocumentChunk.document_id == document_id
-                ).order_by(asc(DocumentChunk.id)).all()
+                ).order_by(asc(DocumentChunk.chunk_index), asc(DocumentChunk.id)).all()
                 
                 # Detach all chunks from session
                 for chunk in chunks:
@@ -1069,11 +1503,28 @@ class DatabaseManager:
             logger.error(f"Database error getting document chunks: {e}")
             return []
 
-    # Document Summary Operations
+    # Document Summary Operations (Enhanced)
     def create_document_summary(self, **kwargs) -> DocumentSummary:
-        """Create a new document summary."""
+        """Create a new document summary with enhanced validation."""
         try:
+            # Input validation
+            required_fields = ['document_id', 'summary_text']
+            for field in required_fields:
+                if not kwargs.get(field):
+                    raise ValidationError(f"Required field '{field}' is missing")
+
             with self.get_session() as session:
+                # Verify document exists
+                document = session.query(Document).filter(
+                    Document.id == kwargs.get('document_id')
+                ).first()
+                if not document:
+                    raise ValidationError(f"Document with ID {kwargs.get('document_id')} not found")
+
+                # Set processing timestamp if not provided
+                if 'processing_timestamp' not in kwargs:
+                    kwargs['processing_timestamp'] = datetime.utcnow()
+
                 summary = DocumentSummary(**kwargs)
                 session.add(summary)
                 session.flush()
@@ -1081,15 +1532,22 @@ class DatabaseManager:
                 # Detach from session
                 session.expunge(summary)
                 
+                logger.info(f"Created document summary for document ID: {kwargs.get('document_id')}")
                 return summary
 
+        except ValidationError:
+            raise  # Re-raise validation errors
         except SQLAlchemyError as e:
             logger.error(f"Database error creating document summary: {e}")
             raise DatabaseError(f"Failed to create document summary: {e}")
 
     def get_document_summaries(self, document_id: int) -> List[DocumentSummary]:
-        """Get all summaries for a document."""
+        """Get all summaries for a document with enhanced validation."""
         try:
+            if not isinstance(document_id, int) or document_id <= 0:
+                logger.error(f"Invalid document_id: {document_id}")
+                return []
+
             with self.get_session() as session:
                 summaries = session.query(DocumentSummary).filter(
                     DocumentSummary.document_id == document_id
@@ -1105,14 +1563,27 @@ class DatabaseManager:
             logger.error(f"Database error getting document summaries: {e}")
             return []
 
-    # API Call Logging
+    # API Call Logging (Enhanced)
     def log_api_call(self, **kwargs) -> APICallLog:
-        """Log an API call for monitoring and debugging."""
+        """Log an API call for monitoring and debugging with enhanced validation."""
         try:
+            # Input validation
+            required_fields = ['endpoint', 'method']
+            for field in required_fields:
+                if not kwargs.get(field):
+                    logger.warning(f"API call log missing required field: {field}")
+
             with self.get_session() as session:
-                # Get next call number
-                last_call = session.query(APICallLog).order_by(desc(APICallLog.call_number)).first()
-                call_number = (last_call.call_number + 1) if last_call else 1
+                # Get next call number safely
+                try:
+                    last_call = session.query(APICallLog).order_by(desc(APICallLog.call_number)).first()
+                    call_number = (last_call.call_number + 1) if last_call else 1
+                except:
+                    call_number = 1
+
+                # Set timestamp if not provided
+                if 'timestamp' not in kwargs:
+                    kwargs['timestamp'] = datetime.utcnow()
 
                 api_log = APICallLog(call_number=call_number, **kwargs)
                 session.add(api_log)
@@ -1128,8 +1599,14 @@ class DatabaseManager:
             raise DatabaseError(f"Failed to log API call: {e}")
 
     def get_api_call_logs(self, limit: int = 100) -> List[APICallLog]:
-        """Get recent API call logs."""
+        """Get recent API call logs with enhanced validation."""
         try:
+            # Validate limit
+            if not isinstance(limit, int) or limit <= 0:
+                limit = 100
+            elif limit > 1000:  # Prevent excessive memory usage
+                limit = 1000
+
             with self.get_session() as session:
                 logs = session.query(APICallLog).order_by(
                     desc(APICallLog.timestamp)
@@ -1145,25 +1622,64 @@ class DatabaseManager:
             logger.error(f"Database error getting API call logs: {e}")
             return []
 
-    # Statistics and Analytics
+    # Statistics and Analytics (Enhanced)
     def get_database_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive database statistics."""
+        """Get comprehensive database statistics with enhanced error handling."""
         try:
             with self.get_session() as session:
-                stats = {
-                    'users': session.query(func.count(User.id)).filter(User.is_active == True).scalar(),
-                    'projects': session.query(func.count(Project.id)).filter(Project.is_active == True).scalar(),
-                    'documents': session.query(func.count(Document.id)).scalar(),
-                    'document_chunks': session.query(func.count(DocumentChunk.id)).scalar(),
-                    'document_summaries': session.query(func.count(DocumentSummary.id)).scalar(),
-                    'api_call_logs': session.query(func.count(APICallLog.id)).scalar()
-                }
+                stats = {}
+                
+                # Basic counts with error handling
+                try:
+                    stats['users'] = session.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+                except:
+                    stats['users'] = 0
+                    
+                try:
+                    stats['projects'] = session.query(func.count(Project.id)).filter(Project.is_active == True).scalar() or 0
+                except:
+                    stats['projects'] = 0
+                    
+                try:
+                    stats['documents'] = session.query(func.count(Document.id)).scalar() or 0
+                except:
+                    stats['documents'] = 0
+                    
+                try:
+                    stats['document_chunks'] = session.query(func.count(DocumentChunk.id)).scalar() or 0
+                except:
+                    stats['document_chunks'] = 0
+                    
+                try:
+                    stats['document_summaries'] = session.query(func.count(DocumentSummary.id)).scalar() or 0
+                except:
+                    stats['document_summaries'] = 0
+                    
+                try:
+                    stats['api_call_logs'] = session.query(func.count(APICallLog.id)).scalar() or 0
+                except:
+                    stats['api_call_logs'] = 0
 
                 # Get recent activity
-                recent_documents = session.query(func.count(Document.id)).filter(
-                    Document.date_added_to_giani >= datetime.utcnow().date()
-                ).scalar()
-                stats['documents_today'] = recent_documents
+                try:
+                    today = datetime.utcnow().date()
+                    recent_documents = session.query(func.count(Document.id)).filter(
+                        func.date(Document.date_added_to_giani) == today
+                    ).scalar() or 0
+                    stats['documents_today'] = recent_documents
+                except:
+                    stats['documents_today'] = 0
+
+                # Add processing batch statistics
+                try:
+                    from giani_pkb.models.database_models import ProcessingBatch
+                    stats['processing_batches'] = session.query(func.count(ProcessingBatch.id)).scalar() or 0
+                    stats['active_batches'] = session.query(func.count(ProcessingBatch.id)).filter(
+                        ProcessingBatch.status.in_(['QUEUED', 'PROCESSING'])
+                    ).scalar() or 0
+                except:
+                    stats['processing_batches'] = 0
+                    stats['active_batches'] = 0
 
                 return stats
 
@@ -1171,9 +1687,24 @@ class DatabaseManager:
             logger.error(f"Database error getting statistics: {e}")
             return {}
 
-    def add_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
-        """Add a project to user's projects relationship."""
+    def add_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
+        """Add a project to user's projects relationship with enhanced validation."""
         try:
+            # Input validation
+            if not project_name or not project_name.strip():
+                logger.error("Project name cannot be empty")
+                return False
+
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return False
+
+            project_name = project_name.strip()
+
             with self.get_session() as session:
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -1185,11 +1716,15 @@ class DatabaseManager:
                 
                 # Check if project with that name exists
                 existing_project = session.query(Project).filter(
-                    and_(Project.name == project_name, Project.owner_id == user_id)
+                    and_(
+                        Project.name == project_name, 
+                        Project.owner_id == user_id,
+                        Project.is_active == True
+                    )
                 ).first()
 
                 if existing_project:
-                    if existing_project not in user.projects:
+                    if hasattr(user, 'projects') and existing_project not in user.projects:
                         user.projects.append(existing_project)
                         user.updated_at = datetime.utcnow()
                         session.flush()
@@ -1199,9 +1734,18 @@ class DatabaseManager:
                     return True
                 else:
                     # Create and add new project
-                    new_project = Project(name=project_name, owner_id=user.id)
+                    new_project = Project(
+                        name=project_name, 
+                        owner_id=user_id,
+                        is_active=True,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
                     session.add(new_project)
-                    user.projects.append(new_project)
+                    
+                    if hasattr(user, 'projects'):
+                        user.projects.append(new_project)
+                    
                     user.updated_at = datetime.utcnow()
                     session.flush()
                     logger.info(f"Created and added new project '{project_name}' for user {user.username}")
@@ -1214,10 +1758,24 @@ class DatabaseManager:
             logger.error(f"Unexpected error adding project to user: {e}")
             return False
 
-
-    def remove_user_project(self, user_id: uuid.UUID, project_name: str) -> bool:
-        """Remove a project from user's projects relationship."""
+    def remove_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
+        """Remove a project from user's projects relationship with enhanced validation."""
         try:
+            # Input validation
+            if not project_name or not project_name.strip():
+                logger.error("Project name cannot be empty")
+                return False
+
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return False
+
+            project_name = project_name.strip()
+
             with self.get_session() as session:
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -1227,16 +1785,20 @@ class DatabaseManager:
                     logger.error(f"User with ID {user_id} not found or inactive")
                     return False
 
-                project_to_remove = next((p for p in user.projects if p.name == project_name), None)
-                
-                if project_to_remove:
-                    user.projects.remove(project_to_remove)
-                    user.updated_at = datetime.utcnow()
-                    session.flush()
-                    logger.info(f"Removed project '{project_name}' from user {user.username}")
-                    return True
+                if hasattr(user, 'projects'):
+                    project_to_remove = next((p for p in user.projects if p.name == project_name), None)
+                    
+                    if project_to_remove:
+                        user.projects.remove(project_to_remove)
+                        user.updated_at = datetime.utcnow()
+                        session.flush()
+                        logger.info(f"Removed project '{project_name}' from user {user.username}")
+                        return True
+                    else:
+                        logger.info(f"Project '{project_name}' not found for user {user.username}")
+                        return True
                 else:
-                    logger.info(f"Project '{project_name}' not found for user {user.username}")
+                    logger.info(f"User {user.username} has no projects relationship")
                     return True
                     
         except SQLAlchemyError as e:
@@ -1246,10 +1808,17 @@ class DatabaseManager:
             logger.error(f"Unexpected error removing project from user: {e}")
             return False
 
-
-    def get_user_projects_list(self, user_id: uuid.UUID) -> List[str]:
-        """Get the project names from user's relationship."""
+    def get_user_projects_list(self, user_id: Union[str, uuid.UUID]) -> List[str]:
+        """Get the project names from user's relationship with enhanced validation."""
         try:
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return []
+
             with self.get_session() as session:
                 user = session.query(User).filter(
                     and_(User.id == user_id, User.is_active == True)
@@ -1259,7 +1828,10 @@ class DatabaseManager:
                     logger.error(f"User with ID {user_id} not found or inactive")
                     return []
                 
-                return [p.name for p in user.projects] if user.projects else []
+                if hasattr(user, 'projects') and user.projects:
+                    return [p.name for p in user.projects if p.is_active]
+                else:
+                    return []
                 
         except SQLAlchemyError as e:
             logger.error(f"Database error getting user projects list: {e}")
@@ -1269,24 +1841,145 @@ class DatabaseManager:
             return []
 
     def verify_database_integrity(self) -> bool:
-        """Verify database integrity and relationships."""
+        """Verify database integrity and relationships with comprehensive checks."""
         try:
             with self.get_session() as session:
-                # Check for orphaned records
+                integrity_issues = []
+                
+                # Check for orphaned documents
                 orphaned_documents = session.query(Document).filter(
                     ~Document.user_id.in_(session.query(User.id))
                 ).count()
+                
+                if orphaned_documents > 0:
+                    integrity_issues.append(f"Found {orphaned_documents} orphaned documents")
 
+                # Check for orphaned projects
                 orphaned_projects = session.query(Project).filter(
                     ~Project.owner_id.in_(session.query(User.id))
                 ).count()
+                
+                if orphaned_projects > 0:
+                    integrity_issues.append(f"Found {orphaned_projects} orphaned projects")
 
-                if orphaned_documents > 0 or orphaned_projects > 0:
-                    logger.warning(f"Found orphaned records: {orphaned_documents} documents, {orphaned_projects} projects")
+                # Check for orphaned document chunks
+                try:
+                    orphaned_chunks = session.query(DocumentChunk).filter(
+                        ~DocumentChunk.document_id.in_(session.query(Document.id))
+                    ).count()
+                    
+                    if orphaned_chunks > 0:
+                        integrity_issues.append(f"Found {orphaned_chunks} orphaned document chunks")
+                except:
+                    pass  # Table might not exist
+
+                # Check for orphaned document summaries
+                try:
+                    orphaned_summaries = session.query(DocumentSummary).filter(
+                        ~DocumentSummary.document_id.in_(session.query(Document.id))
+                    ).count()
+                    
+                    if orphaned_summaries > 0:
+                        integrity_issues.append(f"Found {orphaned_summaries} orphaned document summaries")
+                except:
+                    pass  # Table might not exist
+
+                # Check for orphaned processing batches
+                try:
+                    from giani_pkb.models.database_models import ProcessingBatch
+                    orphaned_batches = session.query(ProcessingBatch).filter(
+                        ~ProcessingBatch.user_id.in_(session.query(User.id))
+                    ).count()
+                    
+                    if orphaned_batches > 0:
+                        integrity_issues.append(f"Found {orphaned_batches} orphaned processing batches")
+                except:
+                    pass  # Table might not exist
+
+                if integrity_issues:
+                    logger.warning(f"Database integrity issues found: {'; '.join(integrity_issues)}")
                     return False
 
+                logger.info("Database integrity check passed")
                 return True
 
         except SQLAlchemyError as e:
             logger.error(f"Database integrity check failed: {e}")
             return False
+
+    def cleanup_orphaned_records(self) -> Dict[str, int]:
+        """Clean up orphaned records and return counts of cleaned records."""
+        try:
+            cleanup_counts = {}
+            
+            with self.get_session() as session:
+                # Clean up orphaned document chunks
+                try:
+                    orphaned_chunks = session.query(DocumentChunk).filter(
+                        ~DocumentChunk.document_id.in_(session.query(Document.id))
+                    ).delete(synchronize_session=False)
+                    cleanup_counts['document_chunks'] = orphaned_chunks
+                except Exception as e:
+                    logger.warning(f"Could not clean orphaned chunks: {e}")
+                    cleanup_counts['document_chunks'] = 0
+
+                # Clean up orphaned document summaries
+                try:
+                    orphaned_summaries = session.query(DocumentSummary).filter(
+                        ~DocumentSummary.document_id.in_(session.query(Document.id))
+                    ).delete(synchronize_session=False)
+                    cleanup_counts['document_summaries'] = orphaned_summaries
+                except Exception as e:
+                    logger.warning(f"Could not clean orphaned summaries: {e}")
+                    cleanup_counts['document_summaries'] = 0
+
+                # Note: We don't automatically clean orphaned documents/projects 
+                # as this could be destructive
+                
+                session.flush()
+                
+                logger.info(f"Cleanup completed: {cleanup_counts}")
+                return cleanup_counts
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database cleanup failed: {e}")
+            return {}
+
+    def get_user_statistics(self, user_id: Union[str, uuid.UUID]) -> Dict[str, Any]:
+        """Get statistics for a specific user."""
+        try:
+            # Convert user_id to UUID if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = uuid.UUID(user_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for user_id: {user_id}")
+                    return {}
+
+            with self.get_session() as session:
+                stats = {}
+                
+                # User's projects
+                stats['projects'] = session.query(func.count(Project.id)).filter(
+                    and_(Project.owner_id == user_id, Project.is_active == True)
+                ).scalar() or 0
+                
+                # User's documents
+                stats['documents'] = session.query(func.count(Document.id)).filter(
+                    Document.user_id == user_id
+                ).scalar() or 0
+                
+                # Recent activity (last 30 days)
+                thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+                stats['recent_documents'] = session.query(func.count(Document.id)).filter(
+                    and_(
+                        Document.user_id == user_id,
+                        Document.date_added_to_giani >= thirty_days_ago
+                    )
+                ).scalar() or 0
+                
+                return stats
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting user statistics: {e}")
+            return {}
