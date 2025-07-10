@@ -1,0 +1,48 @@
+name: Deploy Application to Azure
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 'Checkout GitHub Action'
+        uses: actions/checkout@v3
+
+      - name: 'Login to Azure'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: 'Login to Azure Container Registry'
+        uses: azure/docker-login@v1
+        with:
+          login-server: gianidevacr.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: 'Set Version Tag'
+        id: set_version
+        # Use the unique commit SHA as the version tag for perfect traceability
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      - name: 'Build and push application image'
+        run: |
+          # Build the app image, which uses the base image
+          docker build -t gianidevacr.azurecr.io/giani-ai:${{ steps.set_version.outputs.tag }} .
+          # Also tag as latest for easy reference
+          docker tag gianidevacr.azurecr.io/giani-ai:${{ steps.set_version.outputs.tag }} gianidevacr.azurecr.io/giani-ai:latest
+
+          docker push gianidevacr.azurecr.io/giani-ai:${{ steps.set_version.outputs.tag }}
+          docker push gianidevacr.azurecr.io/giani-ai:latest
+
+
+      - name: 'Deploy to App Service'
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: 'giani-dev-wa'
+          # Deploy the unique, specific image version
+          images: 'gianidevacr.azurecr.io/giani-ai:${{ steps.set_version.outputs.tag }}'

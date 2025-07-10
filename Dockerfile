@@ -1,43 +1,26 @@
-# Use Python 3.11 slim image
-FROM --platform=linux/amd64 python:3.11-slim
+# Use your custom base image which already has all dependencies installed
+FROM gianidevacr.azurecr.io/giani-ai-base:latest
 
-# Set working directory
+# Set the working directory (it's already /app in the base image, but it's good practice to be explicit)
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libpq-dev \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements first for better caching
-COPY requirements-azure.txt .
-
-# Install Python dependencies
-RUN pip install --default-timeout=360 --no-cache-dir -r requirements-azure.txt
-
-RUN python -m spacy download en_core_web_sm
-
-# Copy application code
+# Copy your application code. This is the only layer that will be rebuilt
+# on most code changes, making the process very fast.
 COPY . .
 
-# Create necessary directories
+# Create necessary directories (if not already created in the base)
+# This command is very fast and won't slow down the build.
 RUN mkdir -p temp_uploads/data/uploaded_documents
 
-# Copy the entrypoint script into the container.
-# This script will run database migrations before starting the app.
+# Copy and configure the entrypoint script
 COPY ./entrypoint.sh /app/entrypoint.sh
-
-# Make the entrypoint script executable
 RUN chmod +x /app/entrypoint.sh
 
-# Set the entrypoint script to be executed when the container starts
+# Set the entrypoint for the container
 ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Expose port
+# Expose the port the app runs on
 EXPOSE 8000
 
-# Use gunicorn as the WSGI server
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "300", "wsgi:app"]
+# The command to start the Gunicorn server
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "300", "--log-level", "debug", "--access-logfile", "-", "--error-logfile", "-", "wsgi:app"]
