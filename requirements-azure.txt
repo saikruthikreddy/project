@@ -55,3 +55,7 @@ jinja2>=3.0.0
 markupsafe>=2.0.0
 itsdangerous>=2.0.0
 blinker>=1.6.0
+
+# azure
+azure-storage-blob==12.19.1
+azure-identity==1.16.1

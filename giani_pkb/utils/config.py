@@ -14,6 +14,11 @@ class Config:
     # Database configuration
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'users.db')
 
+    # Blob Storage Configuration
+    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')
+    STORAGE_ACCOUNT_NAME = os.getenv('STORAGE_ACCOUNT_NAME', 'gianidevstorage')
+    STORAGE_ACCOUNT_URL = f"https://{STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+
     # JWT configuration
     JWT_SECRET = os.getenv('JWT_SECRET', 'GIANIAI')  # Move to environment variable in production
     JWT_ALGORITHM = 'HS256'
