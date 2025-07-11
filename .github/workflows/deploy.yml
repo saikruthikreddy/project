@@ -6,15 +6,35 @@ on:
       - main
 
 jobs:
-  # Job 1: Build the base image (only if needed)
-  build-base-image:
-    # This job only runs if the push
-    # includes changes to the requirements file or the base Dockerfile.
-    if: "contains(github.event.head_commit.message, '[build base]') || contains(join(github.event.commits.*.modified), 'requirements-azure.txt') || contains(join(github.event.commits.*.modified), 'base.Dockerfile')"
+  # Job 1: Check for dependency changes.
+  # This job runs on every push and determines if the base image needs to be rebuilt.
+  check-for-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      build_base: ${{ steps.changed-files.outputs.any_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          # We need to fetch the history to compare file changes
+          fetch-depth: 2
 
+      - name: Check for dependency file changes
+        id: changed-files
+        uses: tj-actions/changed-files@v44 # Using a dedicated action for reliability
+        with:
+          files: |
+            requirements-azure.txt
+            base.Dockerfile
+
+  # Job 2: Build the base image conditionally.
+  # This job only runs if the first job detected a change.
+  build-base-image:
+    needs: check-for-changes
+    if: needs.check-for-changes.outputs.build_base == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout GitHub Action'
+      - name: 'Checkout code'
         uses: actions/checkout@v3
 
       - name: 'Login to Azure Container Registry'
@@ -30,13 +50,18 @@ jobs:
           docker build -t gianidevacr.azurecr.io/giani-ai-base:latest -f base.Dockerfile .
           docker push gianidevacr.azurecr.io/giani-ai-base:latest
 
-  # Job 2: Build and deploy the application
+  # Job 3: Build and deploy the application.
+  # This job always runs, but it waits for the other two jobs to finish first.
   deploy-application:
-    needs: build-base-image
+    needs: [check-for-changes, build-base-image]
+    # This condition is key:
+    # It runs if everything so far has succeeded, OR if the 'build-base-image' job was skipped.
+    # It will NOT run if 'build-base-image' fails.
+    if: success() || needs.build-base-image.result == 'skipped'
 
     runs-on: ubuntu-latest
     steps:
-      - name: 'Checkout GitHub Action'
+      - name: 'Checkout code'
         uses: actions/checkout@v3
 
       - name: 'Login to Azure'
