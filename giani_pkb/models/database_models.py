@@ -62,6 +62,23 @@ class Project(Base):
             'created_at': self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
             'updated_at': self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
         }
+    
+    def to_dict_detailed(self):
+        """Convert project to dictionary for JSON serialization."""
+        return {
+            'id': str(self.id),  # Convert to string for consistency
+            'name': self.name,
+            'description': self.description,
+            'client_name': self.client_name,
+            'client_industry': self.client_industry,
+            'target_audience': self.target_audience,
+            'key_client_stakeholders_profiles': self.key_client_stakeholders_profiles,
+            'objectives': self.objectives,
+            'owner_id': str(self.owner_id),  # Convert UUID to string
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
+        }
 
 class Document(Base):
     """Document model for storing document metadata and information."""

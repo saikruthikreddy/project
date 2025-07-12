@@ -215,7 +215,7 @@ FLASK_ENV=development
 GEMINI_API_KEY=your_google_gemini_api_key_here
 JWT_SECRET=your_jwt_secret_key_here
 DATABASE_URL=sqlite:///./giani_ai.db
-CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+CORS_ORIGINS=http://localhost:3000,https://localhost:3000
 LOG_LEVEL=INFO
 ```
 
@@ -385,7 +385,7 @@ When modifying database models:
 | `GEMINI_API_KEY` | Google Gemini API key | Required |
 | `JWT_SECRET` | JWT signing secret | `GIANIAI` |
 | `DATABASE_URL` | Database connection string | `sqlite:///./giani_ai.db` |
-| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000,http://localhost:8000` |
+| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000,https://localhost:3000` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 
 ## 🚀 Deployment
