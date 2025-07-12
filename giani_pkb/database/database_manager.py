@@ -76,33 +76,30 @@ class DatabaseManager:
             return False
         return username.replace('_', '').replace('-', '').isalnum()
 
-    # User Operations
     def create_user(self, username: str, email: str, password: str,
-                   is_superuser: bool = False) -> Optional[Dict[str, Any]]:
+                is_superuser: bool = False) -> Optional[Dict[str, Any]]:
         """Create a new user with proper password hashing and enhanced validation."""
         try:
             # Input validation
             if not self._validate_email(email):
                 raise ValidationError("Invalid email format")
-            
             if not self._validate_username(username):
                 raise ValidationError("Username must be 3-50 characters and contain only letters, numbers, hyphens, and underscores")
-            
             if not password or len(password) < 8:
                 raise ValidationError("Password must be at least 8 characters long")
-
+            
             with self.get_session() as session:
                 # Check if user already exists
                 existing_user = session.query(User).filter(
                     or_(User.email == email.lower(), User.username == username.lower())
                 ).first()
-
+                
                 if existing_user:
                     if existing_user.email == email.lower():
                         raise ValidationError(f"User with email {email} already exists")
                     else:
                         raise ValidationError(f"Username {username} already exists")
-
+                
                 # Create new user
                 hashed_password = hash_password(password)
                 user = User(
@@ -114,13 +111,12 @@ class DatabaseManager:
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
-
+                
                 session.add(user)
                 session.flush()  # Get the user ID
-
                 logger.info(f"Created user: {username}")
                 return self._user_to_dict(user)
-
+                
         except ValidationError:
             raise  # Re-raise validation errors
         except SQLAlchemyError as e:
