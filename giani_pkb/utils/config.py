@@ -14,6 +14,11 @@ class Config:
     # Database configuration
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'users.db')
 
+    # Blob Storage Configuration
+    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')
+    STORAGE_ACCOUNT_NAME = os.getenv('STORAGE_ACCOUNT_NAME', 'gianidevstorage')
+    STORAGE_ACCOUNT_URL = f"https://{STORAGE_ACCOUNT_NAME}.blob.core.windows.net"
+
     # JWT configuration
     JWT_SECRET = os.getenv('JWT_SECRET', 'GIANIAI')  # Move to environment variable in production
     JWT_ALGORITHM = 'HS256'
@@ -57,7 +62,10 @@ class Config:
     API_VERSION = 'v1'
 
     # CORS configuration
-    CORS_ORIGINS = ["https://a1d5a537b696.ngrok-free.app"]
+    # read the comma-separated string (or default to empty)
+    _cors = os.getenv("CORS_ORIGINS", "")
+    # split on commas, strip any whitespace, and drop empty strings
+    CORS_ORIGINS = [origin.strip() for origin in _cors.split(",") if origin.strip()]
 
     # Logging configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
