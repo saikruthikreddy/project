@@ -12,6 +12,7 @@ import secrets
 import uuid
 
 from giani_pkb.utils.response_utils import api_error, api_authentication_error
+from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ class AuthUtils:
             return None
 
     def create_user(self, username: str, email: str, password: str = '',
-                   is_superuser: bool = False) -> Optional[str]:
+                    is_superuser: bool = False) -> Optional[str]:
         """Create a new user."""
         try:
             # Check if user already exists
@@ -213,8 +214,8 @@ class AuthUtils:
             if existing_user:
                 logger.warning(f"User with email {email} already exists")
                 return None
-
-            # Create user using database manager
+            
+            # Create user using database manager - this may raise ValidationError
             user = self.db_manager.create_user(username, email, password or "temp_password", is_superuser)
             if user and 'id' in user:
                 logger.info(f"Created user: {username} with ID: {user['id']}")
@@ -222,10 +223,16 @@ class AuthUtils:
             else:
                 logger.error(f"User creation failed for {username}, no ID returned.")
                 return None
-
+                
+        except ValidationError:
+            # Re-raise validation errors to be caught by the route handler
+            raise
+        except DatabaseError:
+            # Re-raise database errors to be caught by the route handler
+            raise
         except Exception as e:
-            logger.error(f"Database error creating user: {e}")
-            return None
+            logger.error(f"Unexpected error creating user: {e}")
+            raise DatabaseError(f"Failed to create user: {e}")
 
     def update_user_projects_list(self, user_id: str, project_name: str, operation: str = 'add') -> bool:
         """Update user's projects list."""

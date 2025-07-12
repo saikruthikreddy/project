@@ -12,6 +12,7 @@ from giani_pkb.utils.response_utils import (
     api_internal_server_error, ApiResponseBuilder
 )
 from giani_pkb.utils.auth_utils import AuthUtils, hash_password, verify_password
+from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 logger = logging.getLogger(__name__)
 
 # Microsoft OAuth configuration
@@ -295,33 +296,37 @@ def create_auth_routes():
             data = request.get_json()
             if not data:
                 return api_validation_error('No data provided')
-
+            
             email = data.get('email')
             password = data.get('password')
             name = data.get('name')
-
+            
+            # Basic validation
             if not email or not password:
                 return api_validation_error('Email and password are required')
-
-            # Check if user already exists
+            
+            if not name:
+                return api_validation_error('Name is required')
+            
+            # Check if user already exists (optional - db layer will also check)
             existing_user = auth_utils.get_user_by_email(email)
             if existing_user:
                 return api_validation_error('User already exists')
-
-            # Create user
+            
+            # Create user - this will raise ValidationError if validation fails
             user_id = auth_utils.create_user(name, email, password, is_superuser=False)
             if not user_id:
                 return api_internal_server_error('Failed to create user')
-
+            
             # Fetch the newly created user
             user = auth_utils.get_user_by_email(email)
             if not user:
                 return api_internal_server_error('User creation succeeded but user data fetch failed')
-
+            
             # Create JWT tokens
             accessToken = auth_utils.create_jwt_token(user_id, email, 30 * 60)  # 30 mins
             refreshToken = auth_utils.create_jwt_token(user_id, email, 7 * 24 * 60 * 60)  # 7 days
-
+            
             response_data = {
                 'user': {
                     'id': user_id,
@@ -333,14 +338,24 @@ def create_auth_routes():
                     'refreshToken': refreshToken
                 }
             }
-
-            response = make_response(api_success(response_data, 'Login successful'))
+            
+            response = make_response(api_success(response_data, 'Registration successful'))
             set_auth_cookies(response, accessToken, refreshToken)
             return response
+            
+        except ValidationError as e:
+            # Handle validation errors from the database layer
+            logger.warning(f"Validation error during registration: {e}")
+            return api_validation_error(str(e))
+        
+        except DatabaseError as e:
+            # Handle database errors
+            logger.error(f"Database error during registration: {e}")
+            return api_internal_server_error('Database error occurred during registration')
+        
         except Exception as e:
-            logger.error(f"Error getting current user: {e}")
-            return api_internal_server_error('Failed to get user information', str(e))
-
+            logger.error(f"Unexpected error during registration: {e}")
+            return api_internal_server_error('Failed to register user', str(e))
 
     @auth.route('/health', methods=['GET'])
     def health_check():
