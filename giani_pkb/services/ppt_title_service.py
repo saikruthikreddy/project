@@ -5,8 +5,9 @@ import google.generativeai as genai
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.services.project_service import get_project_purpose
 
-# Configure Gemini API
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
+genai.configure(api_key=GEMINI_API_KEY)
+
 
 def calculate_word_count(text: Optional[str]) -> Optional[int]:
     if text and text.strip():
@@ -119,7 +120,7 @@ def generate_titles(payload):
             isTargetStyleTopical="True" if is_target_style_topical else "False"
         )
 
-        model = genai.GenerativeModel("gemini-1.5-pro")
+        model = genai.GenerativeModel(GEMINI_PRO_MODEL)
         response = model.generate_content(filled_prompt)
         response_text = response.text.strip()
 

@@ -5,8 +5,9 @@ from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.services.project_service import get_project_purpose
 
 # Configure Gemini API
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL, GEMINI_FLASH_MODEL
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
 
 def review_slide(payload):
     """
