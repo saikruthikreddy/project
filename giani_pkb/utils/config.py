@@ -13,6 +13,7 @@ class Config:
 
     # Database configuration
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'users.db')
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./giani_ai.db")
 
     # Blob Storage Configuration
     STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')

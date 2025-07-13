@@ -8,11 +8,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 import logging
+from giani_pkb.utils.config import config
 
 logger = logging.getLogger(__name__)
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./giani_ai.db")
+DATABASE_URL = getattr(config, "DATABASE_URL", "sqlite:///./giani_ai.db")
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # Create SQLAlchemy engine
