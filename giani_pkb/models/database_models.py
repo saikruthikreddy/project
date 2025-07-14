@@ -1,6 +1,3 @@
-"""
-SQLAlchemy database models for the Giani AI system.
-"""
 import uuid
 
 from typing import List
