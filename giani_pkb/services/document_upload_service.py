@@ -1068,14 +1068,14 @@ class DocumentUploadService:
                 raise FileProcessingError(f"Failed to copy file to destination: {copy_error}")
 
             # Create document metadata
-            document_id = str(uuid.uuid4())
+            document_id = uuid.uuid4()
             metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
             metadata_path = os.path.join(dest_dir, metadata_filename)
 
             try:
                 # Create DocumentMetadata object
                 doc_meta = DocumentMetadata(
-                    id=document_id,
+                    id=str(document_id),
                     originalFilename=original_filename,
                     fileSize=file_size,
                     fileMimeType=mime_type,
@@ -1094,8 +1094,15 @@ class DocumentUploadService:
                 )
 
                 # Convert user_id and project_id to proper types for database
-                user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-                project_int = int(project_id) if isinstance(project_id, str) else project_id
+                try:
+                    user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+                except ValueError:
+                    raise FileProcessingError(f"Invalid user_id format: {user_id}")
+
+                try:
+                    project_int = int(project_id) if isinstance(project_id, str) else project_id
+                except (ValueError, TypeError):
+                    raise FileProcessingError(f"Invalid project_id format: {project_id}")
 
                 # Create document in database
                 document = self.db_manager.create_document(
