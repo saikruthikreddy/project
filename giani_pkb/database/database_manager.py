@@ -1440,42 +1440,36 @@ class DatabaseManager:
 
     # Document Chunk Operations (Enhanced)
     def create_document_chunk(self, **kwargs) -> DocumentChunk:
-        """Create a new document chunk with enhanced validation."""
+        """Create a new document chunk with UUID conversion for SQLite."""
         try:
-            # Input validation
+            # Convert UUID fields to strings for SQLite compatibility
+            if 'chunk_id' in kwargs and kwargs['chunk_id']:
+                if isinstance(kwargs['chunk_id'], uuid.UUID):
+                    kwargs['chunk_id'] = str(kwargs['chunk_id'])
+            
+            if 'vector_id' in kwargs and kwargs['vector_id']:
+                if isinstance(kwargs['vector_id'], uuid.UUID):
+                    kwargs['vector_id'] = str(kwargs['vector_id'])
+            
+            # Rest of your existing validation code...
             required_fields = ['document_id', 'chunk_text']
             for field in required_fields:
                 if not kwargs.get(field):
                     raise ValidationError(f"Required field '{field}' is missing")
-
-            # Validate chunk_index if provided
-            chunk_index = kwargs.get('chunk_index')
-            if chunk_index is not None and (not isinstance(chunk_index, int) or chunk_index < 0):
-                raise ValidationError("chunk_index must be a non-negative integer")
-
+            
             with self.get_session() as session:
-                # Verify document exists
-                document = session.query(Document).filter(
-                    Document.id == kwargs.get('document_id')
-                ).first()
-                if not document:
-                    raise ValidationError(f"Document with ID {kwargs.get('document_id')} not found")
-
                 chunk = DocumentChunk(**kwargs)
                 session.add(chunk)
                 session.flush()
-                
-                # Detach from session
                 session.expunge(chunk)
-                
-                logger.info(f"Created document chunk for document ID: {kwargs.get('document_id')}")
                 return chunk
-
+                
         except ValidationError:
-            raise  # Re-raise validation errors
+            raise
         except SQLAlchemyError as e:
             logger.error(f"Database error creating document chunk: {e}")
             raise DatabaseError(f"Failed to create document chunk: {e}")
+
 
     def get_document_chunks(self, document_id: int) -> List[DocumentChunk]:
         """Get all chunks for a document with enhanced ordering."""
@@ -1996,19 +1990,43 @@ class DatabaseManager:
             logger.error(f"Database error saving summary: {e}")
             return False
 
+    def _serialize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert UUID objects to strings in metadata for JSON serialization."""
+        if not isinstance(metadata, dict):
+            return metadata
+        
+        def convert_value(value):
+            if isinstance(value, uuid.UUID):
+                return str(value)
+            elif isinstance(value, dict):
+                return {k: convert_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [convert_value(item) for item in value]
+            else:
+                return value
+        
+        return {key: convert_value(value) for key, value in metadata.items()}
+
     def save_chunks(self, document_id: int, chunks: List[Any]) -> bool:
         """Save document chunks to the database."""
         try:
             with self.get_session() as session:
                 for i, chunk_data in enumerate(chunks):
+                    # Convert metadata to dict and handle UUIDs
+                    metadata_dict = chunk_data[1].to_dict() if hasattr(chunk_data[1], 'to_dict') else chunk_data[1]
+                    
+                    # Convert UUIDs to strings in metadata
+                    clean_metadata = self._serialize_metadata(metadata_dict)
+                    
                     chunk = DocumentChunk(
                         document_id=document_id,
                         chunk_index=i,
                         chunk_text=chunk_data[0],
-                        metadata_=chunk_data[1].to_dict(),
+                        metadata_=clean_metadata,
                     )
                     session.add(chunk)
                 return True
         except SQLAlchemyError as e:
             logger.error(f"Database error saving chunks: {e}")
             return False
+

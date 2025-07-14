@@ -125,13 +125,14 @@ class Document(Base):
 class DocumentChunk(Base):
     """Model for storing document chunks for processing and analysis."""
     __tablename__ = "document_chunks"
-
+    
     id = Column(Integer, primary_key=True, index=True)
     chunk_id = Column(String(100), unique=True, index=True, nullable=False)
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
-    chunk_text_content = Column(Text, nullable=False)
-    source_page_number = Column(JSON)  # Store as JSON array for multiple pages
-    structural_metadata = Column(JSON, default=dict)
+    chunk_index = Column(Integer, nullable=True, default=0)
+    chunk_text = Column(Text, nullable=False)  # Changed from chunk_text_content
+    source_page_number = Column(JSON)
+    metadata_ = Column(JSON, default=dict)  # Changed from structural_metadata
     vector_id = Column(String(100))
     embedding_checksum = Column(String(64))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

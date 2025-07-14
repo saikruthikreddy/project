@@ -1,0 +1,202 @@
+{
+  "metadata_version": "1.1",
+  "created_date": "2025-07-14T17:09:27.526951",
+  "last_updated": "2025-07-14T18:56:27.105967",
+  "total_documents": 12,
+  "documents": [
+    {
+      "document_id": "c81af891-0d93-4ebc-9a2c-a419817b3042",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_170927_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T17:09:27.521884",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_170927_Summarization_and_RAg_steps.docx"
+    },
+    {
+      "document_id": "ed22f710-021f-45d2-8280-58d4eb82dda5",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_171717_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T17:17:17.676701",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_171717_Summarization_and_RAg_steps.docx"
+    },
+    {
+      "document_id": "69daf0f5-5898-402e-94f9-80dab98d0a71",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_172011_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T17:20:11.395566",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_172011_Summarization_and_RAg_steps.docx"
+    },
+    {
+      "document_id": "3721b632-697e-497d-bd65-b7926337e36d",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_182314_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:23:14.228763",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_182314_Summarization_and_RAg_steps.docx"
+    },
+    {
+      "document_id": "b021bbb0-439c-49af-908c-3b269145a4a1",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_182550_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:25:50.409874",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_182550_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "c593f3ec-d741-4b22-a3c7-ea91b7216da6",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_182933_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:29:33.428743",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_182933_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "ada0bc61-0ab7-4ad3-9401-1960f71732f4",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_183316_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:33:16.094811",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_183316_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "6513a8f8-efdb-43fa-83ce-521ca460cb7f",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_183514_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:35:14.051529",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_183514_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "309c6920-3925-4738-8bd3-1790ebf311c0",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_183858_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:38:58.700849",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_183858_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "168836c4-52fa-47f1-a02f-f8083b79e45d",
+      "original_filename": "Summarization_and_RAg_steps_1.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_184438_Summarization_and_RAg_steps_1.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:44:38.720624",
+      "user_id": "d8f904d2-6dec-48e6-a879-910305a5a214",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_184438_Summarization_and_RAg_steps_1.docx"
+    },
+    {
+      "document_id": "5f2fbec5-bdce-4d1a-acd3-d613c900ff72",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_185102_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:51:02.370399",
+      "user_id": "2bd1cfa0-2e4f-470d-9f92-292394c1a992",
+      "project_id": "1",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_185102_Summarization_and_RAg_steps.docx"
+    },
+    {
+      "document_id": "e51fe505-0f80-47a3-b0d7-1bb274de3a16",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250714_185627_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-14T18:56:27.100474",
+      "user_id": "2bd1cfa0-2e4f-470d-9f92-292394c1a992",
+      "project_id": "1",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250714_185627_Summarization_and_RAg_steps.docx"
+    }
+  ],
+  "statistics": {
+    "document_types": {
+      "39. Generic Text Document": 12
+    },
+    "ai_classifications": {
+      "Generic Document": 12
+    },
+    "priority_levels": {
+      "Medium": 12
+    },
+    "file_types": {
+      ".docx": 12
+    }
+  }
+}

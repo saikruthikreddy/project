@@ -73,6 +73,9 @@ class Config:
 
     # AI Service configuration
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
+    DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 
     # Microsoft OAuth configuration
     MICROSOFT_CLIENT_ID = os.getenv('MICROSOFT_CLIENT_ID')

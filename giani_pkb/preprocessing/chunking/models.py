@@ -11,7 +11,6 @@ class ChunkMetadata:
     # Required fields (no defaults) must come first
     document_id: str
     project_id: str
-
     # Optional fields (with defaults) come after
     chunk_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     source_page_numbers: List[int] = field(default_factory=list)
@@ -23,7 +22,8 @@ class ChunkMetadata:
     previous_chunk_id: Optional[str] = None
     slide_context_id: Optional[str] = None
     same_table_group_id: Optional[str] = None
-
+    chunk_index: Optional[int] = None  # Add chunk_index to metadata
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert the metadata to a dictionary."""
         return {
@@ -39,4 +39,5 @@ class ChunkMetadata:
             "previous_chunk_id": self.previous_chunk_id,
             "slide_context_id": self.slide_context_id,
             "same_table_group_id": self.same_table_group_id,
+            "chunk_index": self.chunk_index,
         }
