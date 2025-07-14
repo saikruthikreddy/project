@@ -81,7 +81,7 @@ class Document(Base):
     """Document model for storing document metadata and information."""
     __tablename__ = "documents"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, nullable=False)
     original_filename = Column(String(255), nullable=False)
     file_size = Column(Integer, nullable=False)
     file_mime_type = Column(String(100), nullable=False)

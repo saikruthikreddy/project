@@ -25,6 +25,8 @@ from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
+from giani_pkb.services.summarization import SummarizationService
+from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 
 logger = logging.getLogger(__name__)
 
@@ -1097,6 +1099,7 @@ class DocumentUploadService:
 
                 # Create document in database
                 document = self.db_manager.create_document(
+                    id=document_id,
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
@@ -1148,6 +1151,46 @@ class DocumentUploadService:
             except Exception as cleanup_error:
                 logger.warning(f"Cleanup error for {temp_document_id}: {cleanup_error}")
                 # Don't fail the entire process for cleanup errors
+            
+            # Summarization
+            try:
+                summarization_service = SummarizationService()
+                summary = summarization_service.summarize_document(doc_meta)
+                if summary:
+                    # Save summary to database
+                    self.db_manager.save_summary(
+                        document_id=document_id,
+                        summary_data=summary,
+                    )
+                    logger.info(f"Successfully generated and saved summary for document: {original_filename}")
+            except Exception as e:
+                logger.error(f"Error during summarization for document {original_filename}: {e}")
+
+
+            # Chunking
+            try:
+                parsed_blocks, _ = self.document_processor.process_single_file(
+                    file_path=dest_path,
+                    document_id=document_id,
+                    project_id=project_id
+                )
+                chunks = chunk_document_adaptive(
+                    parsed_blocks=parsed_blocks,
+                    document_id=document_id,
+                    project_id=project_id,
+                    document_type=doc_meta.finalCategory,
+                    openai_api_key=config.OPENAI_API_KEY
+                )
+                if chunks:
+                    # Save chunks to database
+                    self.db_manager.save_chunks(
+                        document_id=document_id,
+                        chunks=chunks,
+                    )
+                    logger.info(f"Successfully chunked and saved document: {original_filename}")
+            except Exception as e:
+                logger.error(f"Error during chunking for document {original_filename}: {e}")
+
 
             logger.info(f"Document processing completed successfully: {original_filename}")
 

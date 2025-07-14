@@ -1979,3 +1979,36 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error getting user statistics: {e}")
             return {}
+
+    def save_summary(self, document_id: int, summary_data: Dict[str, Any]) -> bool:
+        """Save a document summary to the database."""
+        try:
+            with self.get_session() as session:
+                summary = DocumentSummary(
+                    document_id=document_id,
+                    summary_text=summary_data.get("summary_text"),
+                    llm_analysis=summary_data.get("llm_analysis"),
+                    processing_timestamp=datetime.utcnow(),
+                )
+                session.add(summary)
+                return True
+        except SQLAlchemyError as e:
+            logger.error(f"Database error saving summary: {e}")
+            return False
+
+    def save_chunks(self, document_id: int, chunks: List[Any]) -> bool:
+        """Save document chunks to the database."""
+        try:
+            with self.get_session() as session:
+                for i, chunk_data in enumerate(chunks):
+                    chunk = DocumentChunk(
+                        document_id=document_id,
+                        chunk_index=i,
+                        chunk_text=chunk_data[0],
+                        metadata_=chunk_data[1].to_dict(),
+                    )
+                    session.add(chunk)
+                return True
+        except SQLAlchemyError as e:
+            logger.error(f"Database error saving chunks: {e}")
+            return False

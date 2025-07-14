@@ -19,3 +19,7 @@ class ChunkMetadata:
     chunk_type: str = "unknown" # E.g. "prose", "table", "heading", "list_item", "code_block", "dialogue_turn"
     speaker_attribution: Optional[str] = None
     semantic_similarity_score: Optional[float] = None
+    slide_number: Optional[int] = None
+    previous_chunk_id: Optional[str] = None
+    slide_context_id: Optional[str] = None
+    same_table_group_id: Optional[str] = None
