@@ -23,3 +23,20 @@ class ChunkMetadata:
     previous_chunk_id: Optional[str] = None
     slide_context_id: Optional[str] = None
     same_table_group_id: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the metadata to a dictionary."""
+        return {
+            "document_id": self.document_id,
+            "project_id": self.project_id,
+            "chunk_id": self.chunk_id,
+            "source_page_numbers": self.source_page_numbers,
+            "structural_metadata": self.structural_metadata,
+            "chunk_type": self.chunk_type,
+            "speaker_attribution": self.speaker_attribution,
+            "semantic_similarity_score": self.semantic_similarity_score,
+            "slide_number": self.slide_number,
+            "previous_chunk_id": self.previous_chunk_id,
+            "slide_context_id": self.slide_context_id,
+            "same_table_group_id": self.same_table_group_id,
+        }

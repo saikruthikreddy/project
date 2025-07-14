@@ -61,7 +61,7 @@ class SummarizationService:
             max_output_tokens=8192,
         )
 
-        self.processor = DocumentProcessor(api_key=current_api_key)
+        self.processor = DocumentProcessor(api_keys={'gemini': current_api_key})
         self.api_call_tracker = APICallTracker()
 
         Path("data/summaries").mkdir(parents=True, exist_ok=True)
