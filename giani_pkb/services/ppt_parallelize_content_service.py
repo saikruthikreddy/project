@@ -4,8 +4,9 @@ import google.generativeai as genai
 from giani_pkb.utils.prompt_loader import load_prompt_template
 
 # Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL, GEMINI_FLASH_MODEL
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
 
 def parallelize_statements(payload):
     """
