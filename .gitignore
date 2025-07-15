@@ -8,7 +8,7 @@
 *.db
 *.sqlite
 *.sqlite3
-
+data
 # Python
 __pycache__/
 *.py[cod]

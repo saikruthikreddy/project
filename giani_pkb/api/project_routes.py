@@ -57,8 +57,8 @@ def create_project_routes():
             client_name = data.get('clientName', '').strip()
             client_industry = data.get('clientIndustry', '').strip()
             targetAudience = data.get('targetAudience', '').strip()
-            stakeholders = data.get('stakeholders', '').strip()
-            objectives = data.get('objectives','').strip()
+            stakeholders = data.get('keyClientStakeholdersProfiles', '').strip()
+            objectives = data.get('primaryProjectObjectivesSuccessMetrics','').strip()
 
             if not project_name:
                 return api_validation_error('Project name is required')

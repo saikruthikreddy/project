@@ -42,12 +42,12 @@ Based ONLY on the provided 'Extracted Key Document Content/Chunks' and heavily g
     *   Identify and list 5-7 GENERAL KEYWORDS from the document that best represent its core content, focusing on interaction, decision, and feedback terms.
 
 OUTPUT FORMAT (Strictly JSON, don't add \n or other special characters):
-{
+{{
   "ai_overall_key_themes_list": ["..."],
-  "ai_high_level_narrative_summary": ["..."],
-  "ai_main_topics_with_summaries_list_of_objects": [{"topic_name": "...", "topic_summary": "..."}],
+  "ai_high_level_narrative_summary": "...",
+  "ai_main_topics_with_summaries_list_of_objects": [{{"topic_name": "...", "topic_summary": "..."}}],
   "ai_key_takeaways_bullets": ["..."],
-  "extracted_metadata": {
+  "extracted_metadata": {{
     "suggested_document_title": "...",
     "implied_audience": "...",
     "key_dates_mentioned": ["..."],
@@ -57,22 +57,22 @@ OUTPUT FORMAT (Strictly JSON, don't add \n or other special characters):
     "document_overall_sentiment": "...",
     "key_questions_answered_or_posed": ["..."],
     "main_methodology_or_approach_used": "...",
-    "rag_specific_metadata": {
+    "rag_specific_metadata": {{
       "key_questions_asked_by_client_list": ["..."],
       "defined_next_steps_for_client_list": ["..."],
       "defined_next_steps_for_internal_team_list": ["..."],
       "ai_generated_potential_questions_list": ["..."]
-    },
-    "cluster_d_specific_metadata": {
+    }},
+    "cluster_d_specific_metadata": {{
       "interaction_date": "...",
       "key_attendees_or_participants_list": ["..."],
       "main_topics_or_agenda_items_discussed_list": ["..."],
-      "key_decisions_made_list_of_objects": [{"decision": "...", "decision_maker": "...", "rationale": "..."}],
-      "distinct_action_items_list_of_objects": [{"action": "...", "owner": "...", "deadline": "..."}],
+      "key_decisions_made_list_of_objects": [{{"decision": "...", "decision_maker": "...", "rationale": "..."}}],
+      "distinct_action_items_list_of_objects": [{{"action": "...", "owner": "...", "deadline": "..."}}],
       "unresolved_issues_or_parking_lot_items_list": ["..."],
       "client_requirements_or_pain_points_expressed_list": ["..."]
-    }
-  },
+    }}
+  }},
   "extracted_keywords": ["..."],
   "llm_used_for_processing": "model_name_version_used_for_this_summary"
-}
+}}

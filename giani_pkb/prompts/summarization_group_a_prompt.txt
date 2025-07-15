@@ -22,7 +22,7 @@ Based ONLY on the provided 'Extracted Key Document Content/Chunks' and heavily g
     *   Extract the following strategic and formal reporting elements:
         -   `project_objectives_stated_list`: Clearly stated primary goals or objectives.
         -   `key_recommendations_or_proposals_list`: Main recommendations, solutions, or proposals put forth.
-        -   `key_performance_indicators_metrics_list_of_objects`: Specific metrics or KPIs discussed, including their values and periods if mentioned (e.g., {"metric": "Revenue Growth", "value": "15%", "period": "YoY"}).
+        -   `key_performance_indicators_metrics_list_of_objects`: Specific metrics or KPIs discussed, including their values and periods if mentioned (e.g., {{"metric": "Revenue Growth", "value": "15%", "period": "YoY"}}).
         -   `primary_conclusions_list`: The main conclusions drawn or results presented.
         -   `target_audience_explicit`: If the document explicitly states its target audience.
     *   If '{documentSourceType}' is "SoW / Proposal Document", also extract:
@@ -45,12 +45,12 @@ Based ONLY on the provided 'Extracted Key Document Content/Chunks' and heavily g
 
 
 OUTPUT FORMAT (Strictly JSON, don't add \n or other special characters):
-{
+{{
   "ai_overall_key_themes_list": ["..."],
   "ai_high_level_narrative_summary": "...",
-  "ai_main_topics_with_summaries_list_of_objects": [{"topic_name": "...", "topic_summary": "..."}],
+  "ai_main_topics_with_summaries_list_of_objects": [{{"topic_name": "...", "topic_summary": "..."}}],
   "ai_key_takeaways_bullets": ["..."],
-  "extracted_metadata": {
+  "extracted_metadata": {{
     "suggested_document_title": "...",
     "implied_audience": "...",
     "key_dates_mentioned": ["..."],
@@ -60,22 +60,22 @@ OUTPUT FORMAT (Strictly JSON, don't add \n or other special characters):
     "document_overall_sentiment": "...",
     "key_questions_answered_or_posed": ["..."],
     "main_methodology_or_approach_used": "...",
-    "rag_specific_metadata": {
+    "rag_specific_metadata": {{
       "key_data_points_or_statistics_list": ["..."],
       "key_assumptions_list": ["..."],
       "key_dependencies_list": ["..."],
       "ai_generated_potential_questions_list": ["..."]
-    },
-    "cluster_a_specific_metadata": {
+    }},
+    "cluster_a_specific_metadata": {{
       "project_objectives_stated_list": ["..."],
       "key_recommendations_or_proposals_list": ["..."],
-      "key_performance_indicators_metrics_list_of_objects": [{"metric": "...", "value": "...", "period": "..."}],
+      "key_performance_indicators_metrics_list_of_objects": [{{"metric": "...", "value": "...", "period": "..."}}],
       "primary_conclusions_list": ["..."],
       "target_audience_explicit": "...",
-      "sow_proposal_details": { "..."},
-      "financial_report_details": { "..."}
-    }
-  },
+      "sow_proposal_details": {{ "..."}},
+      "financial_report_details": {{ "..."}}
+    }}
+  }},
   "extracted_keywords": ["..."],
   "llm_used_for_processing": "model_name_version_used_for_this_summary"
-}
+}}
