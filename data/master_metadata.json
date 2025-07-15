@@ -1,8 +1,8 @@
 {
   "metadata_version": "1.1",
   "created_date": "2025-07-14T17:09:27.526951",
-  "last_updated": "2025-07-15T14:35:05.915771",
-  "total_documents": 49,
+  "last_updated": "2025-07-15T15:07:58.895405",
+  "total_documents": 53,
   "documents": [
     {
       "document_id": "c81af891-0d93-4ebc-9a2c-a419817b3042",
@@ -751,20 +751,84 @@
       "document_purpose": "General purpose document",
       "metadata_file_path": "20250715_143442_Summarization_and_RAg_steps.docx",
       "summaryStoragePath": "data/summaries/a5293e31-5583-450b-ab2c-a5af56ba7901_summary.json"
+    },
+    {
+      "document_id": "77aa9fe6-d1f7-409a-9f91-3a91ece12f14",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250715_145631_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-15T14:56:31.449991",
+      "user_id": "b52e8c41-ea7b-4104-acf9-af2d7955e0c5",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250715_145631_Summarization_and_RAg_steps.docx",
+      "summaryStoragePath": "data/summaries/77aa9fe6-d1f7-409a-9f91-3a91ece12f14_summary.json"
+    },
+    {
+      "document_id": "d4b46fc7-046e-4b47-9b5c-40c1ef2a90a5",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250715_150326_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-15T15:03:26.555004",
+      "user_id": "b52e8c41-ea7b-4104-acf9-af2d7955e0c5",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250715_150326_Summarization_and_RAg_steps.docx",
+      "summaryStoragePath": "data/summaries/d4b46fc7-046e-4b47-9b5c-40c1ef2a90a5_summary.json"
+    },
+    {
+      "document_id": "d0266112-399d-45e3-93a1-74b5020f2450",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250715_150554_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-15T15:05:54.556545",
+      "user_id": "b52e8c41-ea7b-4104-acf9-af2d7955e0c5",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250715_150554_Summarization_and_RAg_steps.docx",
+      "summaryStoragePath": "data/summaries/d0266112-399d-45e3-93a1-74b5020f2450_summary.json"
+    },
+    {
+      "document_id": "fa2ae7c9-43ad-4fe5-875c-de851db4ef99",
+      "original_filename": "Summarization_and_RAg_steps.docx",
+      "file_path": "data/uploaded_documents/39. Generic Text Document/20250715_150736_Summarization_and_RAg_steps.docx",
+      "document_type": "39. Generic Text Document",
+      "ai_classification": "Generic Document",
+      "priority": "Medium",
+      "file_size": 38740,
+      "file_mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "date_added": "2025-07-15T15:07:36.283680",
+      "user_id": "b52e8c41-ea7b-4104-acf9-af2d7955e0c5",
+      "project_id": "3",
+      "document_purpose": "General purpose document",
+      "metadata_file_path": "20250715_150736_Summarization_and_RAg_steps.docx",
+      "summaryStoragePath": "data/summaries/fa2ae7c9-43ad-4fe5-875c-de851db4ef99_summary.json"
     }
   ],
   "statistics": {
     "document_types": {
-      "39. Generic Text Document": 49
+      "39. Generic Text Document": 53
     },
     "ai_classifications": {
-      "Generic Document": 49
+      "Generic Document": 53
     },
     "priority_levels": {
-      "Medium": 49
+      "Medium": 53
     },
     "file_types": {
-      ".docx": 49
+      ".docx": 53
     }
   }
 }

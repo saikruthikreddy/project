@@ -2003,7 +2003,6 @@ class DatabaseManager:
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database."""
-        print('Summary Data is :',summary_data)
         try:
             # Convert string to UUID if necessary
             if isinstance(document_id, str):

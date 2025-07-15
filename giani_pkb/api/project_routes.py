@@ -292,7 +292,6 @@ def create_project_routes():
                 return api_validation_error('documents array is required')
 
             documents = data['documents']
-            print(documents)
             if not documents:
                 return api_validation_error('No documents provided for processing')
 
