@@ -10,7 +10,7 @@ def get_group_a_prompt(originalFilename: str, documentSourceType: str, userNoteO
         originalFilename=originalFilename,
         documentSourceType=documentSourceType,
         userNoteOnPurpose=userNoteOnPurpose,
-        key_document_chunks=key_document_chunks
+        key_document_chunks_for_processing=key_document_chunks
     )
 
 def get_group_b_prompt(originalFilename: str, documentSourceType: str, userNoteOnPurpose: str, key_document_chunks: str) -> str:
@@ -20,7 +20,7 @@ def get_group_b_prompt(originalFilename: str, documentSourceType: str, userNoteO
         originalFilename=originalFilename,
         documentSourceType=documentSourceType,
         userNoteOnPurpose=userNoteOnPurpose,
-        key_document_chunks=key_document_chunks
+        key_document_chunks_for_processing=key_document_chunks
     )
 
 def get_group_c_prompt(originalFilename: str, documentSourceType: str, userNoteOnPurpose: str, key_document_chunks: str) -> str:
@@ -30,7 +30,7 @@ def get_group_c_prompt(originalFilename: str, documentSourceType: str, userNoteO
         originalFilename=originalFilename,
         documentSourceType=documentSourceType,
         userNoteOnPurpose=userNoteOnPurpose,
-        key_document_chunks=key_document_chunks
+        key_document_chunks_for_processing=key_document_chunks
     )
 
 def get_group_d_prompt(originalFilename: str, documentSourceType: str, userNoteOnPurpose: str, key_document_chunks: str) -> str:
@@ -40,7 +40,7 @@ def get_group_d_prompt(originalFilename: str, documentSourceType: str, userNoteO
         originalFilename=originalFilename,
         documentSourceType=documentSourceType,
         userNoteOnPurpose=userNoteOnPurpose,
-        key_document_chunks=key_document_chunks
+        key_document_chunks_for_processing=key_document_chunks
     )
 
 def get_appropriate_prompt(document_category: str, originalFilename: str, documentSourceType: str, userNoteOnPurpose: str, key_document_chunks: str) -> str:

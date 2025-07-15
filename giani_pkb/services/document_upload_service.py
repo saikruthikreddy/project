@@ -866,12 +866,12 @@ class DocumentUploadService:
                 pass
                 
             raise FileProcessingError(error_msg)
-        else:
-            #delete processed documents
-            for i, doc_data in enumerate(document_data):
-                    # Extract and validate temp_document_id
-                    temp_doc_id = doc_data.get('temp_document_id')
-                    self.db_manager.delete_temp_document(temp_doc_id)
+        # else:
+        #     #delete processed documents
+        #     for i, doc_data in enumerate(document_data):
+        #             # Extract and validate temp_document_id
+        #             temp_doc_id = doc_data.get('temp_document_id')
+        #             self.db_manager.delete_temp_document(temp_doc_id)
 
 
     def get_ai_suggestions(self, temp_document_id: str, project_id: str, user_id: str) -> Dict[str, Any]:

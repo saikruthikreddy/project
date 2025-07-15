@@ -1,10 +1,13 @@
 """
 Summarization service for processing and summarizing documents using Gemini LLM.
 """
-import json
+
 import os
-import logging
 import time
+import uuid
+import json
+import logging
+import re
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 
@@ -12,8 +15,8 @@ import google.generativeai as genai
 
 from giani_pkb.models.document import DocumentMetadata
 from giani_pkb.services.metadata_manager import MetadataManagerService
-from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
 from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
 from giani_pkb.preprocessing.document_processor import DocumentProcessor
 from giani_pkb.utils.gemini_client import initialize_gemini_client
@@ -24,266 +27,267 @@ class SummarizationService:
     """
     Service for summarizing documents using Gemini LLM based on document categories.
     """
+
     def __init__(self,
                  master_metadata_path: Optional[str] = None,
                  gemini_api_key: Optional[str] = None,
                  gemini_model: str = GEMINI_PRO_MODEL):
-        """
-        Initialize the SummarizationService.
-
-        Args:
-            master_metadata_path: Optional path to master metadata file
-            gemini_api_key: Optional custom API key
-            gemini_model: Gemini model to use for summarization
-        """
         self.logger = logging.getLogger(__name__)
         self.metadata_manager = MetadataManagerService(master_metadata_path=master_metadata_path)
-        self.gemini_model = gemini_model
+        self.gemini_api_key = gemini_api_key or GEMINI_API_KEY
 
-        current_api_key = gemini_api_key if gemini_api_key else GEMINI_API_KEY
-        if not current_api_key:
-            self.logger.error("Gemini API key must be provided for SummarizationService.")
-            raise ConfigurationError("Gemini API key must be provided either as parameter or via GEMINI_API_KEY in config/env")
+        if not self.gemini_api_key:
+            raise ConfigurationError("Gemini API key must be provided.")
 
-        # Initialize Gemini client with the appropriate API key
-        initialize_gemini_client(current_api_key)
+        initialize_gemini_client(self.gemini_api_key)
 
         try:
-            self.model = genai.GenerativeModel(self.gemini_model)
+            self.model = genai.GenerativeModel(gemini_model)
         except Exception as e:
-            self.logger.error(f"Failed to initialize GenerativeModel with {self.gemini_model}. Error: {type(e).__name__} - {e}")
-            raise ConfigurationError(f"Failed to initialize GenerativeModel with {self.gemini_model}. Please check model name and API key configuration. Original error: {e}")
+            raise ConfigurationError(f"Failed to initialize Gemini model: {e}")
 
+        self.processor = DocumentProcessor(api_keys={'gemini': self.gemini_api_key})
+        self.api_call_tracker = APICallTracker()
+        Path("data/summaries").mkdir(parents=True, exist_ok=True)
+
+        # Gemini Generation Config with JSON schema
         self.generation_config = genai.types.GenerationConfig(
             temperature=0.1,
             top_p=0.8,
             top_k=40,
             max_output_tokens=8192,
+            response_mime_type="application/json",
+            response_schema=self._get_response_schema()
         )
 
-        self.processor = DocumentProcessor(api_keys={'gemini': current_api_key})
-        self.api_call_tracker = APICallTracker()
-
-        Path("data/summaries").mkdir(parents=True, exist_ok=True)
-        self.logger.info("SummarizationService initialized. Summary directory 'data/summaries' ensured.")
+    def _get_response_schema(self):
+        """Return expected JSON schema."""
+        return {
+            "type": "object",
+            "properties": {
+                "ai_overall_key_themes_list": {"type": "array", "items": {"type": "string"}},
+                "ai_high_level_narrative_summary": {"type": "string"},
+                "ai_main_topics_with_summaries_list_of_objects": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "topic_name": {"type": "string"},
+                            "topic_summary": {"type": "string"}
+                        },
+                        "required": ["topic_name", "topic_summary"]
+                    }
+                },
+                "ai_key_takeaways_bullets": {"type": "array", "items": {"type": "string"}},
+                "extracted_metadata": {"type": "object"},
+                "extracted_keywords": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": [
+                "ai_overall_key_themes_list",
+                "ai_high_level_narrative_summary",
+                "ai_main_topics_with_summaries_list_of_objects",
+                "ai_key_takeaways_bullets",
+                "extracted_metadata",
+                "extracted_keywords"
+            ]
+        }
 
     def get_document_group(self, category: str) -> DocumentGroup:
-        """Determine which group a document belongs to based on its category."""
         return CATEGORY_TO_GROUP_MAPPING.get(category, DocumentGroup.GROUP_D)
 
-    def extract_document_chunks(self, document_path: str) -> str:
-        """Extract key document content chunks from the document file."""
+    def extract_document_chunks(self, document_path: str) -> List[Dict[str, Any]]:
+        """Extracts text chunks from a document."""
+        if not os.path.isabs(document_path):
+            document_path = os.path.join(os.getcwd(), document_path)
+
+        if not os.path.exists(document_path):
+            raise FileProcessingError(f"Document not found: {document_path}", filepath=document_path)
+
         try:
-            if not os.path.isabs(document_path):
-                full_path = os.path.join(os.getcwd(), document_path)
-            else:
-                full_path = document_path
+            parsed_blocks, _ = self.processor.process_single_file(document_path, "doc-id", "proj-id")
+            if not parsed_blocks:
+                return []
 
-            if not os.path.exists(full_path):
-                self.logger.warning(f"Document file not found for extraction: {full_path}")
-                raise FileProcessingError(f"Document file not found: {full_path}", filepath=full_path)
+            chunks = []
+            for i, block in enumerate(parsed_blocks):
+                text = block[0] if isinstance(block, tuple) and len(block) > 0 else ""
+                meta = block[1] if isinstance(block, tuple) and len(block) > 1 else {}
+                chunks.append({
+                    "text": text,
+                    "metadata": meta,
+                    "chunk_id": str(uuid.uuid4()),
+                    "chunk_index": i,
+                    "vector_id": block[2] if len(block) > 2 else None,
+                    "embedding_checksum": block[3] if len(block) > 3 else None
+                })
 
-            content = self.processor.process_files(str(full_path))
-            return content
-
-        except FileNotFoundError as e:
-            self.logger.error(f"Document file not found during chunk extraction: {document_path}: {e}")
-            raise FileProcessingError(f"Document file not found: {document_path}", filepath=document_path)
-        except ParsingError as e:
-            self.logger.error(f"Parsing error extracting content from {document_path}: {e}")
-            raise
+            return chunks
         except Exception as e:
-            self.logger.error(f"Unexpected error extracting content from {document_path}: {type(e).__name__} - {e}")
-            raise ParsingError(f"Unexpected error extracting content from {document_path}: {e}", filename=document_path)
+            raise ParsingError(f"Failed to process document content: {e}", filename=document_path)
 
-    def call_llm_api(self, prompt: str, max_retries: int = 3, retry_delay: float = 1.0) -> Optional[Dict[str, Any]]:
-        """Call Gemini API with the generated prompt and return parsed JSON response."""
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+    def normalize_keys(self, d):
+        """Strip whitespace from all JSON keys recursively."""
+        if isinstance(d, dict):
+            return {k.strip(): self.normalize_keys(v) for k, v in d.items()}
+        elif isinstance(d, list):
+            return [self.normalize_keys(i) for i in d]
+        return d
 
-        for attempt in range(max_retries):
+    def extract_clean_json(self, raw: str) -> Optional[str]:
+        """Clean malformed JSON content."""
+        cleaned = raw.strip()
+        if "```json" in cleaned:
+            start = cleaned.find("```json") + 7
+            end = cleaned.find("```json",start)
+            cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
+        elif "```" in cleaned:
+            start = cleaned.find("```")+7
+            end = cleaned.find("```", start)
+            cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
+
+        # Normalize brackets
+        cleaned = cleaned[cleaned.find("{"):] if "{" in cleaned else cleaned
+        cleaned = cleaned[:cleaned.rfind("}") + 1] if "}" in cleaned else cleaned
+
+        # Balance braces
+        if cleaned.count("{") > cleaned.count("}"):
+            cleaned += "}" * (cleaned.count("{") - cleaned.count("}"))
+
+        # Fix common errors
+        cleaned = re.sub(r',\s*}', '}', cleaned)
+        cleaned = re.sub(r',\s*]', ']', cleaned)
+
+        return cleaned if cleaned.startswith("{") and cleaned.endswith("}") else None
+
+    def validate_llm_response(self, response: Dict[str, Any]) -> bool:
+        required_fields = {
+            "ai_overall_key_themes_list": list,
+            "ai_high_level_narrative_summary": str,
+            "ai_main_topics_with_summaries_list_of_objects": list,
+            "ai_key_takeaways_bullets": list,
+            "extracted_metadata": dict,
+            "extracted_keywords": list
+        }
+
+        for field, field_type in required_fields.items():
+            if field not in response:
+                self.logger.error(f"Missing field in response: {field}")
+                return False
+            if not isinstance(response[field], field_type):
+                self.logger.error(f"Type mismatch for '{field}': expected {field_type}, got {type(response[field])}")
+                return False
+
+        return True
+
+    def call_llm_api(self, prompt: str, retries=3) -> Optional[Dict[str, Any]]:
+        for attempt in range(retries):
             try:
-                self.logger.info(f"Calling Gemini API (attempt {attempt + 1}/{max_retries}) with model {self.gemini_model}")
-                response = self.model.generate_content(
-                    prompt,
-                    generation_config=self.generation_config
-                )
-
-                response_text_for_tracker = response.text if response.text else "No response text received."
-                self.api_call_tracker.log_api_call(
-                    prompt=prompt,
-                    response=response_text_for_tracker,
-                    model=self.gemini_model,
-                    timestamp=timestamp
-                )
-
+                response = self.model.generate_content(prompt, generation_config=self.generation_config)
                 if not response.text:
-                    self.logger.error(f"Gemini API returned empty response for model {self.gemini_model} (attempt {attempt + 1})")
-                    if attempt < max_retries - 1:
-                        time.sleep(retry_delay)
-                        continue
-                    raise APIError(f"Gemini API returned empty response after {max_retries} attempts for model {self.gemini_model}.")
-
-                response_text_cleaned = response.text.strip()
-                if response_text_cleaned.startswith('```json'):
-                    response_text_cleaned = response_text_cleaned[7:]
-                if response_text_cleaned.endswith('```'):
-                    response_text_cleaned = response_text_cleaned[:-3]
-                response_text_cleaned = response_text_cleaned.strip()
+                    raise APIError("Empty response from LLM")
 
                 try:
-                    llm_response = json.loads(response_text_cleaned)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"Failed to parse JSON response from Gemini: {e} - Raw: {response_text_cleaned[:200]}...")
-                    raise ParsingError(f"Failed to parse JSON response from Gemini: {e}", filename="API Response")
+                    result = json.loads(response.text)
+                except json.JSONDecodeError:
+                    cleaned = self.extract_clean_json(response.text)
+                    if not cleaned:
+                        raise ParsingError("Unable to clean and parse JSON from LLM output")
+                    result = json.loads(cleaned)
 
-                llm_response["llm_used_for_processing"] = f"gemini-{self.gemini_model}"
-                self.logger.info("Successfully received and parsed Gemini API response.")
-                return llm_response
+                result = self.normalize_keys(result)
 
-            except ParsingError as pe:
-                self.logger.error(f"JSON ParsingError in call_llm_api: {pe}")
-                self.api_call_tracker.log_api_call(
-                    prompt=prompt,
-                    response=f"ParsingError: {str(pe)}",
-                    model=self.gemini_model,
-                    timestamp=timestamp
-                )
-                raise
+                if self.validate_llm_response(result):
+                    result["llm_used_for_processing"] = f"gemini-{self.model.model_name}"
+                    timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+                    self.api_call_tracker.log_api_call(prompt, str(result), self.model.model_name, timestamp)
+                    return result
+
             except Exception as e:
-                self.logger.error(f"Error calling Gemini API on attempt {attempt + 1}/{max_retries} with model {self.gemini_model}: {type(e).__name__} - {e}")
-                self.api_call_tracker.log_api_call(
-                    prompt=prompt,
-                    response=f"APIError or other exception: {type(e).__name__} - {str(e)}",
-                    model=self.gemini_model,
-                    timestamp=timestamp
-                )
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay * (2 ** attempt))
-                    continue
-                raise APIError(f"Failed to call Gemini API after {max_retries} attempts with model {self.gemini_model}: {e}")
+                self.logger.warning(f"Retrying after error: {e}")
+                time.sleep(2 ** attempt)
 
-        final_error_msg = f"Failed to get valid response from Gemini API after {max_retries} attempts (loop exhausted)."
-        self.logger.error(final_error_msg)
-        self.api_call_tracker.log_api_call(
-            prompt=prompt,
-            response=final_error_msg,
-            model=self.gemini_model,
-            timestamp=timestamp
-        )
-        raise APIError(final_error_msg)
+        raise APIError("LLM API failed after retries")
 
     def summarize_document(self, document: DocumentMetadata) -> Optional[Dict[str, Any]]:
-        """Summarize a single document based on its category."""
-        self.logger.info(f"Starting summarization for document ID: {document.id}, Filename: {document.originalFilename}")
+        self.logger.info(f"Summarizing document: {document.originalFilename}")
         try:
-            key_document_chunks = self.extract_document_chunks(document.storagePath)
+            chunks = self.extract_document_chunks(document.storagePath)
+            combined_text = "\n\n".join(chunk["text"] for chunk in chunks if chunk["text"])
+
+            if not combined_text.strip():
+                self.logger.warning("No text found in document chunks.")
+                return None
 
             prompt = get_appropriate_prompt(
                 document.finalCategory,
                 document.originalFilename,
                 document.finalCategory,
                 document.finalPurpose,
-                key_document_chunks
+                combined_text
             )
+
             llm_response = self.call_llm_api(prompt)
-
-            if llm_response:
-                result = {
-                    "document_id": document.id,
-                    "document_filename": document.originalFilename,
-                    "document_category": document.finalCategory,
-                    "document_group": self.get_document_group(document.finalCategory).value,
-                    "user_note_purpose": document.finalPurpose,
-                    "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                    "llm_analysis": llm_response
-                }
-
-                summary_file_name = f"{document.id}_summary.json"
-                summary_file_path = Path("data/summaries") / summary_file_name
-                try:
-                    with open(summary_file_path, 'w', encoding='utf-8') as sf:
-                        json.dump(result, sf, indent=2, ensure_ascii=False)
-                    self.logger.info(f"Successfully saved individual summary for document {document.id} to {summary_file_path}")
-                    result["summaryStoragePath"] = str(summary_file_path)
-
-                    update_success = self.metadata_manager.update_document_metadata_entry(
-                        document.id,
-                        {"summaryStoragePath": str(summary_file_path)}
-                    )
-                    if not update_success:
-                        self.logger.warning(f"Failed to update master_metadata.json with summaryStoragePath for document {document.id}")
-                except IOError as e:
-                    self.logger.error(f"IOError saving individual summary for document {document.id} to {summary_file_path}: {e}")
-
-                self.logger.info(f"Successfully summarized document: {document.originalFilename} (ID: {document.id})")
-                return result
-            else:
-                self.logger.error(f"LLM API call failed to return a response for document: {document.originalFilename} (ID: {document.id})")
+            if not llm_response:
                 return None
 
-        except (FileProcessingError, ParsingError, APIError) as e:
-            self.logger.error(f"Error summarizing document {document.id} ({document.originalFilename}): {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Unexpected error summarizing document {document.id} ({document.originalFilename}): {type(e).__name__} - {e}")
-            raise FileProcessingError(f"Unexpected error during summarization of document {document.id}: {e}", filepath=document.storagePath)
+            result = {
+                "document_id": document.id,
+                "document_filename": document.originalFilename,
+                "document_category": document.finalCategory,
+                "document_group": self.get_document_group(document.finalCategory).value,
+                "user_note_purpose": document.finalPurpose,
+                "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "llm_analysis": llm_response,
+                "chunks_count": len(chunks)
+            }
+
+            summary_path = Path("data/summaries") / f"{document.id}_summary.json"
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(result, f, indent=2, ensure_ascii=False)
+            result["summaryStoragePath"] = str(summary_path)
+
+            self.metadata_manager.update_document_metadata_entry(
+                document.id, {"summaryStoragePath": str(summary_path)}
+            )
+
+            return result
+        except Exception as exc:
+            raise FileProcessingError(f"Failed to summarize document: {exc}", filepath=document.storagePath)
 
     def process_all_documents(self) -> List[Dict[str, Any]]:
-        """Process all documents found by the metadata manager."""
-        self.logger.info("Starting processing of all documents for summarization.")
-        all_document_objects = self.metadata_manager.get_all_document_metadata()
+        self.logger.info("Processing all documents.")
+        documents = self.metadata_manager.get_all_document_metadata()
         results = []
 
-        if not all_document_objects:
-            self.logger.info("No documents found by metadata manager to process.")
-            return results
-
-        self.logger.info(f"Processing {len(all_document_objects)} documents found by metadata manager.")
-
-        for document_obj in all_document_objects:
+        for doc in documents:
             try:
-                result = self.summarize_document(document_obj)
-                if result:
-                    results.append(result)
-                else:
-                    self.logger.warning(f"Failed to process document (summarize_document returned None): {document_obj.originalFilename} (ID: {document_obj.id})")
+                summary = self.summarize_document(doc)
+                if summary:
+                    results.append(summary)
             except Exception as e:
-                self.logger.error(f"Error processing document {document_obj.id} ({document_obj.originalFilename}) in process_all_documents loop: {e}")
+                self.logger.error(f"Error processing document {doc.originalFilename}: {e}")
 
-        self.logger.info(f"Completed processing {len(results)} documents successfully.")
         return results
 
-    def save_summarization_results(self, results: List[Dict[str, Any]], output_path: str = "data/all_summaries_report.json"):
-        """Saves a report of all summarizations, including paths to individual summary files."""
-        self.logger.info(f"Saving summarization report for {len(results)} documents to {output_path}.")
-
-        individual_summary_paths = [result.get("summaryStoragePath") for result in results if result.get("summaryStoragePath")]
-
-        report_data = {
-            "report_metadata": {
-                "total_documents_processed": len(results),
-                "total_summaries_successfully_saved": len(individual_summary_paths),
-                "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "version": "1.1"
-            },
-            "individual_summary_paths": individual_summary_paths,
-            "api_call_summary": self.get_api_call_summary()
-        }
-
+    def save_summarization_results(self, results: List[Dict[str, Any]], output_report="data/all_summaries_report.json"):
         try:
-            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            report_data = {
+                "report_metadata": {
+                    "total_documents_processed": len(results),
+                    "total_summaries_successfully_saved": sum(1 for r in results if r.get("summaryStoragePath")),
+                    "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                    "version": "1.1"
+                },
+                "individual_summary_paths": [r["summaryStoragePath"] for r in results if r.get("summaryStoragePath")],
+                "api_call_summary": self.get_api_call_summary()
+            }
 
-            with open(output_path, 'w', encoding='utf-8') as file:
-                json.dump(report_data, file, indent=2, ensure_ascii=False)
-            self.logger.info(f"Successfully saved summarization report to {output_path}.")
-
-        except IOError as e:
-            self.logger.error(f"IOError saving summarization report to {output_path}: {e}")
-            raise FileProcessingError(f"Error writing summarization report to {output_path}: {e}", filepath=output_path)
+            Path(output_report).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_report, "w", encoding="utf-8") as f:
+                json.dump(report_data, f, indent=2, ensure_ascii=False)
+            self.logger.info("Summarization report saved.")
         except Exception as e:
-            self.logger.error(f"Unexpected error saving summarization report to {output_path}: {e}")
-            raise FileProcessingError(f"Unexpected error writing summarization report to {output_path}: {e}", filepath=output_path)
+            raise FileProcessingError(f"Error writing report file: {e}", filepath=output_report)
 
     def get_api_call_summary(self) -> Dict[str, Any]:
-        """Get summary of API calls made during processing."""
         return self.api_call_tracker.get_summary()

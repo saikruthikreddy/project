@@ -5,7 +5,7 @@ import logging
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 from contextlib import contextmanager
-from sqlalchemy import and_, or_, func, desc, asc
+from sqlalchemy import and_, or_, func, desc, asc, text
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
@@ -1450,6 +1450,9 @@ class DatabaseManager:
             if 'vector_id' in kwargs and kwargs['vector_id']:
                 if isinstance(kwargs['vector_id'], uuid.UUID):
                     kwargs['vector_id'] = str(kwargs['vector_id'])
+
+            if 'metadata_' in kwargs and kwargs['metadata_']:
+                kwargs['metadata_'] = self._serialize_metadata(kwargs['metadata_'])
             
             # Rest of your existing validation code...
             required_fields = ['document_id', 'chunk_text']
@@ -1530,6 +1533,30 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error creating document summary: {e}")
             raise DatabaseError(f"Failed to create document summary: {e}")
+    
+    def _verify_document_exists(self, document_id) -> bool:
+        """Verify that a document exists in the database."""
+        try:
+            with self.get_session() as session:
+                # Normalize document_id to string format (remove dashes for SQLite)
+                if isinstance(document_id, uuid.UUID):
+                    document_id_str = str(document_id).replace('-', '')
+                else:
+                    document_id_str = str(document_id).replace('-', '')
+                
+                result = session.execute(
+                    text("SELECT 1 FROM documents WHERE id = :doc_id"),
+                    {"doc_id": document_id_str}
+                ).fetchone()
+                
+                return result is not None
+        except SQLAlchemyError as e:
+            logger.error(f"Error verifying document existence: {e}")
+            return False
+
+
+
+
 
     def get_document_summaries(self, document_id: int) -> List[DocumentSummary]:
         """Get all summaries for a document with enhanced validation."""
@@ -1974,59 +2001,294 @@ class DatabaseManager:
             logger.error(f"Database error getting user statistics: {e}")
             return {}
 
-    def save_summary(self, document_id: int, summary_data: Dict[str, Any]) -> bool:
+    def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database."""
+        print('Summary Data is :',summary_data)
         try:
+            # Convert string to UUID if necessary
+            if isinstance(document_id, str):
+                try:
+                    document_uuid = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return False
+            else:
+                document_uuid = document_id
+                
+            # Verify the document exists before saving summary
+            if not self._verify_document_exists(document_uuid):
+                logger.error(f"Cannot save summary: document_id {document_id} does not exist")
+                return False
+                
+            # Extract llm_analysis for easier access
+            llm_analysis = summary_data.get("llm_analysis", {})
+            extracted_metadata = llm_analysis.get("extracted_metadata", {})
+            
             with self.get_session() as session:
                 summary = DocumentSummary(
-                    document_id=document_id,
-                    summary_text=summary_data.get("summary_text"),
-                    llm_analysis=summary_data.get("llm_analysis"),
+                    document_id=document_uuid,
+                    llm_analysis=llm_analysis,
+                    
+                    # Document context
+                    document_filename=summary_data.get("document_filename"),
+                    document_category=summary_data.get("document_category"),
+                    document_group=summary_data.get("document_group"),
+                    user_note_purpose=summary_data.get("user_note_purpose"),
+                    
+                    # Processing metadata
                     processing_timestamp=datetime.utcnow(),
+                    llm_model_used=llm_analysis.get("llm_used_for_processing"),
+                    summary_storage_path=summary_data.get("summaryStoragePath"),
+                    
+                    # Extracted fields for easy querying
+                    narrative_summary=llm_analysis.get("ai_high_level_narrative_summary"),
+                    key_themes=llm_analysis.get("ai_overall_key_themes_list"),
+                    key_takeaways=llm_analysis.get("ai_key_takeaways_bullets"),
+                    extracted_keywords=llm_analysis.get("extracted_keywords"),
+                    
+                    # Metadata for search and filtering
+                    document_sentiment=extracted_metadata.get("document_overall_sentiment"),
+                    suggested_title=extracted_metadata.get("suggested_document_title"),
+                    implied_audience=extracted_metadata.get("implied_audience"),
+                    geographical_focus=extracted_metadata.get("primary_geographical_focus"),
+                    
+                    # Key entities
+                    key_people_mentioned=extracted_metadata.get("key_people_or_roles_mentioned"),
+                    key_organizations_mentioned=extracted_metadata.get("key_companies_organizations_mentioned"),
+                    key_dates_mentioned=extracted_metadata.get("key_dates_mentioned"),
                 )
                 session.add(summary)
+                session.commit()
+                logger.info(f"Successfully saved summary for document {document_id}")
                 return True
+                
         except SQLAlchemyError as e:
             logger.error(f"Database error saving summary: {e}")
             return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving summary: {e}")
+            return False
 
-    def _serialize_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert UUID objects to strings in metadata for JSON serialization."""
-        if not isinstance(metadata, dict):
-            return metadata
+
+    def _normalize_document_id(self, document_id: Union[str, uuid.UUID]) -> str:
+        """Normalize document ID to string format for database storage."""
+        if isinstance(document_id, str):
+            try:
+                uuid_obj = uuid.UUID(document_id)
+                return str(uuid_obj).replace('-', '')
+            except ValueError:
+                raise ValueError(f"Invalid UUID format: {document_id}")
+        return str(document_id).replace('-', '')
+
+
+
+
+    def _convert_uuids_to_strings(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert UUID objects to strings for SQLite compatibility, handling nested structures."""
+        import uuid
+        import json
         
-        def convert_value(value):
+        converted = {}
+        for key, value in data_dict.items():
             if isinstance(value, uuid.UUID):
-                return str(value)
+                converted[key] = str(value)
             elif isinstance(value, dict):
-                return {k: convert_value(v) for k, v in value.items()}
+                # Recursively convert nested dictionaries
+                converted[key] = self._convert_dict_uuids_to_strings(value)
             elif isinstance(value, list):
-                return [convert_value(item) for item in value]
+                # Handle lists that might contain UUIDs
+                converted[key] = self._convert_list_uuids_to_strings(value)
+            elif hasattr(value, 'to_dict'):
+                # Handle objects with to_dict method
+                dict_value = value.to_dict()
+                converted[key] = self._convert_dict_uuids_to_strings(dict_value)
             else:
-                return value
-        
-        return {key: convert_value(value) for key, value in metadata.items()}
+                # For metadata_, ensure it's JSON serializable
+                if key == 'metadata_' and value is not None:
+                    try:
+                        # Try to serialize to ensure it's JSON compatible
+                        json.dumps(value)
+                        converted[key] = value
+                    except (TypeError, ValueError):
+                        # If not serializable, convert to string
+                        converted[key] = str(value)
+                else:
+                    converted[key] = value
+        return converted
 
-    def save_chunks(self, document_id: int, chunks: List[Any]) -> bool:
-        """Save document chunks to the database."""
+    def _convert_dict_uuids_to_strings(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively convert UUIDs in nested dictionaries."""
+        import uuid
+        
+        converted = {}
+        for key, value in data_dict.items():
+            if isinstance(value, uuid.UUID):
+                converted[key] = str(value)
+            elif isinstance(value, dict):
+                converted[key] = self._convert_dict_uuids_to_strings(value)
+            elif isinstance(value, list):
+                converted[key] = self._convert_list_uuids_to_strings(value)
+            else:
+                converted[key] = value
+        return converted
+
+    def _convert_list_uuids_to_strings(self, data_list: List[Any]) -> List[Any]:
+        """Convert UUIDs in lists to strings."""
+        import uuid
+        
+        converted = []
+        for item in data_list:
+            if isinstance(item, uuid.UUID):
+                converted.append(str(item))
+            elif isinstance(item, dict):
+                converted.append(self._convert_dict_uuids_to_strings(item))
+            elif isinstance(item, list):
+                converted.append(self._convert_list_uuids_to_strings(item))
+            else:
+                converted.append(item)
+        return converted
+
+
+    def save_chunks(self, document_id: str, chunks: List[Any]) -> bool:
+        """Save document chunks to the database with UUID conversion."""
+        logger.debug(f"Attempting to save {len(chunks)} chunks for document_id: {document_id}")
+        
         try:
+            # Normalize document_id to string format (remove dashes for SQLite)
+            if isinstance(document_id, uuid.UUID):
+                normalized_document_id = str(document_id).replace('-', '')
+            else:
+                normalized_document_id = str(document_id).replace('-', '')
+            
+            # Verify the document exists
+            if not self._verify_document_exists(normalized_document_id):
+                logger.error(f"Document validation failed: document_id {normalized_document_id} does not exist in documents table")
+                return False
+            
+            logger.debug(f"Document {normalized_document_id} exists, proceeding with chunk save")
+            
             with self.get_session() as session:
-                for i, chunk_data in enumerate(chunks):
-                    # Convert metadata to dict and handle UUIDs
-                    metadata_dict = chunk_data[1].to_dict() if hasattr(chunk_data[1], 'to_dict') else chunk_data[1]
+                session.begin()
+                
+                try:
+                    for i, chunk_data in enumerate(chunks):
+                        # Initialize variables with defaults
+                        chunk_text = ""
+                        chunk_metadata = {}
+                        chunk_id = str(uuid.uuid4())
+                        vector_id = None
+                        embedding_checksum = None
+                        
+                        # Handle different chunk_data formats
+                        if isinstance(chunk_data, tuple):
+                            chunk_text = chunk_data[0] if len(chunk_data) > 0 else ""
+                            chunk_metadata = chunk_data[1] if len(chunk_data) > 1 else {}
+                            chunk_id = chunk_data[2] if len(chunk_data) > 2 else str(uuid.uuid4())
+                            vector_id = chunk_data[3] if len(chunk_data) > 3 else None
+                            embedding_checksum = chunk_data[4] if len(chunk_data) > 4 else None
+                        elif isinstance(chunk_data, dict):
+                            chunk_text = chunk_data.get('text', chunk_data.get('chunk_text', ''))
+                            chunk_metadata = chunk_data.get('metadata', {})
+                            chunk_id = chunk_data.get('chunk_id', str(uuid.uuid4()))
+                            vector_id = chunk_data.get('vector_id')
+                            embedding_checksum = chunk_data.get('embedding_checksum')
+                        else:
+                            logger.error(f"Unexpected chunk_data type: {type(chunk_data)}")
+                            continue
+                        
+                        # Ensure chunk_text is a string
+                        if not isinstance(chunk_text, str):
+                            chunk_text = str(chunk_text) if chunk_text is not None else ""
+                        
+                        # Ensure chunk_id is a string
+                        if isinstance(chunk_id, uuid.UUID):
+                            chunk_id = str(chunk_id)
+                        elif chunk_id is None:
+                            chunk_id = str(uuid.uuid4())
+                        
+                        # Ensure vector_id is a string if it's a UUID
+                        if isinstance(vector_id, uuid.UUID):
+                            vector_id = str(vector_id)
+                        
+                        # Process metadata - ensure it's JSON serializable
+                        if chunk_metadata:
+                            if hasattr(chunk_metadata, 'to_dict'):
+                                metadata_dict = chunk_metadata.to_dict()
+                            else:
+                                metadata_dict = chunk_metadata
+                            
+                            # Convert any UUIDs in metadata to strings
+                            if isinstance(metadata_dict, dict):
+                                metadata_json = self._convert_dict_uuids_to_strings(metadata_dict)
+                            else:
+                                metadata_json = str(metadata_dict)
+                        else:
+                            metadata_json = {}
+                        
+                        # Ensure metadata_json is a dict
+                        if not isinstance(metadata_json, dict):
+                            metadata_json = {}
+                        
+                        chunk_dict = {
+                            'document_id': normalized_document_id,  # Use normalized string format
+                            'chunk_index': i,
+                            'chunk_text': chunk_text,
+                            'metadata_': metadata_json,
+                            'chunk_id': chunk_id,
+                            'vector_id': vector_id,
+                            'embedding_checksum': embedding_checksum
+                        }
+                        
+                        # Convert any remaining UUIDs to strings (except document_id which is already normalized)
+                        chunk_dict_converted = self._convert_uuids_to_strings(chunk_dict)
+                        # Keep document_id as normalized string (don't convert back to UUID)
+                        chunk_dict_converted['document_id'] = normalized_document_id
+                        
+                        # Additional safety check - ensure all values are JSON serializable
+                        try:
+                            import json
+                            json.dumps(chunk_dict_converted['metadata_'])
+                        except (TypeError, ValueError) as e:
+                            logger.warning(f"Metadata not JSON serializable, converting to string: {e}")
+                            chunk_dict_converted['metadata_'] = str(chunk_dict_converted['metadata_'])
+                        
+                        chunk = DocumentChunk(**chunk_dict_converted)
+                        session.add(chunk)
                     
-                    # Convert UUIDs to strings in metadata
-                    clean_metadata = self._serialize_metadata(metadata_dict)
+                    session.commit()
+                    return True
                     
-                    chunk = DocumentChunk(
-                        document_id=document_id,
-                        chunk_index=i,
-                        chunk_text=chunk_data[0],
-                        metadata_=clean_metadata,
-                    )
-                    session.add(chunk)
-                return True
+                except Exception as e:
+                    session.rollback()
+                    raise e
+                    
         except SQLAlchemyError as e:
             logger.error(f"Database error saving chunks: {e}")
             return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving chunks: {e}")
+            return False
+
+    def get_summary(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve summary for a document."""
+        try:
+            normalized_id = self._normalize_document_id(document_id)
+            
+            with self.get_session() as session:
+                summary = session.query(DocumentSummary)\
+                            .filter(DocumentSummary.document_id == normalized_id)\
+                            .first()
+                
+                if summary:
+                    return {
+                        "document_id": document_id,
+                        "llm_analysis": summary.llm_analysis,
+                        "processing_timestamp": summary.processing_timestamp.isoformat(),
+                        "document_category": summary.document_category,
+                        # ... other fields
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error retrieving summary: {e}")
+            return None
 

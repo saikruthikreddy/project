@@ -1,0 +1,81 @@
+{
+  "document_id": "424b0fc8-2e92-41cc-bf1d-c65c865faf90",
+  "document_filename": "Summarization_and_RAg_steps.docx",
+  "document_category": "Generic Document",
+  "document_group": "Conversational & Interaction Records",
+  "user_note_purpose": "General purpose document",
+  "processing_timestamp": "2025-07-15T08:38:53.000Z",
+  "llm_analysis": {
+    "ai_overall_key_themes_list": [
+      "Document Summarization",
+      "Retrieval-Augmented Generation (RAG)",
+      "Knowledge Base Creation",
+      "Metadata Extraction",
+      "Two-Step Retrieval Process"
+    ],
+    "ai_high_level_narrative_summary": [
+      "This document outlines Giani.ai's process for converting chunked documents into a knowledge base using summarization and a two-step RAG process.  The first phase involves summarizing chunks and generating metadata, handling both single-pass and map-reduce scenarios for different document sizes.  The second phase details the two-step RAG retrieval process for answering user questions, first by identifying relevant documents and then extracting specific chunks for answer synthesis."
+    ],
+    "ai_main_topics_with_summaries_list_of_objects": [
+      {
+        "topic_name": "Phase 1: Post-Chunking Summarization & Metadata Generation",
+        "topic_summary": "This phase summarizes document chunks and generates metadata, using a map-reduce approach for larger documents and adaptive prompting based on document type."
+      },
+      {
+        "topic_name": "Phase 2: The Two-Step RAG Retrieval Process",
+        "topic_summary": "This phase describes how user questions are answered by first identifying relevant documents and then extracting specific answer chunks from those documents."
+      },
+      {
+        "topic_name": "Adaptive Prompting",
+        "topic_summary": "This section explains how different prompts are used based on the document's classified content type (Strategic, Research, Project Execution, Conversational)."
+      },
+      {
+        "topic_name": "Map-Reduce for Large Documents",
+        "topic_summary": "This section details the map-reduce process for summarizing large documents exceeding the LLM's context window."
+      }
+    ],
+    "ai_key_takeaways_bullets": [
+      "Giani.ai uses a two-step RAG process for efficient and relevant answer retrieval.",
+      "Documents are summarized and enriched with metadata for improved searchability.",
+      "Adaptive prompting tailors the summarization process to different document types.",
+      "A map-reduce approach handles large documents efficiently."
+    ],
+    "extracted_metadata": {
+      "suggested_document_title": "Giani.ai Processing & RAG Pipeline",
+      "implied_audience": "Giani.ai Development Team, Management Consultants",
+      "key_dates_mentioned": [],
+      "key_people_or_roles_mentioned": [],
+      "key_companies_organizations_mentioned": [
+        "Giani.ai"
+      ],
+      "primary_geographical_focus": "Not Applicable",
+      "document_overall_sentiment": "Neutral",
+      "key_questions_answered_or_posed": [
+        "How does Giani.ai process and retrieve information from documents?",
+        "What is the two-step RAG process?",
+        "How are large documents handled?"
+      ],
+      "main_methodology_or_approach_used": "Two-step RAG process, Map-Reduce",
+      "cluster_d_specific_metadata": {
+        "interaction_date": "Not Found",
+        "key_attendees_or_participants_list": "Not Found",
+        "main_topics_or_agenda_items_discussed_list": "Not Found",
+        "key_decisions_made_list_of_objects": [],
+        "distinct_action_items_list_of_objects": [],
+        "unresolved_issues_or_parking_lot_items_list": [],
+        "client_requirements_or_pain_points_expressed_list": []
+      }
+    },
+    "extracted_keywords": [
+      "Summarization",
+      "RAG",
+      "Knowledge Base",
+      "Metadata",
+      "Retrieval",
+      "Chunking",
+      "LLM",
+      "Vector Database"
+    ],
+    "llm_used_for_processing": "gemini-gemini-1.5-pro"
+  }
+}
