@@ -210,6 +210,7 @@ def create_project_routes():
         """Upload documents to a project."""
         try:
             user_id = request.current_user['user_id']
+            data = request.get_json()
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -230,9 +231,10 @@ def create_project_routes():
                         filename = secure_filename(file.filename)
                         temp_path = os.path.join(upload_service.upload_folder, filename)
                         file.save(temp_path)
+                        source=data['source']
 
                         # Save to database
-                        temp_doc = upload_service.save_temp_document(temp_path, project_id, user_id)
+                        temp_doc = upload_service.save_temp_document(temp_path, project_id, user_id, source)
                         uploaded_docs.append(temp_doc)
 
                     except Exception as e:
@@ -264,11 +266,12 @@ def create_project_routes():
                 return api_validation_error('temp_document_id is required')
 
             temp_document_id = data['temp_document_id']
+            source = data['source']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
-            suggestions = upload_service.get_ai_suggestions(temp_document_id, project_id, user_id)
+            suggestions = upload_service.get_ai_suggestions(temp_document_id, source, project_id, user_id)
 
             return api_success({
                 'suggestions': suggestions

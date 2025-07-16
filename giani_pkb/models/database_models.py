@@ -251,7 +251,7 @@ class TempDocument(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-
+    source = Column(String(50), nullable=False)
     original_filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)
     file_size = Column(Integer, nullable=False)

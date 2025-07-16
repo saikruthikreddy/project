@@ -427,7 +427,7 @@ class DocumentUploadService:
             logger.error(f"Error verifying document {temp_document_id}: {e}")
             return False
 
-    def save_temp_document(self, file_path: str, project_id: str, user_id: str) -> Dict[str, Any]:
+    def save_temp_document(self, file_path: str, project_id: str, user_id: str, source:str) -> Dict[str, Any]:
         """Save uploaded file to temporary location and create database entry. FIXED: Consistent file naming."""
         try:
             # Input validation
@@ -489,6 +489,7 @@ class DocumentUploadService:
                 'project_id': project_id,
                 'user_id': user_id,
                 'original_filename': original_filename,
+                'source': source,
                 'file_path': temp_file_path,  # Store actual path where file is saved
                 'file_size': file_size,
                 'mime_type': mime_type,
@@ -874,7 +875,7 @@ class DocumentUploadService:
         #             self.db_manager.delete_temp_document(temp_doc_id)
 
 
-    def get_ai_suggestions(self, temp_document_id: str, project_id: str, user_id: str) -> Dict[str, Any]:
+    def get_ai_suggestions(self, temp_document_id: str,source: str, project_id: str, user_id: str) -> Dict[str, Any]:
         """Get AI suggestions for document classification with enhanced error handling."""
         try:
             # Input validation
@@ -903,7 +904,7 @@ class DocumentUploadService:
             try:
                 # Get AI classification with error handling
                 ai_classification, ai_purpose, gemini_prompt = self.classification_service.classify_document(
-                    filename, text_preview
+                    filename, text_preview, source
                 )
 
                 # Validate AI response
@@ -1082,6 +1083,7 @@ class DocumentUploadService:
                     dateAddedToGiani=datetime.now().isoformat(),
                     userID=user_id,
                     projectID=project_id,
+                    source=source,
                     textPreview=text_preview,
                     finalCategory=task['ai_classification'],
                     finalPurpose=task['ai_purpose'],

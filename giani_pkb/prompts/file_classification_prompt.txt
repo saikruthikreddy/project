@@ -1,5 +1,7 @@
 You are an AI assistant helping classify documents for a management consulting project.
 
+This is the document source "<user_input>{source}</user_input>".
+
 Based on the filename "<user_input>{filename}</user_input>" and this text preview:
 "<user_input>{text_preview}</user_input>"
 

@@ -9,7 +9,6 @@ from sqlalchemy import and_, or_, func, desc, asc, text
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
-
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
     User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
@@ -1085,6 +1084,7 @@ class DatabaseManager:
                     'user_id': str(temp_document.user_id),  # Convert UUID to string
                     'original_filename': temp_document.original_filename,
                     'file_path': temp_document.file_path,
+                    'source': temp_document.source,
                     'file_size': temp_document.file_size,
                     'mime_type': temp_document.mime_type,
                     'upload_timestamp': temp_document.upload_timestamp.isoformat() if temp_document.upload_timestamp else None,
@@ -1166,6 +1166,7 @@ class DatabaseManager:
                     'original_filename': temp_document.original_filename,
                     'text_preview': temp_document.text_preview or 'No preview available',
                     'file_path': temp_document.file_path,
+                    'source': temp_document.source,
                     'file_size': temp_document.file_size or 0,
                     'mime_type': temp_document.mime_type,
                     'upload_timestamp': temp_document.upload_timestamp,
@@ -1183,6 +1184,141 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error getting temp document: {e}")
             return None
+
+    def list_temp_documents(self, project_id: Union[int, str], 
+                            user_id: Union[str, uuid.UUID],
+                            status_filter: Optional[str] = None,
+                            limit: Optional[int] = None,
+                            offset: Optional[int] = 0) -> List[Dict[str, Any]]:
+        """List all temporary documents for a given project and user with optional filtering."""
+        try:
+            with self.get_session() as session:
+                from giani_pkb.models.database_models import TempDocument
+                
+                # Convert user_id to UUID if it's a string
+                if isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                        return []
+                
+                # Ensure project_id is an integer
+                if isinstance(project_id, str):
+                    try:
+                        project_id = int(project_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid project_id format: {project_id}")
+                        return []
+                
+                # Build query with base filters
+                query = session.query(TempDocument).filter(
+                    and_(
+                        TempDocument.project_id == project_id,
+                        TempDocument.user_id == user_id
+                    )
+                )
+                
+                # Add optional status filter
+                if status_filter:
+                    query = query.filter(TempDocument.status == status_filter)
+                
+                # Add ordering (most recent first)
+                query = query.order_by(TempDocument.upload_timestamp.desc())
+                
+                # Add pagination
+                if offset:
+                    query = query.offset(offset)
+                if limit:
+                    query = query.limit(limit)
+                
+                # Execute query
+                temp_documents = query.all()
+                
+                if not temp_documents:
+                    logger.info(f"No temp documents found for project {project_id} and user {user_id}")
+                    return []
+                
+                # Convert to dictionary format
+                temp_docs_list = []
+                for temp_document in temp_documents:
+                    temp_doc = {
+                        'id': temp_document.id,
+                        'temp_document_id': temp_document.temp_document_id,
+                        'original_filename': temp_document.original_filename,
+                        'text_preview': temp_document.text_preview or 'No preview available',
+                        'file_path': temp_document.file_path,
+                        'file_size': temp_document.file_size or 0,
+                        'mime_type': temp_document.mime_type,
+                        'source': temp_document.source,
+                        'upload_timestamp': temp_document.upload_timestamp,
+                        'status': temp_document.status or 'UPLOADED',
+                        'project_id': temp_document.project_id,
+                        'user_id': str(temp_document.user_id)  # Convert UUID back to string
+                    }
+                    temp_docs_list.append(temp_doc)
+                
+                logger.info(f"Retrieved {len(temp_docs_list)} temp documents for project {project_id} and user {user_id}")
+                return temp_docs_list
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error listing temp documents: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error listing temp documents: {e}")
+            return []
+
+
+    def get_temp_documents_count(self, project_id: Union[int, str], 
+                                user_id: Union[str, uuid.UUID],
+                                status_filter: Optional[str] = None) -> int:
+        """Get count of temporary documents for a given project and user."""
+        try:
+            with self.get_session() as session:
+                from giani_pkb.models.database_models import TempDocument
+                
+                # Convert user_id to UUID if it's a string
+                if isinstance(user_id, str):
+                    try:
+                        user_id = uuid.UUID(user_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid UUID format for user_id: {user_id}")
+                        return 0
+                
+                # Ensure project_id is an integer
+                if isinstance(project_id, str):
+                    try:
+                        project_id = int(project_id)
+                    except ValueError as e:
+                        logger.error(f"Invalid project_id format: {project_id}")
+                        return 0
+                
+                # Build query with base filters
+                query = session.query(TempDocument).filter(
+                    and_(
+                        TempDocument.project_id == project_id,
+                        TempDocument.user_id == user_id
+                    )
+                )
+                
+                # Add optional status filter
+                if status_filter:
+                    query = query.filter(TempDocument.status == status_filter)
+                
+                # Get count
+                count = query.count()
+                
+                logger.info(f"Found {count} temp documents for project {project_id} and user {user_id}")
+                return count
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error counting temp documents: {e}")
+            return 0
+        except Exception as e:
+            logger.error(f"Unexpected error counting temp documents: {e}")
+            return 0
+
+    
 
     # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:
