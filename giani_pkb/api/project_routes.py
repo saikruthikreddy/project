@@ -211,109 +211,45 @@ def create_project_routes():
         """Upload documents to a project."""
         try:
             user_id = request.current_user['user_id']
-            
-            # Verify project access
+            data = request.get_json()
+
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
-            # Check if files are present in request
+
             if 'files' not in request.files:
                 return api_validation_error('No files provided')
-            
+
             files = request.files.getlist('files')
             if not files or all(file.filename == '' for file in files):
                 return api_validation_error('No files selected')
 
-            data = {}
-            
-            # Get additional metadata from request
-            # Handle different ways to send source data
-            if 'source' in request.form:
-                data['source'] = request.form['source']
-            elif 'sources' in request.form:
-                # Try to parse as JSON, fallback to comma-separated
-                sources_str = request.form['sources']
-                try:
-                    data['sources'] = json.loads(sources_str)
-                except:
-                    data['sources'] = sources_str.split(',')
-            elif 'data' in request.form:
-                # JSON string in form field
-                try:
-                    data = json.loads(request.form['data'])
-                except:
-                    pass
-            
             uploaded_docs = []
-            failed_uploads = []
-            
-            for i, file in enumerate(files):
+
+            for file in files:
                 if file and file.filename:
                     try:
-                        
-                        # Save file temporarily with secure filename
+                        # Save file temporarily
                         filename = secure_filename(file.filename)
-                        if not filename:
-                            failed_uploads.append({
-                                'filename': file.filename,
-                                'error': 'Invalid filename'
-                            })
-                            continue
-                        
                         temp_path = os.path.join(upload_service.upload_folder, filename)
                         file.save(temp_path)
-                        
-                        # Get source for this specific file
-                        # Sources can be provided as:
-                        # 1. Array matching file order: {"sources": ["web", "email", "manual"]}
-                        # 2. Single source for all files: {"source": "web"}
-                        # 3. Object with filename keys: {"sources": {"file1.pdf": "web", "file2.txt": "email"}}
-                        file_source = 'upload'  # default
-                        
-                        if 'sources' in data:
-                            sources = data['sources']
-                            if isinstance(sources, list) and i < len(sources):
-                                file_source = sources[i]
-                            elif isinstance(sources, dict) and file.filename in sources:
-                                file_source = sources[file.filename]
-                        elif 'source' in data:
-                            file_source = data['source']
-                        
+                        source=data['source']
+
                         # Save to database
-                        temp_doc = upload_service.save_temp_document(
-                            temp_path, project_id, user_id, file_source
-                        )
+                        temp_doc = upload_service.save_temp_document(temp_path, project_id, user_id, source)
                         uploaded_docs.append(temp_doc)
-                        
+
                     except Exception as e:
                         logger.error(f"Error uploading file {file.filename}: {e}")
-                        failed_uploads.append({
-                            'filename': file.filename,
-                            'error': str(e)
-                        })
                         continue
-            
-            # Prepare response
-            response_data = {'uploaded_documents': uploaded_docs}
-            
-            if failed_uploads:
-                response_data['failed_uploads'] = failed_uploads
-                
+
             if not uploaded_docs:
-                return api_file_processing_error(
-                    'No files were successfully uploaded',
-                    {'failed_uploads': failed_uploads}
-                )
-            
-            # Success response with optional warnings about failed uploads
-            success_message = f'Successfully uploaded {len(uploaded_docs)} documents'
-            if failed_uploads:
-                success_message += f' ({len(failed_uploads)} failed)'
-            
-            return api_success(response_data, success_message, 201)
-            
+                return api_file_processing_error('No files were successfully uploaded')
+
+            return api_success({
+                'uploaded_documents': uploaded_docs
+            }, f'Successfully uploaded {len(uploaded_docs)} documents', 201)
+
         except FileProcessingError as e:
-            logger.error(f"File processing error: {e}")
             return api_file_processing_error(str(e))
         except Exception as e:
             logger.error(f"Error uploading documents: {e}")
