@@ -25,6 +25,8 @@ from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
+from giani_pkb.services.summarization import SummarizationService
+from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 
 logger = logging.getLogger(__name__)
 
@@ -425,7 +427,7 @@ class DocumentUploadService:
             logger.error(f"Error verifying document {temp_document_id}: {e}")
             return False
 
-    def save_temp_document(self, file_path: str, project_id: str, user_id: str) -> Dict[str, Any]:
+    def save_temp_document(self, file_path: str, project_id: str, user_id: str, source:str) -> Dict[str, Any]:
         """Save uploaded file to temporary location and create database entry. FIXED: Consistent file naming."""
         try:
             # Input validation
@@ -487,6 +489,7 @@ class DocumentUploadService:
                 'project_id': project_id,
                 'user_id': user_id,
                 'original_filename': original_filename,
+                'source': source,
                 'file_path': temp_file_path,  # Store actual path where file is saved
                 'file_size': file_size,
                 'mime_type': mime_type,
@@ -864,15 +867,15 @@ class DocumentUploadService:
                 pass
                 
             raise FileProcessingError(error_msg)
-        else:
-            #delete processed documents
-            for i, doc_data in enumerate(document_data):
-                    # Extract and validate temp_document_id
-                    temp_doc_id = doc_data.get('temp_document_id')
-                    self.db_manager.delete_temp_document(temp_doc_id)
+        # else:
+        #     #delete processed documents
+        #     for i, doc_data in enumerate(document_data):
+        #             # Extract and validate temp_document_id
+        #             temp_doc_id = doc_data.get('temp_document_id')
+        #             self.db_manager.delete_temp_document(temp_doc_id)
 
 
-    def get_ai_suggestions(self, temp_document_id: str, project_id: str, user_id: str) -> Dict[str, Any]:
+    def get_ai_suggestions(self, temp_document_id: str,source: str, project_id: str, user_id: str) -> Dict[str, Any]:
         """Get AI suggestions for document classification with enhanced error handling."""
         try:
             # Input validation
@@ -901,7 +904,7 @@ class DocumentUploadService:
             try:
                 # Get AI classification with error handling
                 ai_classification, ai_purpose, gemini_prompt = self.classification_service.classify_document(
-                    filename, text_preview
+                    filename, text_preview, source
                 )
 
                 # Validate AI response
@@ -1031,13 +1034,14 @@ class DocumentUploadService:
             file_size = temp_doc.get('file_size', 0)
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
+            ai_purpose =  temp_doc.get('ai_purpose', '')
 
             # Validate file exists
             if not temp_file_path or not os.path.exists(temp_file_path):
                 raise FileProcessingError(f"Temp file not found: {temp_file_path}")
 
             # Determine category folder based on AI classification
-            category_folder = self._get_category_folder(task['ai_classification'])
+            category_folder = temp_doc.get('ai_classification',self._get_category_folder(task['ai_classification']))
 
             # Prepare destination
             dest_dir = os.path.join(self.processed_folder, category_folder)
@@ -1066,23 +1070,24 @@ class DocumentUploadService:
                 raise FileProcessingError(f"Failed to copy file to destination: {copy_error}")
 
             # Create document metadata
-            document_id = str(uuid.uuid4())
+            document_id = uuid.uuid4()
             metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
             metadata_path = os.path.join(dest_dir, metadata_filename)
 
             try:
                 # Create DocumentMetadata object
                 doc_meta = DocumentMetadata(
-                    id=document_id,
+                    id=str(document_id),
                     originalFilename=original_filename,
                     fileSize=file_size,
                     fileMimeType=mime_type,
                     dateAddedToGiani=datetime.now().isoformat(),
                     userID=user_id,
                     projectID=project_id,
+                    source=source,
                     textPreview=text_preview,
-                    finalCategory=task['ai_classification'],
-                    finalPurpose=task['ai_purpose'],
+                    finalCategory=category_folder,
+                    finalPurpose=ai_purpose,
                     priority=task.get('document_priority', 'Medium'),
                     finalizedAt=datetime.now().isoformat(),
                     storagePath=dest_path,
@@ -1092,11 +1097,19 @@ class DocumentUploadService:
                 )
 
                 # Convert user_id and project_id to proper types for database
-                user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-                project_int = int(project_id) if isinstance(project_id, str) else project_id
+                try:
+                    user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
+                except ValueError:
+                    raise FileProcessingError(f"Invalid user_id format: {user_id}")
+
+                try:
+                    project_int = int(project_id) if isinstance(project_id, str) else project_id
+                except (ValueError, TypeError):
+                    raise FileProcessingError(f"Invalid project_id format: {project_id}")
 
                 # Create document in database
                 document = self.db_manager.create_document(
+                    id=document_id,
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
@@ -1148,6 +1161,46 @@ class DocumentUploadService:
             except Exception as cleanup_error:
                 logger.warning(f"Cleanup error for {temp_document_id}: {cleanup_error}")
                 # Don't fail the entire process for cleanup errors
+            
+            # Summarization
+            try:
+                summarization_service = SummarizationService()
+                summary = summarization_service.summarize_document(doc_meta)
+                if summary:
+                    # Save summary to database
+                    self.db_manager.save_summary(
+                        document_id=document_id,
+                        summary_data=summary,
+                    )
+                    logger.info(f"Successfully generated and saved summary for document: {original_filename}")
+            except Exception as e:
+                logger.error(f"Error during summarization for document {original_filename}: {e}")
+
+
+            # Chunking
+            try:
+                parsed_blocks, _ = self.document_processor.process_single_file(
+                    file_path=dest_path,
+                    document_id=document_id,
+                    project_id=project_id
+                )
+                chunks = chunk_document_adaptive(
+                    parsed_blocks=parsed_blocks,
+                    document_id=document_id,
+                    project_id=project_id,
+                    document_type=doc_meta.finalCategory,
+                    openai_api_key=config.OPENAI_API_KEY
+                )
+                if chunks:
+                    # Save chunks to database
+                    self.db_manager.save_chunks(
+                        document_id=document_id,
+                        chunks=chunks,
+                    )
+                    logger.info(f"Successfully chunked and saved document: {original_filename}")
+            except Exception as e:
+                logger.error(f"Error during chunking for document {original_filename}: {e}")
+
 
             logger.info(f"Document processing completed successfully: {original_filename}")
 
