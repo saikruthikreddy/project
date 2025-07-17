@@ -1673,23 +1673,16 @@ class DatabaseManager:
     def _verify_document_exists(self, document_id) -> bool:
         """Verify that a document exists in the database."""
         try:
-            with self.get_session() as session:
+            with self.get_session() as session:  # type: Session
                 # Normalize document_id to string format (remove dashes for SQLite)
                 document_id_str = str(document_id).replace('-', '')
                 
-                result = session.execute(
-                    text("SELECT 1 FROM documents WHERE id = :doc_id"),
-                    {"doc_id": document_id_str}
-                ).fetchone()
-                
+                result = session.query(Document).filter_by(id=document_id_str).first()
                 return result is not None
+
         except SQLAlchemyError as e:
             logger.error(f"Error verifying document existence: {e}")
             return False
-
-
-
-
 
     def get_document_summaries(self, document_id: int) -> List[DocumentSummary]:
         """Get all summaries for a document with enhanced validation."""
