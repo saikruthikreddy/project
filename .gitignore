@@ -9,6 +9,9 @@
 *.sqlite
 *.sqlite3
 data/
+data/master_metadata.json
+
+
 # Python
 .gradio/
 __pycache__/
@@ -34,6 +37,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
 
 # Virtual environments
 venv/

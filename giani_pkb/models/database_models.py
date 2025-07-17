@@ -88,6 +88,7 @@ class Document(Base):
     storage_path = Column(String(500), nullable=False)
     category_folder = Column(String(100), nullable=False)
     stored_filename = Column(String(500), nullable=False)
+    source=Column(String(50), nullable=False)
 
     # AI Classification fields
     final_category = Column(String(100), nullable=False)
@@ -121,6 +122,35 @@ class Document(Base):
     project: Mapped["Project"] = relationship("Project", back_populates="documents")
     chunks: Mapped[List["DocumentChunk"]] = relationship("DocumentChunk", back_populates="document")
     summaries: Mapped[List["DocumentSummary"]] = relationship("DocumentSummary", back_populates="document")
+
+
+    def to_dict(self):
+        """Convert Document object to dictionary for JSON serialization."""
+        return {
+            'id': str(self.id),
+            'original_filename': self.original_filename,
+            'file_size': self.file_size,
+            'file_mime_type': self.file_mime_type,
+            'storage_path': self.storage_path,
+            'category_folder': self.category_folder,
+            'stored_filename': self.stored_filename,
+            'source': self.source,
+            'final_category': self.final_category,
+            'final_purpose': self.final_purpose,
+            'priority': self.priority,
+            'text_preview': self.text_preview,
+            'processed_content': self.processed_content,
+            'extracted_text': self.extracted_text,
+            'document_metadata': self.document_metadata,
+            'summary_storage_path': self.summary_storage_path,
+            'temp_file_path': self.temp_file_path,
+            'date_added_to_giani': self.date_added_to_giani.isoformat() if self.date_added_to_giani else None,
+            'finalized_at': self.finalized_at.isoformat() if self.finalized_at else None,
+            'saved_at': self.saved_at.isoformat() if self.saved_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'user_id': str(self.user_id),
+            'project_id': self.project_id
+        }
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

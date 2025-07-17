@@ -1053,6 +1053,7 @@ class DatabaseManager:
                     raise ValidationError(f"User {user_id} does not have access to project {project_id}")
 
                 # Set default values and clean up data
+                print('Kwargs in db manager is :',kwargs)
                 cleaned_kwargs = {}
                 for key, value in kwargs.items():
                     if key == 'original_filename' and value:
@@ -2394,26 +2395,97 @@ class DatabaseManager:
             logger.error(f"Unexpected error saving chunks: {e}")
             return False
 
-    def get_summary(self, document_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve summary for a document."""
+
+
+    def get_document_summary(self, document_id: str, summary_id: int = None) -> Dict[str, Any]:
+        """
+        Get document summary from the database.
+        
+        Args:
+            document_id: UUID string of the document
+            summary_id: Optional specific summary ID. If None, returns the most recent summary.
+        
+        Returns:
+            Dictionary containing summary data or None if not found
+        """
         try:
-            normalized_id = self._normalize_document_id(document_id)
+            # Convert string to UUID if necessary
+            if isinstance(document_id, str):
+                try:
+                    document_uuid = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return None
+            else:
+                document_uuid = document_id
+            
+            # Verify the document exists
+            if not self._verify_document_exists(document_uuid):
+                logger.error(f"Document {document_id} does not exist")
+                return None
             
             with self.get_session() as session:
-                summary = session.query(DocumentSummary)\
-                            .filter(DocumentSummary.document_id == normalized_id)\
-                            .first()
+                query = session.query(DocumentSummary).filter(
+                    DocumentSummary.document_id == document_uuid
+                )
                 
-                if summary:
-                    return {
-                        "document_id": document_id,
-                        "llm_analysis": summary.llm_analysis,
-                        "processing_timestamp": summary.processing_timestamp.isoformat(),
-                        "document_category": summary.document_category,
-                        # ... other fields
-                    }
-                return None
-        except Exception as e:
-            logger.error(f"Error retrieving summary: {e}")
+                # If specific summary_id is provided, filter by it
+                if summary_id is not None:
+                    query = query.filter(DocumentSummary.id == summary_id)
+                    summary = query.first()
+                else:
+                    # Get the most recent summary
+                    summary = query.order_by(DocumentSummary.processing_timestamp.desc()).first()
+                
+                if not summary:
+                    logger.info(f"No summary found for document {document_id}")
+                    return None
+                
+                # Convert summary to dictionary
+                summary_data = {
+                    'id': summary.id,
+                    'document_id': str(summary.document_id),
+                    'document_filename': summary.document_filename,
+                    'document_category': summary.document_category,
+                    'document_group': summary.document_group,
+                    'user_note_purpose': summary.user_note_purpose,
+                    'processing_timestamp': summary.processing_timestamp.isoformat() if summary.processing_timestamp else None,
+                    'llm_model_used': summary.llm_model_used,
+                    'summary_storage_path': summary.summary_storage_path,
+                    'processing_duration_seconds': summary.processing_duration_seconds,
+                    
+                    # Core analysis fields
+                    'narrative_summary': summary.narrative_summary,
+                    'key_themes': summary.key_themes,
+                    'key_takeaways': summary.key_takeaways,
+                    'extracted_keywords': summary.extracted_keywords,
+                    
+                    # Metadata for search and filtering
+                    'document_sentiment': summary.document_sentiment,
+                    'suggested_title': summary.suggested_title,
+                    'implied_audience': summary.implied_audience,
+                    'geographical_focus': summary.geographical_focus,
+                    
+                    # Key entities
+                    'key_people_mentioned': summary.key_people_mentioned,
+                    'key_organizations_mentioned': summary.key_organizations_mentioned,
+                    'key_dates_mentioned': summary.key_dates_mentioned,
+                    
+                    # Computed properties from the model
+                    'main_topics': summary.main_topics,
+                    'key_data_points': summary.key_data_points,
+                    'key_recommendations': summary.key_recommendations,
+                    
+                    # Full LLM analysis
+                    'llm_analysis': summary.llm_analysis
+                }
+                
+                logger.info(f"Successfully retrieved summary for document {document_id}")
+                return summary_data
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error retrieving summary for document {document_id}: {e}")
             return None
-
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
+            return None

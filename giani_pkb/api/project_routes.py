@@ -17,7 +17,6 @@ from giani_pkb.utils.response_utils import (
     api_success, api_validation_error, api_not_found_error,
     api_database_error, api_file_processing_error, api_internal_server_error
 )
-
 logger = logging.getLogger(__name__)
 
 def create_project_routes():
@@ -212,7 +211,6 @@ def create_project_routes():
         """Upload documents to a project."""
         try:
             user_id = request.current_user['user_id']
-            data = request.get_json()
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -233,7 +231,6 @@ def create_project_routes():
                         filename = secure_filename(file.filename)
                         temp_path = os.path.join(upload_service.upload_folder, filename)
                         file.save(temp_path)
-                        source=data['source']
 
                         # Save to database
                         temp_doc = upload_service.save_temp_document(temp_path, project_id, user_id, source)
@@ -329,10 +326,13 @@ def create_project_routes():
                 return api_not_found_error('Project not found or access denied')
 
             documents = project_service.get_project_documents(project_id, user_id)
+            
+            # Convert documents to dictionaries
+            documents_dict = [doc.to_dict() for doc in documents]
 
             return api_success({
-                'documents': documents,
-                'total': len(documents)
+                'documents': documents_dict,
+                'total': len(documents_dict)
             }, 'Project documents retrieved successfully')
 
         except ProjectError as e:
@@ -484,7 +484,6 @@ def create_project_routes():
             # Delete the temporary document
             success = db_manager.delete_temp_document(
                 temp_document_id=temp_document_id,
-                project_id=project_id,
                 user_id=user_id
             )
             
@@ -501,6 +500,38 @@ def create_project_routes():
         except Exception as e:
             logger.error(f"Error deleting temp document {temp_document_id} for project {project_id}: {e}")
             return api_internal_server_error('Failed to delete temporary document', str(e))
+
+    
+    @projects.route('/projects/<project_id>/documents/<document_id>/summary', methods=['GET'])
+    @auth_utils.auth_required
+    def get_document_summary(project_id, document_id):
+        """Get the summary for a specific document."""
+        try:
+            user_id = request.current_user['user_id']
+            
+            # Verify project access
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+            
+            # Convert document_id to UUID if necessary
+            try:
+                document_uuid = uuid.UUID(document_id)
+            except ValueError:
+                return api_bad_request_error('Invalid document ID format')
+            
+            
+                
+            # Prepare response data
+            summary_data = db_manager.get_document_summary(document_id)
+            return api_success(summary_data, 'Document summary retrieved successfully')
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Database error retrieving summary for document {document_id}: {e}")
+            return api_database_error('Failed to retrieve document summary')
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
+            return api_internal_server_error('Failed to retrieve document summary', str(e))
+
 
 
     return projects
