@@ -1675,10 +1675,7 @@ class DatabaseManager:
         try:
             with self.get_session() as session:
                 # Normalize document_id to string format (remove dashes for SQLite)
-                if isinstance(document_id, uuid.UUID):
-                    document_id_str = str(document_id).replace('-', '')
-                else:
-                    document_id_str = str(document_id).replace('-', '')
+                document_id_str = str(document_id).replace('-', '')
                 
                 result = session.execute(
                     text("SELECT 1 FROM documents WHERE id = :doc_id"),

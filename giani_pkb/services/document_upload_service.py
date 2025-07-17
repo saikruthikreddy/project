@@ -1034,13 +1034,14 @@ class DocumentUploadService:
             file_size = temp_doc.get('file_size', 0)
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
+            ai_purpose =  temp_doc.get('ai_purpose', '')
 
             # Validate file exists
             if not temp_file_path or not os.path.exists(temp_file_path):
                 raise FileProcessingError(f"Temp file not found: {temp_file_path}")
 
             # Determine category folder based on AI classification
-            category_folder = self._get_category_folder(task['ai_classification'])
+            category_folder = temp_doc.get('ai_classification',self._get_category_folder(task['ai_classification']))
 
             # Prepare destination
             dest_dir = os.path.join(self.processed_folder, category_folder)
@@ -1085,8 +1086,8 @@ class DocumentUploadService:
                     projectID=project_id,
                     source=source,
                     textPreview=text_preview,
-                    finalCategory=task['ai_classification'],
-                    finalPurpose=task['ai_purpose'],
+                    finalCategory=category_folder,
+                    finalPurpose=ai_purpose,
                     priority=task.get('document_priority', 'Medium'),
                     finalizedAt=datetime.now().isoformat(),
                     storagePath=dest_path,
