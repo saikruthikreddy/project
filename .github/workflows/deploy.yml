@@ -93,4 +93,3 @@ jobs:
         with:
           app-name: 'giani-dev-wa'
           images: 'gianidevacr.azurecr.io/giani-ai:${{ steps.set_version.outputs.tag }}'
-

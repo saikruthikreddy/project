@@ -1,13 +1,23 @@
 import os
 import re
+import logging
 from typing import Optional, Tuple
 import google.generativeai as genai
+
 from giani_pkb.utils.prompt_loader import load_prompt_template
 from giani_pkb.services.project_service import get_project_purpose
-
 from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
-genai.configure(api_key=GEMINI_API_KEY)
 
+# Setup logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+
+# Configure Gemini API
+if GEMINI_API_KEY:
+    logger.debug("✅ GEMINI_API_KEY found and configuring genai client.")
+    genai.configure(api_key=GEMINI_API_KEY)
+else:
+    logger.error("❌ GEMINI_API_KEY not found. Please check environment setup.")
 
 def calculate_word_count(text: Optional[str]) -> Optional[int]:
     if text and text.strip():
@@ -120,9 +130,15 @@ def generate_titles(payload):
             isTargetStyleTopical="True" if is_target_style_topical else "False"
         )
 
+        logger.debug("[Gemini Prompt] Filled prompt:\n" + filled_prompt)
+
         model = genai.GenerativeModel(GEMINI_PRO_MODEL)
+        logger.debug("🧠 Gemini model initialized with: " + GEMINI_PRO_MODEL)
+
         response = model.generate_content(filled_prompt)
         response_text = response.text.strip()
+
+        logger.debug("[Gemini Response] Raw output:\n" + response_text)
 
         suggestions = [
             re.sub(r"^\d+\.\s*", "", line.strip())
@@ -139,7 +155,7 @@ def generate_titles(payload):
 
         return {
             "suggestedTitles": suggestions[:3],
-            "modelUsed": "gemini-1.5-pro",
+            "modelUsed": GEMINI_PRO_MODEL,
             "contextUsed": {
                 "userIntentTopic": user_topic,
                 "projectID": project_id,
@@ -152,4 +168,5 @@ def generate_titles(payload):
         }
 
     except Exception as e:
+        logger.exception("❌ Failed to generate slide titles due to error:")
         raise RuntimeError(f"Failed to generate slide titles: {str(e)}")
