@@ -625,6 +625,7 @@ class DocumentUploadService:
                     # Validate and set default values for optional fields
                     validated_doc = {
                         'temp_document_id': temp_doc_id,
+                        'source':str(doc_data.get('source', '')).strip(),
                         'user_purpose_note': str(doc_data.get('user_purpose_note', '')).strip(),
                         'document_priority': doc_data.get('document_priority', 'Medium'),
                         'ai_classification': str(doc_data.get('ai_classification', 'Generic Document')).strip(),
@@ -867,12 +868,12 @@ class DocumentUploadService:
                 pass
                 
             raise FileProcessingError(error_msg)
-        # else:
-        #     #delete processed documents
-        #     for i, doc_data in enumerate(document_data):
-        #             # Extract and validate temp_document_id
-        #             temp_doc_id = doc_data.get('temp_document_id')
-        #             self.db_manager.delete_temp_document(temp_doc_id)
+        else:
+            #delete processed documents
+            for i, doc_data in enumerate(document_data):
+                    # Extract and validate temp_document_id
+                    temp_doc_id = doc_data.get('temp_document_id')
+                    self.db_manager.delete_temp_document(temp_doc_id)
 
 
     def get_ai_suggestions(self, temp_document_id: str,source: str, project_id: str, user_id: str) -> Dict[str, Any]:
@@ -1034,14 +1035,15 @@ class DocumentUploadService:
             file_size = temp_doc.get('file_size', 0)
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
-            ai_purpose =  temp_doc.get('ai_purpose', '')
+            ai_purpose =  temp_doc.get('ai_purpose', task['ai_purpose'])
+            source =  temp_doc.get('source', '')
 
             # Validate file exists
             if not temp_file_path or not os.path.exists(temp_file_path):
                 raise FileProcessingError(f"Temp file not found: {temp_file_path}")
 
             # Determine category folder based on AI classification
-            category_folder = temp_doc.get('ai_classification',self._get_category_folder(task['ai_classification']))
+            category_folder = temp_doc.get('ai_classification',task['ai_classification'])
 
             # Prepare destination
             dest_dir = os.path.join(self.processed_folder, category_folder)
@@ -1110,6 +1112,7 @@ class DocumentUploadService:
                 # Create document in database
                 document = self.db_manager.create_document(
                     id=document_id,
+                    source=source,
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
