@@ -231,6 +231,7 @@ def create_project_routes():
                         filename = secure_filename(file.filename)
                         temp_path = os.path.join(upload_service.upload_folder, filename)
                         file.save(temp_path)
+                        source=''
 
                         # Save to database
                         temp_doc = upload_service.save_temp_document(temp_path, project_id, user_id, source)
