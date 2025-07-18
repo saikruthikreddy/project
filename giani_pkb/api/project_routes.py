@@ -1,8 +1,9 @@
 """
 API routes for project operations.
 """
-from flask import Blueprint, request
+from flask import g, Blueprint, request
 import logging
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
 import os
 import uuid
@@ -14,7 +15,7 @@ from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import config
 from giani_pkb.utils.exceptions import ProjectError, ValidationError, FileProcessingError
 from giani_pkb.utils.response_utils import (
-    api_success, api_validation_error, api_not_found_error,
+    api_error, api_success, api_validation_error, api_not_found_error,
     api_database_error, api_file_processing_error, api_internal_server_error
 )
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ def create_project_routes():
             if not project_name:
                 return api_validation_error('Project name is required')
 
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
 
             project = project_service.create_project(user_id, project_name,  description, client_name, client_industry, targetAudience, stakeholders, objectives)
@@ -91,12 +92,12 @@ def create_project_routes():
     def get_user_projects():
         """Get all projects for the current user."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
             projects_list = project_service.get_user_projects(user_id)
-            
+
             # Convert each project to dictionary
             projects_dict = [project.to_dict() for project in projects_list]
-            
+
             return api_success({
                 'projects': projects_dict,
                 'total': len(projects_dict)
@@ -112,7 +113,7 @@ def create_project_routes():
     def get_project_details(project_id):
         """Get project details by ID."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -144,7 +145,7 @@ def create_project_routes():
             if not data:
                 return api_validation_error('No data provided')
 
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -185,7 +186,7 @@ def create_project_routes():
     def delete_project(project_id):
         """Delete a project."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -210,7 +211,7 @@ def create_project_routes():
     def upload_documents(project_id):
         """Upload documents to a project."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -259,7 +260,7 @@ def create_project_routes():
     def get_ai_suggestions(project_id):
         """Get AI suggestions for document classification."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
             data = request.get_json()
 
             if not data or 'temp_document_id' not in data:
@@ -288,7 +289,7 @@ def create_project_routes():
     def process_document_batch(project_id):
         """Process a batch of documents."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
             data = request.get_json()
 
             if not data or 'documents' not in data:
@@ -321,13 +322,13 @@ def create_project_routes():
     def get_project_documents(project_id):
         """Get all documents for a project."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
             documents = project_service.get_project_documents(project_id, user_id)
-            
+
             # Convert documents to dictionaries
             documents_dict = [doc.to_dict() for doc in documents]
 
@@ -347,7 +348,7 @@ def create_project_routes():
     def get_batch_status(batch_id):
         """Get batch processing status."""
         try:
-            user_id = request.current_user['user_id']
+            user_id = g.current_user['user_id']
             status = db_utils.get_batch_status(batch_id, user_id)
 
             if not status:
@@ -371,23 +372,23 @@ def create_project_routes():
     def list_temp_documents(project_id):
         """List temporary documents for a project."""
         try:
-            user_id = request.current_user['user_id']
-            
+            user_id = g.current_user['user_id']
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Get query parameters for filtering and pagination
             status_filter = request.args.get('status')
             limit = request.args.get('limit', type=int)
             offset = request.args.get('offset', type=int, default=0)
-            
+
             # Validate pagination parameters
             if limit is not None and limit <= 0:
                 return api_validation_error('Limit must be greater than 0')
             if offset < 0:
                 return api_validation_error('Offset must be non-negative')
-            
+
             # Get temporary documents from database
             temp_documents = db_manager.list_temp_documents(
                 project_id=project_id,
@@ -396,14 +397,14 @@ def create_project_routes():
                 limit=limit,
                 offset=offset
             )
-            
+
             # Get total count for pagination metadata
             total_count = db_manager.get_temp_documents_count(
                 project_id=project_id,
                 user_id=user_id,
                 status_filter=status_filter
             )
-            
+
             # Prepare response data
             response_data = {
                 'temp_documents': temp_documents,
@@ -415,17 +416,17 @@ def create_project_routes():
                     'has_more': (offset + len(temp_documents)) < total_count if limit else False
                 }
             }
-            
+
             # Add filter info if applied
             if status_filter:
                 response_data['filters'] = {'status': status_filter}
-            
+
             message = f'Found {len(temp_documents)} temporary documents'
             if status_filter:
                 message += f' with status "{status_filter}"'
-            
+
             return api_success(response_data, message)
-            
+
         except Exception as e:
             logger.error(f"Error listing temp documents for project {project_id}: {e}")
             return api_internal_server_error('Failed to list temporary documents', str(e))
@@ -436,26 +437,26 @@ def create_project_routes():
     def get_temp_document(project_id, temp_document_id):
         """Get a specific temporary document."""
         try:
-            user_id = request.current_user['user_id']
-            
+            user_id = g.current_user['user_id']
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Get temporary document from database
             temp_document = db_manager.get_temp_document(
                 temp_document_id=temp_document_id,
                 project_id=project_id,
                 user_id=user_id
             )
-            
+
             if not temp_document:
                 return api_not_found_error('Temporary document not found')
-            
+
             return api_success({
                 'temp_document': temp_document
             }, f'Retrieved temporary document: {temp_document["original_filename"]}')
-            
+
         except Exception as e:
             logger.error(f"Error getting temp document {temp_document_id} for project {project_id}: {e}")
             return api_internal_server_error('Failed to get temporary document', str(e))
@@ -466,66 +467,64 @@ def create_project_routes():
     def delete_temp_document(project_id, temp_document_id):
         """Delete a specific temporary document."""
         try:
-            user_id = request.current_user['user_id']
-            
+            user_id = g.current_user['user_id']
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Get temporary document first to check if it exists
             temp_document = db_manager.get_temp_document(
                 temp_document_id=temp_document_id,
                 project_id=project_id,
                 user_id=user_id
             )
-            
+
             if not temp_document:
                 return api_not_found_error('Temporary document not found')
-            
+
             # Delete the temporary document
             success = db_manager.delete_temp_document(
                 temp_document_id=temp_document_id,
                 user_id=user_id
             )
-            
+
             if not success:
                 return api_internal_server_error('Failed to delete temporary document')
-            
+
             return api_success({
                 'deleted_document': {
                     'temp_document_id': temp_document_id,
                     'original_filename': temp_document['original_filename']
                 }
             }, f'Successfully deleted temporary document: {temp_document["original_filename"]}')
-            
+
         except Exception as e:
             logger.error(f"Error deleting temp document {temp_document_id} for project {project_id}: {e}")
             return api_internal_server_error('Failed to delete temporary document', str(e))
 
-    
+
     @projects.route('/projects/<project_id>/documents/<document_id>/summary', methods=['GET'])
     @auth_utils.auth_required
     def get_document_summary(project_id, document_id):
         """Get the summary for a specific document."""
         try:
-            user_id = request.current_user['user_id']
-            
+            user_id = g.current_user['user_id']
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Convert document_id to UUID if necessary
             try:
                 document_uuid = uuid.UUID(document_id)
             except ValueError:
-                return api_bad_request_error('Invalid document ID format')
-            
-            
-                
+                return api_error('Invalid document ID format')
+
             # Prepare response data
             summary_data = db_manager.get_document_summary(document_id)
             return api_success(summary_data, 'Document summary retrieved successfully')
-                
+
         except SQLAlchemyError as e:
             logger.error(f"Database error retrieving summary for document {document_id}: {e}")
             return api_database_error('Failed to retrieve document summary')
