@@ -29,7 +29,7 @@ class ClassificationService:
             self.logger.error(f"Failed to initialize GenerativeModel ({GEMINI_FLASH_MODEL}) for ClassificationService: {type(e).__name__} - {e}")
             raise ConfigurationError(f"Failed to initialize GenerativeModel for ClassificationService. Check API key and model name ('{GEMINI_FLASH_MODEL}'). Original error: {e}")
 
-    def _get_classification_prompt(self, filename: str, text_preview: str) -> str:
+    def _get_classification_prompt(self, filename: str, text_preview: str, source: str) -> str:
         """Generates the prompt for document classification."""
         max_preview_length = 5000
         safe_text_preview = text_preview[:max_preview_length]
@@ -41,6 +41,7 @@ class ClassificationService:
         return prompt_template.format(
             filename=filename,
             text_preview=safe_text_preview,
+            source=source,
             classification_list=classification_list
         )
 
@@ -63,14 +64,14 @@ class ClassificationService:
                 purpose = line.replace('PURPOSE:', '').strip()
         return classification, purpose
 
-    def classify_document(self, filename: str, text_preview: str) -> tuple[str, str, str]:
+    def classify_document(self, filename: str, text_preview: str, source:str) -> tuple[str, str, str]:
         """
         Classifies the document using LLM and falls back to filename-based patterns if needed.
         Returns:
             tuple[str, str, str]: (classification, purpose, prompt_text)
         """
         print(text_preview)
-        prompt_text = self._get_classification_prompt(filename, text_preview)
+        prompt_text = self._get_classification_prompt(filename, text_preview, source)
 
         try:
             self.logger.info(f"Attempting LLM classification for: {filename}")

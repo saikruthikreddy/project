@@ -123,6 +123,8 @@ def chunk_formal_document(
                         chunk_metadata = _create_chunk_metadata(
                             document_id, project_id, current_blocks_metadata, "prose", current_heading_info
                         )
+                        if chunks:
+                            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                         chunks.append((sub_chunk.strip(), chunk_metadata))
 
                 # Reset for next chunk
@@ -135,6 +137,8 @@ def chunk_formal_document(
         chunk_metadata = _create_chunk_metadata(
             document_id, project_id, current_blocks_metadata, "prose", current_heading_info
         )
+        if chunks:
+            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
         chunks.append((current_chunk_text.strip(), chunk_metadata))
 
     return chunks
@@ -172,6 +176,8 @@ def chunk_conversational_record(
                     document_id, project_id, current_blocks_metadata, "dialogue_turn"
                 )
                 chunk_metadata.speaker_attribution = current_speaker
+                if chunks:
+                    chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                 chunks.append((current_chunk_text.strip(), chunk_metadata))
 
             # Start new chunk with the speaker turn
@@ -193,6 +199,8 @@ def chunk_conversational_record(
                             document_id, project_id, current_blocks_metadata, "dialogue_turn"
                         )
                         chunk_metadata.speaker_attribution = current_speaker
+                        if chunks:
+                            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                         chunks.append((sub_chunk.strip(), chunk_metadata))
 
                 # Reset for next chunk
@@ -206,6 +214,8 @@ def chunk_conversational_record(
             document_id, project_id, current_blocks_metadata, "dialogue_turn"
         )
         chunk_metadata.speaker_attribution = current_speaker
+        if chunks:
+            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
         chunks.append((current_chunk_text.strip(), chunk_metadata))
 
     return chunks
@@ -235,6 +245,8 @@ def chunk_data_heavy_document(
                 chunk_metadata = _create_chunk_metadata(
                     document_id, project_id, current_prose_metadata, "prose"
                 )
+                if chunks:
+                    chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                 chunks.append((current_prose_text.strip(), chunk_metadata))
                 current_prose_text = ""
                 current_prose_metadata = []
@@ -243,7 +255,12 @@ def chunk_data_heavy_document(
             table_chunk_metadata = _create_chunk_metadata(
                 document_id, project_id, [block_metadata], "table"
             )
-            chunks.append((block_text, table_chunk_metadata))
+            rows = block_text.count('\n') + 1
+            cols = len(block_text.split('\n')[0].split(','))
+            preamble = f"This is a table with {rows} rows and {cols} columns.\n\n"
+            if chunks:
+                table_chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
+            chunks.append((preamble + block_text, table_chunk_metadata))
 
         else:
             # Handle prose blocks
@@ -266,6 +283,8 @@ def chunk_data_heavy_document(
                         chunk_metadata = _create_chunk_metadata(
                             document_id, project_id, current_prose_metadata, "prose"
                         )
+                        if chunks:
+                            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                         chunks.append((sub_chunk.strip(), chunk_metadata))
 
                 current_prose_text = ""
@@ -276,6 +295,8 @@ def chunk_data_heavy_document(
         chunk_metadata = _create_chunk_metadata(
             document_id, project_id, current_prose_metadata, "prose"
         )
+        if chunks:
+            chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
         chunks.append((current_prose_text.strip(), chunk_metadata))
 
     return chunks
@@ -313,6 +334,8 @@ def chunk_document_semantic(
                 chunk_metadata = _create_chunk_metadata(
                     document_id, project_id, all_metadata, "semantic"
                 )
+                if chunks:
+                    chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
                 chunks.append((chunk_text.strip(), chunk_metadata))
 
         return chunks
@@ -321,6 +344,51 @@ def chunk_document_semantic(
         logger.error(f"Error in semantic chunking: {e}")
         # Fallback to basic chunking
         return chunk_formal_document(parsed_blocks, document_id, project_id)
+
+def chunk_presentation_document(
+    parsed_blocks: List[Tuple[str, Dict[str, Any]]],
+    document_id: str,
+    project_id: str,
+    slide_group_size: int = 3,
+    slide_stride: int = 1,
+    **kwargs
+) -> List[Tuple[str, ChunkMetadata]]:
+    """
+    Chunk presentation documents by grouping slides.
+    """
+    chunks = []
+    slides = {}
+    for block_text, block_metadata in parsed_blocks:
+        slide_number = block_metadata.get("slide_number")
+        if slide_number is not None:
+            if slide_number not in slides:
+                slides[slide_number] = []
+            slides[slide_number].append((block_text, block_metadata))
+
+    sorted_slide_numbers = sorted(slides.keys())
+    for i in range(0, len(sorted_slide_numbers), slide_stride):
+        slide_group_numbers = sorted_slide_numbers[i:i + slide_group_size]
+        if not slide_group_numbers:
+            continue
+
+        slide_group_text = []
+        slide_group_metadata = []
+        for slide_number in slide_group_numbers:
+            for block_text, block_metadata in slides[slide_number]:
+                slide_group_text.append(block_text)
+                slide_group_metadata.append(block_metadata)
+
+        if slide_group_text:
+            chunk_text = "\n\n".join(slide_group_text)
+            chunk_metadata = _create_chunk_metadata(
+                document_id, project_id, slide_group_metadata, "slide_group"
+            )
+            chunk_metadata.slide_number = slide_group_numbers[0]
+            if chunks:
+                chunk_metadata.previous_chunk_id = chunks[-1][1].chunk_id
+            chunks.append((chunk_text, chunk_metadata))
+
+    return chunks
 
 def chunk_document_adaptive(
     parsed_blocks: List[Tuple[str, Dict[str, Any]]],
@@ -337,6 +405,15 @@ def chunk_document_adaptive(
     """
     Adaptive chunking that chooses the best strategy based on document type and content.
     """
+    DOCUMENT_TYPE_TO_STRATEGY_MAP = {
+        "conversational": chunk_conversational_record,
+        "data_heavy": chunk_data_heavy_document,
+        "presentation": chunk_presentation_document,
+        "pptx_file": chunk_presentation_document,
+        "slide_deck": chunk_presentation_document,
+        "formal": chunk_formal_document,
+    }
+
     if use_semantic_chunker:
         try:
             # Initialize OpenAI embeddings for semantic chunking
@@ -346,9 +423,5 @@ def chunk_document_adaptive(
             logger.warning(f"Semantic chunking failed, falling back to type-based chunking: {e}")
 
     # Type-based chunking
-    if document_type == "conversational":
-        return chunk_conversational_record(parsed_blocks, document_id, project_id, **kwargs)
-    elif document_type == "data_heavy":
-        return chunk_data_heavy_document(parsed_blocks, document_id, project_id, **kwargs)
-    else:  # Default to formal document chunking
-        return chunk_formal_document(parsed_blocks, document_id, project_id, **kwargs)
+    strategy = DOCUMENT_TYPE_TO_STRATEGY_MAP.get(document_type, chunk_formal_document)
+    return strategy(parsed_blocks, document_id, project_id, **kwargs)

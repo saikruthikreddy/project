@@ -8,8 +8,12 @@
 *.db
 *.sqlite
 *.sqlite3
+data/
+data/master_metadata.json
+
 
 # Python
+.gradio/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -33,6 +37,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
 
 # Virtual environments
 venv/

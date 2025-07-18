@@ -25,6 +25,7 @@ class DocumentMetadata:
     priority: str
     finalizedAt: str
     storagePath: str
+    source: str
     categoryFolder: str
     storedFilename: str
     savedAt: str
