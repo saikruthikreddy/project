@@ -2171,11 +2171,23 @@ class DatabaseManager:
                 if not user:
                     raise NotFoundError(f"User with id {user_id} not found")
 
+                setattr(user, "microsoft_id", microsoft_id)
+
+            setattr(user, "updated_at", datetime.utcnow())
+
+            session.flush()
+            session.expunge(user)
+            logger.info(f"Updated user: {user.username}")
+
+            return user
 
         except ValidationError:
             raise
+        except SQLAlchemyError as e:
+            logger.error(f"Database error updating user: {e}")
+            raise DatabaseError(f"Failed to update user: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error creating processing batch: {e}")
+            logger.error(f"Unexpected error updating the microsoft id for the user: {e}")
             raise DatabaseError(f"Unexpected error updating the microsoft id for the user: {e}")
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
