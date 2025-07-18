@@ -170,16 +170,17 @@ class AuthUtils:
         """Get user details by ID."""
         try:
             if isinstance(user_id, str):
-                user_id = uuid.UUID(user_id)
-            user = self.db_manager.get_user_by_id(user_id)
-            if user and user.is_active:
+                user_uuid = uuid.UUID(user_id)
+            user = self.db_manager.get_user_by_id(user_uuid)
+            if user is not None and user.is_active is True:
                 return {
                     'id': str(user.id),
                     'username': user.username,
                     'email': user.email,
+                    'microsoft_id': user.microsoft_id,
                     'is_active': user.is_active,
                     'is_superuser': user.is_superuser,
-                    'created_at': user.created_at.isoformat() if user.created_at else None
+                    'created_at': user.created_at.isoformat() if user.created_at is not None else None
                 }
             return None
         except (ValueError, TypeError):
@@ -192,15 +193,16 @@ class AuthUtils:
         """Get user details by email."""
         try:
             user = self.db_manager.get_user_by_email(email)
-            if user and user.is_active:
+            if user is not None and user.is_active is True:
                 return {
                     'id': str(user.id),
                     'username': user.username,
                     'email': user.email,
                     'hashed_password': user.hashed_password,
+                    'microsoft_id': user.microsoft_id,
                     'is_active': user.is_active,
                     'is_superuser': user.is_superuser,
-                    'created_at': user.created_at.isoformat() if user.created_at else None
+                    'created_at': user.created_at.isoformat() if user.created_at is not None else None
                 }
             return None
         except Exception as e:
@@ -356,7 +358,7 @@ class AuthUtils:
         """Get user details by their unique Microsoft ID."""
         try:
             user = self.db_manager.get_user_by_microsoft_id(microsoft_id)
-            if user and user.is_active:
+            if user is not None and user.is_active is True:
                 return self.db_manager._user_to_dict(user)
             return None
         except Exception as e:

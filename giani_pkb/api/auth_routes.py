@@ -5,22 +5,16 @@ API routes for authentication operations.
 from flask import Blueprint, request, make_response
 from datetime import datetime
 import logging
-import requests
-import base64
-import json
 import os
 import msal
 from giani_pkb.utils.response_utils import (
-    api_database_error,
     api_success,
-    api_error,
     api_validation_error,
     api_authentication_error,
     api_internal_server_error,
-    ApiResponseBuilder,
 )
-from giani_pkb.utils.auth_utils import AuthUtils, hash_password, verify_password
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
+from giani_pkb.utils.auth_utils import AuthUtils, verify_password
+from giani_pkb.utils.exceptions import DatabaseError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -85,17 +79,16 @@ def create_auth_routes():
             if not user:
                 return api_authentication_error("Invalid Username")
 
+            if user['hashed_password'] is None and user['microsoft_id'] is not None:
+                return api_authentication_error("User has registered using microsoft account. Login using the same.")
+
             # Verify password using auth_utils
             if not verify_password(password, user["hashed_password"]):
                 return api_authentication_error("Invalid Password")
 
             # Generate tokens using auth_utils
-            accessToken = auth_utils.create_jwt_token(
-                user["id"], user["email"], 30 * 60
-            )  # 30 minutes
-            refreshToken = auth_utils.create_jwt_token(
-                user["id"], user["email"], 7 * 24 * 60 * 60
-            )  # 7 days
+            accessToken = auth_utils.create_jwt_token(user["id"], user["email"], 30 * 60)  # 30 minutes
+            refreshToken = auth_utils.create_jwt_token(user["id"], user["email"], 7 * 24 * 60 * 60)  # 7 days
 
             # Determine response format based on User-Agent or explicit header
             is_addin = request.headers.get(
@@ -126,15 +119,12 @@ def create_auth_routes():
             logger.error(f"Error during login: {e}")
             return api_internal_server_error("Login failed", str(e))
 
-    @auth.route("/microsoft/url", methods=["POST"])
+    @auth.route("/microsoft/url", methods=["GET"])
     def get_microsoft_auth_url():
         """Generate Microsoft OAuth URL for frontend"""
         try:
-            data = request.get_json()
-            if not data:
-                return api_validation_error("No data provided")
 
-            redirect_uri = data.get("redirect_uri")
+            redirect_uri = request.args.get('redirect_uri')
             if not redirect_uri:
                 return api_validation_error("Redirect URI are required")
             msal_app = create_msal_app()
@@ -148,32 +138,7 @@ def create_auth_routes():
 
             return api_success({"auth_url": auth_url})
         except Exception as e:
-            logger.error(f"Error getting current user: {e}")
             return api_internal_server_error("Failed to generate auth url", str(e))
-
-    def get_microsoft_user_info(access_token):
-        """Get user information from Microsoft Graph API"""
-        try:
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-            }
-
-            response = requests.get(
-                "https://graph.microsoft.com/v1.0/me", headers=headers
-            )
-
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(
-                    f"Failed to get user info: {response.status_code} - {response.text}"
-                )
-                return None
-
-        except Exception as e:
-            print(f"Error getting user info: {str(e)}")
-            return None
 
     @auth.route("/login/microsoft", methods=["POST"])
     def microsoft_login():
@@ -186,9 +151,7 @@ def create_auth_routes():
             auth_code = data.get("code")
             redirect_uri = data.get("redirect_uri")
             if not auth_code or not redirect_uri:
-                return api_validation_error(
-                    "Authorization code and redirect URI are required"
-                )
+                return api_validation_error("Authorization code and redirect URI are required")
 
             msal_app = create_msal_app()
 
@@ -212,30 +175,32 @@ def create_auth_routes():
 
             user = auth_utils.get_user_by_microsoft_id(microsoft_id)
 
-            # Check if user exists in our database, or create them
-            user = auth_utils.get_user_by_email(email)
             if not user:
-                logger.info(f"New user from Microsoft SSO: {email}. Creating account.")
-                # Create the user without a password, as they will always use SSO
-                user_id = auth_utils.create_user(
-                    name or email, email, password=None, is_superuser=False
-                )
-                if not user_id:
-                    return api_internal_server_error(
-                        "Failed to create new user account"
+                # If not found by Microsoft ID, check if an account with that email already exists.
+                user = auth_utils.get_user_by_email(email)
+                if user:
+                    logger.info(f"Existing user {email} found. Linking Microsoft ID.")
+                    auth_utils.link_microsoft_id(user['id'], microsoft_id)
+                else:
+                    # No user exists, creating a new one.
+                    logger.info(f"New user from Microsoft SSO: {email}. Creating account.")
+                    user_id = auth_utils.create_user(
+                        username=name or email,
+                        email=email,
+                        password=None,
+                        microsoft_id=microsoft_id,
+                        is_superuser=False
                     )
-                user = auth_utils.get_user_by_id(user_id)
+                    if not user_id:
+                        return api_internal_server_error("Failed to create new user account")
+                    user = auth_utils.get_user_by_id(user_id)
 
             if not user:
-                return api_internal_server_error("User creation/retrieval failed")
+                return api_internal_server_error('User creation/retrieval failed')
 
-            # User exists, now generate our application's own JWT tokens
-            accessToken = auth_utils.create_jwt_token(
-                user["id"], user["email"], 30 * 60
-            )  # 30 minutes
-            refreshToken = auth_utils.create_jwt_token(
-                user["id"], user["email"], 7 * 24 * 60 * 60
-            )  # 7 days
+            # User exists, generate auth tokens
+            accessToken = auth_utils.create_jwt_token(user["id"], user["email"], 30 * 60)
+            refreshToken = auth_utils.create_jwt_token(user["id"], user["email"], 7 * 24 * 60 * 60)
 
             response_data = {
                 "user": {
@@ -252,10 +217,10 @@ def create_auth_routes():
             ) == "addin" or "Office" in request.headers.get("User-Agent", "")
 
             if is_addin:
-                return api_success(response_data, "Login successful")
+                return api_success(response_data, "Microsoft login successful")
             else:
                 # For Web projects: set cookies
-                response = make_response(api_success(response_data, "Login successful"))
+                response = make_response(api_success(response_data, "Microsoft login successful"))
                 set_auth_cookies(response, accessToken, refreshToken)
                 return response
 
@@ -288,6 +253,9 @@ def create_auth_routes():
             # Generate new access token using auth_utils
             user_id = payload.get("user_id")
             email = payload.get("email")
+
+            if not user_id or not email:
+                return api_authentication_error("Invalid refresh token")
 
             new_accessToken = auth_utils.create_jwt_token(
                 user_id, email, 3600
@@ -389,7 +357,10 @@ def create_auth_routes():
             # Check if user already exists (optional - db layer will also check)
             existing_user = auth_utils.get_user_by_email(email)
             if existing_user:
-                return api_validation_error("User already exists")
+                if existing_user['microsoft_id']:
+                    return api_validation_error('User has already registered through microsoft. Login using Microsoft account.')
+                else:
+                    return api_validation_error("User already exists")
 
             # Create user - this will raise ValidationError if validation fails
             user_id = auth_utils.create_user(name, email, password, is_superuser=False)
