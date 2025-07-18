@@ -62,7 +62,6 @@ def create_health_routes() -> Blueprint:
             env_info = {
                 'python_version': f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
                 'environment': os.getenv('FLASK_ENV', 'development'),
-                'database_url': getattr(config, 'DATABASE_URL', 'sqlite:///./giani_ai.db'),
                 'cors_origins': getattr(config, 'CORS_ORIGINS', [])
             }
 
@@ -116,7 +115,6 @@ def create_health_routes() -> Blueprint:
                 'timestamp': datetime.utcnow().isoformat(),
                 'statistics': stats,
                 'integrity_check': integrity_check,
-                'database_url': getattr(config, 'DATABASE_URL', 'sqlite:///./giani_ai.db')
             }
 
             status_code = 200 if integrity_check else 503

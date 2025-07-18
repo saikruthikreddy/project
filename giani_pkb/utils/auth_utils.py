@@ -3,13 +3,15 @@ Authentication utilities for JWT token management and user verification.
 """
 import jwt  # type: ignore
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Union
 from functools import wraps
-from flask import request
+from flask import g, request
 import logging
 import hashlib
 import secrets
 import uuid
+
+from sqlalchemy.types import UUID
 
 from giani_pkb.utils.response_utils import api_error, api_authentication_error
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
@@ -119,13 +121,13 @@ class AuthUtils:
         }
         return jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
 
-    def verify_user_exists(self, user_id: str) -> bool:
+    def verify_user_exists(self, user_id: Union[str, uuid.UUID]) -> bool:
         """Verify that a user exists in the database."""
         try:
             if isinstance(user_id, str):
                 user_id = uuid.UUID(user_id)
             user = self.db_manager.get_user_by_id(user_id)
-            return user is not None and user.is_active
+            return user is not None and user.is_active is True
         except (ValueError, TypeError):
             return False
         except Exception as e:
@@ -156,7 +158,7 @@ class AuthUtils:
             if not user_id or not isinstance(user_id, str) or not self.verify_user_exists(user_id):
                 return api_authentication_error("User not found")
 
-            request.current_user = {
+            g.current_user = {
                 'user_id': user_id,
                 'email': payload.get('email')
             }
@@ -168,16 +170,17 @@ class AuthUtils:
         """Get user details by ID."""
         try:
             if isinstance(user_id, str):
-                user_id = uuid.UUID(user_id)
-            user = self.db_manager.get_user_by_id(user_id)
-            if user and user.is_active:
+                user_uuid = uuid.UUID(user_id)
+            user = self.db_manager.get_user_by_id(user_uuid)
+            if user is not None and user.is_active is True:
                 return {
                     'id': str(user.id),
                     'username': user.username,
                     'email': user.email,
+                    'microsoft_id': user.microsoft_id,
                     'is_active': user.is_active,
                     'is_superuser': user.is_superuser,
-                    'created_at': user.created_at.isoformat() if user.created_at else None
+                    'created_at': user.created_at.isoformat() if user.created_at is not None else None
                 }
             return None
         except (ValueError, TypeError):
@@ -190,40 +193,50 @@ class AuthUtils:
         """Get user details by email."""
         try:
             user = self.db_manager.get_user_by_email(email)
-            if user and user.is_active:
+            if user is not None and user.is_active is True:
                 return {
                     'id': str(user.id),
                     'username': user.username,
                     'email': user.email,
                     'hashed_password': user.hashed_password,
+                    'microsoft_id': user.microsoft_id,
                     'is_active': user.is_active,
                     'is_superuser': user.is_superuser,
-                    'created_at': user.created_at.isoformat() if user.created_at else None
+                    'created_at': user.created_at.isoformat() if user.created_at is not None else None
                 }
             return None
         except Exception as e:
             logger.error(f"Database error getting user by email: {e}")
             return None
 
-    def create_user(self, username: str, email: str, password: str = '',
-                    is_superuser: bool = False) -> Optional[str]:
-        """Create a new user."""
+    def create_user(self, username: str, email: str, password: Optional[str],
+                    is_superuser: bool = False, microsoft_id: Optional[str] = None) -> Optional[str]:
+        """Create a new user. Handles both password and SSO creation."""
         try:
             # Check if user already exists
             existing_user = self.db_manager.get_user_by_email(email)
             if existing_user:
                 logger.warning(f"User with email {email} already exists")
+                if microsoft_id and not existing_user.get('microsoft_id'):
+                    self.link_microsoft_id(existing_user['id'], microsoft_id)
+                    return existing_user['id']
                 return None
-            
+
             # Create user using database manager - this may raise ValidationError
-            user = self.db_manager.create_user(username, email, password or "temp_password", is_superuser)
+            user = self.db_manager.create_user(
+                username=username,
+                email=email,
+                password=password,
+                is_superuser=is_superuser,
+                microsoft_id=microsoft_id
+            )
             if user and 'id' in user:
                 logger.info(f"Created user: {username} with ID: {user['id']}")
                 return str(user['id'])
             else:
                 logger.error(f"User creation failed for {username}, no ID returned.")
                 return None
-                
+
         except ValidationError:
             # Re-raise validation errors to be caught by the route handler
             raise
@@ -340,3 +353,23 @@ class AuthUtils:
             raise ValueError("Invalid email format")
 
         return sanitized
+
+    def get_user_by_microsoft_id(self, microsoft_id: str) -> Optional[Dict[str, Any]]:
+        """Get user details by their unique Microsoft ID."""
+        try:
+            user = self.db_manager.get_user_by_microsoft_id(microsoft_id)
+            if user is not None and user.is_active is True:
+                return self.db_manager._user_to_dict(user)
+            return None
+        except Exception as e:
+            logger.error(f"Database error getting user by Microsoft ID: {e}")
+            return None
+
+    def link_microsoft_id(self, user_id: str, microsoft_id: str) -> bool:
+        """Links a Microsoft ID to an existing user account."""
+        try:
+            updated_user = self.db_manager.update_user_microsoft_id(user_id, microsoft_id)
+            return updated_user is not None
+        except Exception as e:
+            logger.error(f"Error linking Microsoft ID to user {user_id}: {e}")
+            return False
