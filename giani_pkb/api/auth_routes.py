@@ -182,9 +182,9 @@ def create_auth_routes():
                     auth_utils.link_microsoft_id(user['id'], microsoft_id)
                 else:
                     # No user exists, creating a new one.
-                    logger.info(f"New user from Microsoft SSO: {email}. Creating account.")
+                    logger.info(f"New user from Microsoft SSO, email: {email}, name: {name}. Creating account.")
                     user_id = auth_utils.create_user(
-                        username=name or email,
+                        username=name or email.split('@')[0],
                         email=email,
                         password=None,
                         microsoft_id=microsoft_id,

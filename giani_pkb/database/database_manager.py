@@ -90,7 +90,9 @@ class DatabaseManager:
             # Input validation
             if not self._validate_email(email):
                 raise ValidationError("Invalid email format")
-            if not self._validate_username(username):
+
+            # Validate username only if microsoft_id is not provided i.e. username is provided by the user
+            if not microsoft_id and not self._validate_username(username):
                 raise ValidationError("Username must be 3-50 characters and contain only letters, numbers, hyphens, and underscores")
 
             # Password is required only if microsoft_id is not provided
