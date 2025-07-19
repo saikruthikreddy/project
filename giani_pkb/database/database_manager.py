@@ -112,7 +112,7 @@ class DatabaseManager:
                 # Create new user
                 hashed_password = hash_password(password) if password else None
                 user = User(
-                    username=username.lower(),
+                    username=username,
                     email=email.lower(),
                     hashed_password=hashed_password,
                     microsoft_id=microsoft_id,
