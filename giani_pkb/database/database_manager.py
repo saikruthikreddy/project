@@ -1668,14 +1668,23 @@ class DatabaseManager:
             for field in required_fields:
                 if not kwargs.get(field):
                     raise ValidationError(f"Required field '{field}' is missing")
+            
+            document_id = kwargs.get('document_id')
+            if isinstance(document_id, str):
+                try:
+                    document_id = UUID(document_id)
+                    kwargs['document_id'] = document_id  # update the value
+                except ValueError:
+                    raise ValidationError("Invalid UUID format for 'document_id'")
+
 
             with self.get_session() as session:
                 # Verify document exists
                 document = session.query(Document).filter(
-                    Document.id == kwargs.get('document_id')
+                    Document.id == document_id
                 ).first()
                 if not document:
-                    raise ValidationError(f"Document with ID {kwargs.get('document_id')} not found")
+                    raise ValidationError(f"Document with ID {document_id} not found")
 
                 # Set processing timestamp if not provided
                 if 'processing_timestamp' not in kwargs:
@@ -1688,7 +1697,7 @@ class DatabaseManager:
                 # Detach from session
                 session.expunge(summary)
 
-                logger.info(f"Created document summary for document ID: {kwargs.get('document_id')}")
+                logger.info(f"Created document summary for document ID: {document_id}")
                 return summary
 
         except ValidationError:
@@ -1701,10 +1710,14 @@ class DatabaseManager:
         """Verify that a document exists in the database."""
         try:
             with self.get_session() as session:  # type: Session
-                # Normalize document_id to string format (remove dashes for SQLite)
-                document_id_str = str(document_id).replace('-', '')
+                try:
+                    if isinstance(document_id, str):
+                        document_id = UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format: {document_id}")
+                    return False
 
-                result = session.query(Document).filter_by(id=document_id_str).first()
+                result = session.query(Document).filter_by(id=document_id).first()
                 return result is not None
 
         except SQLAlchemyError as e:
