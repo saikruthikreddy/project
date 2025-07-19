@@ -81,6 +81,9 @@ def generate_titles(payload):
     Returns: { suggestedTitles: [...], modelUsed: "...", contextUsed: {...} }
     """
     try:
+        logger.debug("📥 [generate_titles] Payload received:")
+        logger.debug(payload)
+
         user_topic = payload.get("userIntentTopic", "").strip()
         user_instructions = payload.get("userIntentInstructions", "").strip()
         slide_statement = payload.get("currentSlideStatement", "").strip()
@@ -93,16 +96,32 @@ def generate_titles(payload):
         project_id = payload.get("projectID", "").strip()
         is_regeneration = payload.get("isRegeneration", False)
 
+        logger.debug("✅ Extracted variables:")
+        logger.debug(f"userIntentTopic: {user_topic}")
+        logger.debug(f"userIntentInstructions: {user_instructions}")
+        logger.debug(f"currentSlideStatement: {slide_statement}")
+        logger.debug(f"currentSlideContent: {slide_content}")
+        logger.debug(f"immediatelyPreviousSlideStatement: {immediate_prev_statement}")
+        logger.debug(f"secondPreviousSlideStatement: {second_prev_statement}")
+        logger.debug(f"previousSlidesTitle: {previous_titles}")
+        logger.debug(f"alreadySuggestedTitles: {already_suggested}")
+        logger.debug(f"specificInstructionforNewset: {new_instruction}")
+        logger.debug(f"projectID: {project_id}")
+        logger.debug(f"isRegeneration: {is_regeneration}")
+
         word_range_str, is_target_style_topical = prepare_length_and_style_inputs_with_variance_handling(
             immediate_prev_statement,
             second_prev_statement,
             slide_statement
         )
 
+        logger.debug(f"📏 Determined word range: {word_range_str}, Topical Style: {is_target_style_topical}")
+
         project_purpose = (
             get_project_purpose(project_id).strip()
             if project_id else "General presentation objective"
         )
+        logger.debug(f"🎯 Project purpose fetched: {project_purpose}")
 
         prev1 = previous_titles[0] if len(previous_titles) > 0 else ""
         prev2 = previous_titles[1] if len(previous_titles) > 1 else ""
@@ -112,6 +131,7 @@ def generate_titles(payload):
             if is_regeneration else
             "ppt_addin_prompts/title_generation_prompt.txt"
         )
+        logger.debug(f"📄 Loading prompt template from: {prompt_filename}")
         prompt_template = load_prompt_template(prompt_filename)
 
         filled_prompt = prompt_template.format(
@@ -130,7 +150,7 @@ def generate_titles(payload):
             isTargetStyleTopical="True" if is_target_style_topical else "False"
         )
 
-        logger.debug("[Gemini Prompt] Filled prompt:\n" + filled_prompt)
+        logger.debug("🧩 [Gemini Prompt] Filled prompt:\n" + filled_prompt)
 
         model = genai.GenerativeModel(GEMINI_PRO_MODEL)
         logger.debug("🧠 Gemini model initialized with: " + GEMINI_PRO_MODEL)
@@ -138,7 +158,7 @@ def generate_titles(payload):
         response = model.generate_content(filled_prompt)
         response_text = response.text.strip()
 
-        logger.debug("[Gemini Response] Raw output:\n" + response_text)
+        logger.debug("[🎯 Gemini Response] Raw output:\n" + response_text)
 
         suggestions = [
             re.sub(r"^\d+\.\s*", "", line.strip())
@@ -152,6 +172,9 @@ def generate_titles(payload):
                 for line in response_text.split("\n")
                 if line.strip()
             ]
+        
+        logger.debug("✅ Parsed suggestions:")
+        logger.debug(suggestions)
 
         return {
             "suggestedTitles": suggestions[:3],
