@@ -9,6 +9,7 @@ from sqlalchemy import and_, or_, func, desc, asc, text
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
+import re
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
     User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
@@ -66,15 +67,18 @@ class DatabaseManager:
 
     def _validate_email(self, email: str) -> bool:
         """Validate email format."""
-        import re
         pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
         return re.match(pattern, email) is not None
 
     def _validate_username(self, username: str) -> bool:
-        """Validate username format."""
-        if not username or len(username) < 3 or len(username) > 50:
+        """Validate username format.
+        Accepts names with letters, spaces, hyphens, and underscores. Must be 3–50 characters long.
+        Examples of valid usernames: 'John', 'John Doe', 'Mary-Jane', 'A_B'
+        """
+        if not username or not (3 <= len(username) <= 50):
             return False
-        return username.replace('_', '').replace('-', '').isalnum()
+
+        return bool(re.fullmatch(r"[A-Za-z][A-Za-z _-]{2,49}", username.strip()))
 
     def create_user(self, username: str, email: str, password: Optional[str],
                 is_superuser: bool = False, microsoft_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -1668,7 +1672,7 @@ class DatabaseManager:
             for field in required_fields:
                 if not kwargs.get(field):
                     raise ValidationError(f"Required field '{field}' is missing")
-            
+
             document_id = kwargs.get('document_id')
             if isinstance(document_id, str):
                 try:

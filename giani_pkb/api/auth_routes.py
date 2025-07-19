@@ -123,7 +123,6 @@ def create_auth_routes():
     def get_microsoft_auth_url():
         """Generate Microsoft OAuth URL for frontend"""
         try:
-
             redirect_uri = request.args.get('redirect_uri')
             if not redirect_uri:
                 return api_validation_error("Redirect URI are required")
@@ -292,8 +291,8 @@ def create_auth_routes():
         """Logout user"""
         try:
             response = make_response(api_success({}, "Logout successful"))
-            response.delete_cookie("accessToken")
-            response.delete_cookie("refreshToken")
+            response.delete_cookie(key="accessToken", httponly=True, secure=True, samesite="None")
+            response.delete_cookie(key="refreshToken", httponly=True, secure=True, samesite="None")
             return response
 
         except Exception as e:
