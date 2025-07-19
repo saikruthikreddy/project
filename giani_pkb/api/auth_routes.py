@@ -326,7 +326,7 @@ def create_auth_routes():
                 return api_authentication_error("User not found")
 
             return api_success(
-                {"user": {"id": user["id"], "email": user["email"]}},
+                {"user": {"id": user["id"], "email": user["email"], "name": user["username"]}},
                 "User information retrieved successfully",
             )
 
