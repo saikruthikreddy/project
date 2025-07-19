@@ -100,7 +100,7 @@ class DatabaseManager:
             with self.get_session() as session:
                 # Check if user already exists
                 existing_user = session.query(User).filter(
-                    or_(User.email == email.lower(), User.username == username.lower())
+                    User.email == email.lower()
                 ).first()
 
                 if existing_user:
