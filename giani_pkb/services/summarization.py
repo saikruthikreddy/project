@@ -158,7 +158,7 @@ class SummarizationService:
         
         required_fields = {
             "ai_overall_key_themes_list": list,
-            "ai_high_level_narrative_summary": str,
+            "ai_high_level_narrative_summary": list,
             "ai_main_topics_with_summaries_list_of_objects": list,
             "ai_key_takeaways_bullets": list,
             "extracted_metadata": dict,

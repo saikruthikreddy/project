@@ -757,6 +757,7 @@ class DocumentUploadService:
                         'batch_id': batch_id,
                         'project_id': project_id,
                         'user_id': user_id,
+                        'source': doc_data['source'],
                         'temp_document_id': doc_data['temp_document_id'],
                         'ai_classification': doc_data['ai_classification'],
                         'ai_purpose': doc_data['ai_purpose'],
@@ -1036,7 +1037,7 @@ class DocumentUploadService:
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
             ai_purpose =  temp_doc.get('ai_purpose', task['ai_purpose'])
-            source =  temp_doc.get('source', '')
+            source =  task['source']
 
             # Validate file exists
             if not temp_file_path or not os.path.exists(temp_file_path):

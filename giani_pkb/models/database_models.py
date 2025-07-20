@@ -193,7 +193,7 @@ class DocumentSummary(Base):
     summary_storage_path = Column(String(500))  # Path to JSON file with full summary
 
     # Extracted fields for easy querying (denormalized from llm_analysis)
-    narrative_summary = Column(Text)  # ai_high_level_narrative_summary
+    narrative_summary = Column(JSON)  # ai_high_level_narrative_summary
     key_themes = Column(JSON)  # ai_overall_key_themes_list
     key_takeaways = Column(JSON)  # ai_key_takeaways_bullets
     extracted_keywords = Column(JSON)  # extracted_keywords
