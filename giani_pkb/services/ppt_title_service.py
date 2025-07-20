@@ -43,7 +43,7 @@ def prepare_length_and_style_inputs_with_variance_handling(
         ratio_diff = float('inf') if min_len == 0 else max_len / min_len
 
         is_variance_high = (
-            abs_diff > VARIANCE_ABS_DIFF_THRESHOLD or 
+            abs_diff > VARIANCE_ABS_DIFF_THRESHOLD or
             ratio_diff > VARIANCE_RATIO_THRESHOLD
         )
 
@@ -81,9 +81,6 @@ def generate_titles(payload):
     Returns: { suggestedTitles: [...], modelUsed: "...", contextUsed: {...} }
     """
     try:
-        logger.debug("📥 [generate_titles] Payload received:")
-        logger.debug(payload)
-
         user_topic = payload.get("userIntentTopic", "").strip()
         user_instructions = payload.get("userIntentInstructions", "").strip()
         slide_statement = payload.get("currentSlideStatement", "").strip()
@@ -95,19 +92,6 @@ def generate_titles(payload):
         new_instruction = payload.get("specificInstructionforNewset", "").strip()
         project_id = payload.get("projectID", "").strip()
         is_regeneration = payload.get("isRegeneration", False)
-
-        logger.debug("✅ Extracted variables:")
-        logger.debug(f"userIntentTopic: {user_topic}")
-        logger.debug(f"userIntentInstructions: {user_instructions}")
-        logger.debug(f"currentSlideStatement: {slide_statement}")
-        logger.debug(f"currentSlideContent: {slide_content}")
-        logger.debug(f"immediatelyPreviousSlideStatement: {immediate_prev_statement}")
-        logger.debug(f"secondPreviousSlideStatement: {second_prev_statement}")
-        logger.debug(f"previousSlidesTitle: {previous_titles}")
-        logger.debug(f"alreadySuggestedTitles: {already_suggested}")
-        logger.debug(f"specificInstructionforNewset: {new_instruction}")
-        logger.debug(f"projectID: {project_id}")
-        logger.debug(f"isRegeneration: {is_regeneration}")
 
         word_range_str, is_target_style_topical = prepare_length_and_style_inputs_with_variance_handling(
             immediate_prev_statement,
@@ -150,15 +134,10 @@ def generate_titles(payload):
             isTargetStyleTopical="True" if is_target_style_topical else "False"
         )
 
-        logger.debug("🧩 [Gemini Prompt] Filled prompt:\n" + filled_prompt)
-
         model = genai.GenerativeModel(GEMINI_PRO_MODEL)
-        logger.debug("🧠 Gemini model initialized with: " + GEMINI_PRO_MODEL)
 
         response = model.generate_content(filled_prompt)
         response_text = response.text.strip()
-
-        logger.debug("[🎯 Gemini Response] Raw output:\n" + response_text)
 
         suggestions = [
             re.sub(r"^\d+\.\s*", "", line.strip())
@@ -172,12 +151,9 @@ def generate_titles(payload):
                 for line in response_text.split("\n")
                 if line.strip()
             ]
-        
-        logger.debug("✅ Parsed suggestions:")
-        logger.debug(suggestions)
 
         return {
-            "suggestedTitles": suggestions[:3],
+            "refinedSuggestions": suggestions[:3],
             "modelUsed": GEMINI_PRO_MODEL,
             "contextUsed": {
                 "userIntentTopic": user_topic,
