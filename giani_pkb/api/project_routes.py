@@ -532,6 +532,28 @@ def create_project_routes():
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return api_internal_server_error('Failed to retrieve document summary', str(e))
 
+    @projects.route('/projects/<project_id>/query', methods=['GET'])
+    @auth_utils.auth_required
+    def query(project_id):
+        """Get the summary for a specific document."""
+        try:
+            user_id = g.current_user['user_id']
+            data=request.get_json()
 
+            user_question=data['user_question']
+            # Verify project access
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+
+            # Prepare response data
+            retrieval_data = db_manager.query(project_id,user_question)
+            return api_success(retrieval_data, 'project query retrieved successfully')
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error retrieving query response for project: {e}")
+            return api_database_error('Failed to retrieve document summary')
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving query response for project: {e}")
+            return api_internal_server_error('Failed to retrieve document summary', str(e))
 
     return projects

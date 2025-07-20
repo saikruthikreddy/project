@@ -16,6 +16,7 @@ from giani_pkb.models.database_models import (
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
+from giani_pkb.services.rag import query_executor
 
 logger = logging.getLogger(__name__)
 
@@ -2357,17 +2358,15 @@ class DatabaseManager:
 
         try:
             # Normalize document_id to string format (remove dashes for SQLite)
-            if isinstance(document_id, uuid.UUID):
-                normalized_document_id = str(document_id).replace('-', '')
-            else:
-                normalized_document_id = str(document_id).replace('-', '')
+            if isinstance(document_id, str):
+                document_id = uuid.UUID(document_id)
 
             # Verify the document exists
-            if not self._verify_document_exists(normalized_document_id):
-                logger.error(f"Document validation failed: document_id {normalized_document_id} does not exist in documents table")
+            if not self._verify_document_exists(document_id):
+                logger.error(f"Document validation failed: document_id {document_id} does not exist in documents table")
                 return False
 
-            logger.debug(f"Document {normalized_document_id} exists, proceeding with chunk save")
+            logger.debug(f"Document {document_id} exists, proceeding with chunk save")
 
             with self.get_session() as session:
                 session.begin()
@@ -2432,7 +2431,7 @@ class DatabaseManager:
                             metadata_json = {}
 
                         chunk_dict = {
-                            'document_id': normalized_document_id,  # Use normalized string format
+                            'document_id': document_id,  # Use normalized string format
                             'chunk_index': i,
                             'chunk_text': chunk_text,
                             'metadata_': metadata_json,
@@ -2444,7 +2443,7 @@ class DatabaseManager:
                         # Convert any remaining UUIDs to strings (except document_id which is already normalized)
                         chunk_dict_converted = self._convert_uuids_to_strings(chunk_dict)
                         # Keep document_id as normalized string (don't convert back to UUID)
-                        chunk_dict_converted['document_id'] = normalized_document_id
+                        chunk_dict_converted['document_id'] = document_id
 
                         # Additional safety check - ensure all values are JSON serializable
                         try:
@@ -2563,3 +2562,8 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return None
+
+
+    def query(self, project_id, user_question: str,):
+        print("Inside Query")
+        return query_executor(self.get_session(),project_id,user_question)

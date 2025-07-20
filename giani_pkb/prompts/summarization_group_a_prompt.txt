@@ -47,7 +47,7 @@ Based ONLY on the provided 'Extracted Key Document Content/Chunks' and heavily g
 OUTPUT FORMAT (Strictly JSON, don't add \n or other special characters):
 {{
   "ai_overall_key_themes_list": ["..."],
-  "ai_high_level_narrative_summary": "...",
+  "ai_high_level_narrative_summary": ["..."],
   "ai_main_topics_with_summaries_list_of_objects": [{{"topic_name": "...", "topic_summary": "..."}}],
   "ai_key_takeaways_bullets": ["..."],
   "extracted_metadata": {{
