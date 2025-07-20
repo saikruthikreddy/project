@@ -16,7 +16,6 @@ from giani_pkb.models.database_models import (
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
-from giani_pkb.services.rag import query_executor
 
 logger = logging.getLogger(__name__)
 
@@ -2352,7 +2351,7 @@ class DatabaseManager:
                 converted.append(item)
         return converted
 
-    def save_chunks(self, document_id: str, chunks: List[Any]) -> bool:
+    def save_chunks(self, document_id: Union[str, uuid.UUID], chunks: List[Any]) -> bool:
         """Save document chunks to the database with UUID conversion."""
         logger.debug(f"Attempting to save {len(chunks)} chunks for document_id: {document_id}")
 
@@ -2470,7 +2469,7 @@ class DatabaseManager:
             logger.error(f"Unexpected error saving chunks: {e}")
             return False
 
-    def get_document_summary(self, document_id: str, summary_id: int = None) -> Dict[str, Any]:
+    def get_document_summary(self, document_id: Union[str, uuid.UUID], summary_id: int = None) -> Dict[str, Any]:
         """
         Get document summary from the database.
 
@@ -2565,5 +2564,6 @@ class DatabaseManager:
 
 
     def query(self, project_id, user_question: str,):
+        from giani_pkb.services.rag import query_executor
         print("Inside Query")
         return query_executor(self.get_session(),project_id,user_question)
