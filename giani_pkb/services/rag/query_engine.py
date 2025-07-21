@@ -34,8 +34,7 @@ def build_query_engine(
             index, 
             project_id, 
             document_content_type, 
-            top_k,
-            similarity_threshold
+            top_k
         )
         
         # Configure response synthesizer with better settings

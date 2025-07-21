@@ -509,10 +509,7 @@ class DatabaseManager:
                     raise NotFoundError(f"Project with ID {project_id} not found or access denied")
 
                 # Update allowed fields with validation
-                allowed_fields = {
-                    'name', 'description', 'client_name', 'client_industry',
-                    'target_audience', 'key_client_stakeholders_profiles', 'objectives'
-                }
+                allowed_fields = {"clientIndustry","clientName","keyClientStakeholdersProfiles",'primaryProjectObjectivesSuccessMetrics','projectDescription','projectName','targetAudience'}
 
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(project, key):
@@ -1408,9 +1405,17 @@ class DatabaseManager:
             logger.error(f"Database error creating document: {e}")
             raise DatabaseError(f"Failed to create document: {e}")
 
-    def get_document_by_id(self, document_id: int, user_id: Union[str, uuid.UUID] = None) -> Optional[Document]:
+    def get_document_by_id(self, document_id: Union[str, uuid.UUID], user_id: Union[str, uuid.UUID] = None) -> Optional[Document]:
         """Get document by ID with optional user access check and enhanced type handling."""
         try:
+            # Convert document_id to UUID if it's a string
+            if isinstance(document_id, str):
+                try:
+                    document_id = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return None
+            
             # Convert user_id to UUID if provided and is string
             if user_id and isinstance(user_id, str):
                 try:
@@ -1418,20 +1423,17 @@ class DatabaseManager:
                 except ValueError:
                     logger.error(f"Invalid UUID format for user_id: {user_id}")
                     return None
-
+            
             with self.get_session() as session:
                 query = session.query(Document).filter(Document.id == document_id)
-
                 if user_id:
                     query = query.filter(Document.user_id == user_id)
-
+                
                 document = query.first()
-
                 if document:
                     session.expunge(document)
-
                 return document
-
+                
         except SQLAlchemyError as e:
             logger.error(f"Database error getting document: {e}")
             return None

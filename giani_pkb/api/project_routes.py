@@ -1,7 +1,7 @@
 """
 API routes for project operations.
 """
-from flask import g, Blueprint, request
+from flask import g, Blueprint, request, send_file, abort
 import logging
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
@@ -152,14 +152,29 @@ def create_project_routes():
 
             # Validate updates
             updates = {}
-            if 'project_name' in data:
-                project_name = data['project_name'].strip()
+            if 'projectName' in data:
+                project_name = data['projectName'].strip()
                 if not project_name:
                     return api_validation_error('Project name cannot be empty')
                 updates['name'] = project_name
 
-            if 'description' in data:
-                updates['description'] = data['description'].strip()
+            if 'projectDescription' in data:
+                updates['projectDescription'] = data['projectDescription'].strip()
+
+            if 'targetAudience' in data:
+                updates['targetAudience'] = data['targetAudience'].strip()
+            
+            if 'primaryProjectObjectivesSuccessMetrics' in data:
+                updates['primaryProjectObjectivesSuccessMetrics'] = data['primaryProjectObjectivesSuccessMetrics'].strip()
+            
+            if 'keyClientStakeholdersProfiles' in data:
+                updates['keyClientStakeholdersProfiles'] = data['keyClientStakeholdersProfiles'].strip()
+            
+            if 'clientName' in data:
+                updates['clientName'] = data['clientName'].strip()
+            
+            if 'clientIndustry' in data:
+                updates['clientIndustry'] = data['clientIndustry'].strip()
 
             if not updates:
                 return api_validation_error('No valid updates provided')
@@ -575,5 +590,95 @@ def create_project_routes():
         except Exception as e:
             logger.error(f"Unexpected error during project query: {e}")
             return api_internal_server_error('Failed to execute project query', str(e))
+
+    @projects.route('/projects/<project_id>/documents/<document_id>/download', methods=['GET'])
+    @auth_utils.auth_required
+    def download_document(project_id,document_id):
+        """
+        Download a document by its ID.
+        
+        Args:
+            document_id (str): UUID of the document to download
+            
+        Query Parameters:
+            as_attachment (bool): Whether to force download as attachment (default: True)
+            
+        Returns:
+            File response with appropriate headers or error response
+        """
+        try:
+            user_id = g.current_user['user_id']
+            
+            # Get the document from database
+            document = db_manager.get_document_by_id(document_id,user_id)
+            
+            if not document:
+                return api_not_found_error('Document not found')
+            
+            # Verify user has access to this document
+            # Check if user owns the document or has access through project
+            if document.user_id != user_id:
+                # Check if user has access to the project
+                if not db_utils.verify_project_access(document.project_id, user_id):
+                    return api_forbidden_error('Access denied to this document')
+            
+            # Get document details
+            storage_path = document.storage_path
+            original_filename = document.original_filename
+            file_mime_type = document.file_mime_type
+            file_size = document.file_size
+            
+            # Verify file exists on disk
+            if not storage_path or not os.path.exists(storage_path):
+                logger.error(f"Document file not found at path: {storage_path}")
+                return api_not_found_error('Document file not found on server')
+            
+            # Verify file size matches (security check)
+            actual_file_size = os.path.getsize(storage_path)
+            if actual_file_size != file_size:
+                logger.warning(f"File size mismatch for document {document_id}. Expected: {file_size}, Actual: {actual_file_size}")
+            
+            # Determine if file should be downloaded as attachment
+            as_attachment = request.args.get('as_attachment', 'true').lower() == 'true'
+            
+            # Secure the filename
+            safe_filename = secure_filename(original_filename) or f"document_{document_id}"
+            
+            # Set appropriate headers
+            headers = {
+                'Content-Length': str(actual_file_size),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+            
+            # Log download activity
+            logger.info(f"User {user_id} downloading document {document_id}: {original_filename}")
+            
+            # Send file
+            return send_file(
+                storage_path,
+                as_attachment=as_attachment,
+                download_name=safe_filename,
+                mimetype=file_mime_type,
+                conditional=True,  # Enable conditional requests (range requests)
+                max_age=0  # Disable caching
+            )
+            
+        except ValidationError as e:
+            logger.error(f"Validation error downloading document {document_id}: {e}")
+            return api_validation_error(str(e))
+        
+        except PermissionError as e:
+            logger.error(f"Permission error accessing file {storage_path}: {e}")
+            return api_internal_server_error('File access permission denied')
+        
+        except FileNotFoundError as e:
+            logger.error(f"File not found {storage_path}: {e}")
+            return api_not_found_error('Document file not found')
+        
+        except Exception as e:
+            logger.error(f"Error downloading document {document_id}: {e}")
+            return api_internal_server_error('Failed to download document', str(e))
     
     return projects
