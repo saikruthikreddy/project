@@ -16,7 +16,7 @@ class RAGIndexer:
         print("saeved cgunks")
         if not chunks:
             raise ValueError("No chunks with embeddings for that project")
-        nodes = [convert_chunk_to_node(chunk) for chunk in chunks]
+        nodes = [convert_chunk_to_node(chunk, project_id) for chunk in chunks]
         return VectorStoreIndex(nodes=nodes) 
 
     def _fetch_chunks(self, project_id: int, document_content_type: Optional[str] = None) -> List[DocumentChunk]:
