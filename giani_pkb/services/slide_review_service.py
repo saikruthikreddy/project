@@ -57,7 +57,7 @@ def review_slide(payload):
 
         # Return result — no wrapping, just data
         return {
-            "reviewReport": review_json,
+            "reviewSuggestions": review_json,
             "contextUsed": {
                 "projectID": project_id,
                 "projectPurposeUsed": project_purpose,

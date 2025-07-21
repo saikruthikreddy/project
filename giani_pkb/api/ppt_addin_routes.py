@@ -2,7 +2,7 @@ from flask import Blueprint, request
 from giani_pkb.services.ppt_title_service import generate_titles
 from giani_pkb.services.ppt_title_refine_service import refine_title
 from giani_pkb.services.project_service import get_projects_for_user, get_project_purpose
-from giani_pkb.services.ppt_slide_structure import generate_slide_structure 
+from giani_pkb.services.ppt_slide_structure import generate_slide_structure
 from giani_pkb.services.ppt_improve_selected_text_service import refine_selected_text
 from giani_pkb.services.ppt_parallelize_content_service import parallelize_statements
 from giani_pkb.services.slide_review_service import review_slide
@@ -85,7 +85,7 @@ def create_ppt_routes():
 
             return api_success(
                 {
-                    "structuredSlides": result.get("structuredSlides"),
+                    "structuredSlides": result.get("structuredSlideOutput"),
                     "contextUsed": result.get("contextUsed")
                 }
             )
