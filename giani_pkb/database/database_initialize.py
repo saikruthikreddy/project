@@ -258,6 +258,7 @@ class DatabaseInitializer:
                 storage_path='/data/uploaded_documents/formal/sample_document.pdf',
                 category_folder='formal',
                 stored_filename='sample_document_20240101.pdf',
+                source='upload',  # Add default source
                 final_category='1. Strategy Document/Deck',
                 final_purpose='Sample document for testing the system functionality',
                 priority='Medium',
@@ -272,9 +273,9 @@ class DatabaseInitializer:
             sample_chunk = DocumentChunk(
                 chunk_id='sample-chunk-001',
                 document_id=sample_document.id,
-                chunk_text_content='This is a sample chunk of document content for testing the chunking functionality.',
+                chunk_text='This is a sample chunk of document content for testing the chunking functionality.',
                 source_page_number=[1],
-                structural_metadata={
+                metadata_={
                     'block_type': 'paragraph',
                     'source_type': 'text',
                     'page_number': 1
@@ -285,12 +286,15 @@ class DatabaseInitializer:
             # Create sample document summary
             sample_summary = DocumentSummary(
                 document_id=sample_document.id,
-                summary_content='This is a sample document that demonstrates the system functionality.',
-                llm_used='gpt-3.5-turbo',
-                summary_metadata={
-                    'summary_type': 'extractive',
-                    'word_count': 15
-                }
+                llm_analysis={
+                    'summary_content': 'This is a sample document that demonstrates the system functionality.',
+                    'llm_used_for_processing': 'gpt-3.5-turbo',
+                    'summary_metadata': {
+                        'summary_type': 'extractive',
+                        'word_count': 15
+                    }
+                },
+                llm_model_used='gpt-3.5-turbo'
             )
             db.add(sample_summary)
 
