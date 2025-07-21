@@ -1,6 +1,7 @@
 from llama_index.core.schema import TextNode
 from giani_pkb.models.database_models import DocumentChunk
 
+
 def convert_chunk_to_node(chunk: DocumentChunk, project_id: int) -> TextNode:
     """
     Convert a DocumentChunk ORM object to a LlamaIndex TextNode,
