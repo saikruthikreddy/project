@@ -4,8 +4,28 @@ from typing import List
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, text, Index, Float
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from giani_pkb.utils.database import Base
+from sqlalchemy.types import TypeDecorator, TEXT
+import json 
+
+
+
+class JSONEncodedList(TypeDecorator):
+    """Represents a list structure as JSON-encoded string for SQLite compatibility."""
+    
+    impl = TEXT
+    cache_ok = True
+    
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            value = json.dumps(value)
+        return value
+    
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = json.loads(value)
+        return value
 
 class User(Base):
     """User model for authentication and user management."""
@@ -163,8 +183,10 @@ class DocumentChunk(Base):
     source_page_number = Column(JSON)
     metadata_ = Column(JSON, default=dict)
     vector_id = Column(String(100))
-    embedding_checksum = Column(String(64))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    embedding_vector = Column(JSONEncodedList, nullable=True)
+    embedding_model = Column(String(100), default="openai-embeddings")
+    embedding_checksum = Column(String(64))
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
 

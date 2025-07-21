@@ -508,10 +508,7 @@ class DatabaseManager:
                     raise NotFoundError(f"Project with ID {project_id} not found or access denied")
 
                 # Update allowed fields with validation
-                allowed_fields = {
-                    'name', 'description', 'client_name', 'client_industry',
-                    'target_audience', 'key_client_stakeholders_profiles', 'objectives'
-                }
+                allowed_fields = {"clientIndustry","clientName","keyClientStakeholdersProfiles",'primaryProjectObjectivesSuccessMetrics','projectDescription','projectName','targetAudience'}
 
                 for key, value in kwargs.items():
                     if key in allowed_fields and hasattr(project, key):
@@ -1407,9 +1404,17 @@ class DatabaseManager:
             logger.error(f"Database error creating document: {e}")
             raise DatabaseError(f"Failed to create document: {e}")
 
-    def get_document_by_id(self, document_id: int, user_id: Union[str, uuid.UUID] = None) -> Optional[Document]:
+    def get_document_by_id(self, document_id: Union[str, uuid.UUID], user_id: Union[str, uuid.UUID] = None) -> Optional[Document]:
         """Get document by ID with optional user access check and enhanced type handling."""
         try:
+            # Convert document_id to UUID if it's a string
+            if isinstance(document_id, str):
+                try:
+                    document_id = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return None
+            
             # Convert user_id to UUID if provided and is string
             if user_id and isinstance(user_id, str):
                 try:
@@ -1417,20 +1422,17 @@ class DatabaseManager:
                 except ValueError:
                     logger.error(f"Invalid UUID format for user_id: {user_id}")
                     return None
-
+            
             with self.get_session() as session:
                 query = session.query(Document).filter(Document.id == document_id)
-
                 if user_id:
                     query = query.filter(Document.user_id == user_id)
-
+                
                 document = query.first()
-
                 if document:
                     session.expunge(document)
-
                 return document
-
+                
         except SQLAlchemyError as e:
             logger.error(f"Database error getting document: {e}")
             return None
@@ -2562,8 +2564,49 @@ class DatabaseManager:
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return None
 
-
-    def query(self, project_id, user_question: str,):
-        from giani_pkb.services.rag import query_executor
-        print("Inside Query")
-        return query_executor(self.get_session(),project_id,user_question)
+    def query_project(self, project_id: int, user_question: str, 
+                 document_content_type: Optional[str] = None, 
+                 top_k: int = 10, 
+                 similarity_threshold: float = 0.7):
+        """Query a project using RAG pipeline."""
+        
+        logger.info(f"Starting RAG query for project {project_id}")
+        
+        try:
+            # Import here to avoid circular imports if needed
+            from giani_pkb.services.rag.query_executor import run_query
+            
+            # Make sure we're passing the actual session, not a context manager
+            session = self.get_session()
+            logger.debug(f'Session type in db_manager: {type(session)}')
+            
+            # If get_session() returns a context manager, we need to use it properly
+            if hasattr(session, '__enter__'):
+                # It's a context manager
+                with session as db:
+                    return run_query(
+                        db=db,
+                        project_id=project_id,
+                        user_question=user_question,
+                        document_content_type=document_content_type,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold
+                    )
+            else:
+                # It's already a session
+                try:
+                    return run_query(
+                        db=session,
+                        project_id=project_id,
+                        user_question=user_question,
+                        document_content_type=document_content_type,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold
+                    )
+                finally:
+                    # Close the session if it's not a context manager
+                    session.close()
+                    
+        except Exception as e:
+            logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
+            raise

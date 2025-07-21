@@ -1,21 +1,25 @@
-# File: giani_pkb/services/rag/retriever_service.py
+import logging
 from typing import Optional
-from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters
-from llama_index.core.indices import VectorStoreIndex
+from llama_index.core import VectorStoreIndex
+from llama_index.core.retrievers import VectorIndexRetriever
+
+logger = logging.getLogger(__name__)
 
 def build_metadata_filtered_retriever(
     index: VectorStoreIndex,
-    project_id: int,
+    project_id: int,  # kept for interface compatibility
     document_content_type: Optional[str] = None,
-    top_k: int = 5
-):
-    filters = [
-        MetadataFilter(key="project_id", value=project_id)
-    ]
-    if document_content_type:
-        filters.append(MetadataFilter(key="document_type", value=document_content_type))
+    top_k: int = 5,
+    similarity_threshold: float = 0.7
+) -> VectorIndexRetriever:
+    """
+    Simplified retriever: no filtering, just returns top-k nodes.
+    """
+    try:
+        retriever = index.as_retriever(similarity_top_k=top_k)
+        logger.debug(f"Built retriever: top_k={top_k} (no filters applied)")
+        return retriever
 
-    return index.as_retriever(
-        similarity_top_k=top_k,
-        filters=MetadataFilters(filters=filters)
-    )
+    except Exception as e:
+        logger.error(f"Failed to build retriever: {str(e)}")
+        raise
