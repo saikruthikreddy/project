@@ -532,28 +532,48 @@ def create_project_routes():
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return api_internal_server_error('Failed to retrieve document summary', str(e))
 
-    @projects.route('/projects/<project_id>/query', methods=['GET'])
+    @projects.route('/projects/<project_id>/query', methods=['POST'])  # Changed to POST
     @auth_utils.auth_required
-    def query(project_id):
-        """Get the summary for a specific document."""
+    def query_project(project_id):
+        """Query a specific project with a user question."""
         try:
+            print('inside query_project endpoint')
             user_id = g.current_user['user_id']
-            data=request.get_json()
-
-            user_question=data['user_question']
+            
+            # Get JSON data from request body
+            data = request.get_json()
+            if not data or 'user_question' not in data:
+                return api_bad_request_error('Missing user_question in request body')
+            
+            user_question = data['user_question']
+            
+            # Optional parameters
+            document_content_type = data.get('document_content_type', '')
+            top_k = data.get('top_k', 10)
+            
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-
-            # Prepare response data
-            retrieval_data = db_manager.query(project_id,user_question)
-            return api_success(retrieval_data, 'project query retrieved successfully')
-
+            
+            # Execute query using the db_manager method
+            retrieval_data = db_manager.query_project(
+                project_id=project_id, 
+                user_question=user_question,
+                document_content_type=document_content_type,
+                top_k=top_k
+            )
+            
+            print('Query result:', retrieval_data)
+            return api_success(retrieval_data, 'Project query executed successfully')
+            
+        except ValueError as e:
+            logger.error(f"Invalid input for project query: {e}")
+            return api_bad_request_error(f'Invalid input: {str(e)}')
         except SQLAlchemyError as e:
-            logger.error(f"Database error retrieving query response for project: {e}")
-            return api_database_error('Failed to retrieve document summary')
+            logger.error(f"Database error during project query: {e}")
+            return api_database_error('Failed to execute project query')
         except Exception as e:
-            logger.error(f"Unexpected error retrieving query response for project: {e}")
-            return api_internal_server_error('Failed to retrieve document summary', str(e))
-
+            logger.error(f"Unexpected error during project query: {e}")
+            return api_internal_server_error('Failed to execute project query', str(e))
+    
     return projects

@@ -2564,6 +2564,49 @@ class DatabaseManager:
             return None
 
 
-    def query(self, project_id, user_question: str,):
-        print("Inside Query")
-        return query_executor(self.get_session(),project_id,user_question)
+    def query_project(self, project_id: int, user_question: str, 
+                 document_content_type: Optional[str] = None, 
+                 top_k: int = 10, 
+                 similarity_threshold: float = 0.7):
+        """Query a project using RAG pipeline."""
+        
+        logger.info(f"Starting RAG query for project {project_id}")
+        
+        try:
+            # Import here to avoid circular imports if needed
+            from giani_pkb.services.rag.query_executor import run_query
+            
+            # Make sure we're passing the actual session, not a context manager
+            session = self.get_session()
+            logger.debug(f'Session type in db_manager: {type(session)}')
+            
+            # If get_session() returns a context manager, we need to use it properly
+            if hasattr(session, '__enter__'):
+                # It's a context manager
+                with session as db:
+                    return run_query(
+                        db=db,
+                        project_id=project_id,
+                        user_question=user_question,
+                        document_content_type=document_content_type,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold
+                    )
+            else:
+                # It's already a session
+                try:
+                    return run_query(
+                        db=session,
+                        project_id=project_id,
+                        user_question=user_question,
+                        document_content_type=document_content_type,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold
+                    )
+                finally:
+                    # Close the session if it's not a context manager
+                    session.close()
+                    
+        except Exception as e:
+            logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
+            raise
