@@ -2,7 +2,7 @@
 API routes for authentication operations.
 """
 
-from flask import Blueprint, request, make_response
+from flask import Blueprint, request, make_response, g
 from datetime import datetime
 import logging
 import os
@@ -78,6 +78,9 @@ def create_auth_routes():
             user = auth_utils.get_user_by_email(email)
             if not user:
                 return api_authentication_error("Invalid Username")
+
+            # user_id will get used in the analytics
+            g.user_id = user["id"]
 
             if user['hashed_password'] is None and user['microsoft_id'] is not None:
                 return api_authentication_error("User has registered using microsoft account. Login using the same.")
@@ -363,6 +366,10 @@ def create_auth_routes():
 
             # Create user - this will raise ValidationError if validation fails
             user_id = auth_utils.create_user(name, email, password, is_superuser=False)
+
+            # user_id will get used in the analytics
+            g.user_id = user_id
+
             if not user_id:
                 return api_internal_server_error("Failed to create user")
 

@@ -160,11 +160,9 @@ class AnalyticsMiddleware:
         if request.endpoint and request.endpoint.startswith("static"):
             return False
 
-        # Skip certain endpoints if needed
         skip_endpoints = {
             "health_check",
             "auth.health_check",
-            # Add other endpoints you want to skip
         }
 
         if request.endpoint in skip_endpoints:
@@ -258,7 +256,7 @@ class AnalyticsMiddleware:
             if not success:
                 logger.warning("Failed to log API call to analytics")
             else:
-                print('========== LOG SAVED ==============')
+                logger.debug(f"📔Log saved for {getattr(g,"endpoint", "--endpoint--")}")
 
         except Exception as e:
             logger.error(f"Error logging API call: {e}")
