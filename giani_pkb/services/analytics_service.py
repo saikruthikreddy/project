@@ -60,7 +60,6 @@ class AnalyticsService:
             bool: True if logged successfully
         """
         try:
-            print('======= inside log_activity ======')
             with self.db_manager.get_session() as db:
                 activity_log = UserActivityLog(
                     user_id=user_id,

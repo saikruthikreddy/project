@@ -29,7 +29,6 @@ class AnalyticsMiddleware:
 
     def before_request(self):
         """Called before each request."""
-        print('====== Calling before_request =========')
         # Record start time
         g.start_time = time.time()
 
@@ -41,7 +40,6 @@ class AnalyticsMiddleware:
 
         # Store request info for later use
         g.endpoint = request.endpoint
-        print(f"=============== {request.endpoint} ")
         g.method = request.method
         g.ip_address = self._get_client_ip()
         g.user_agent = request.headers.get("User-Agent", "")
