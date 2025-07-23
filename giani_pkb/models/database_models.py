@@ -7,21 +7,21 @@ from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from giani_pkb.utils.database import Base
 from sqlalchemy.types import TypeDecorator, TEXT
-import json 
+import json
 
 
 
 class JSONEncodedList(TypeDecorator):
     """Represents a list structure as JSON-encoded string for SQLite compatibility."""
-    
+
     impl = TEXT
     cache_ok = True
-    
+
     def process_bind_param(self, value, dialect):
         if value is not None:
             value = json.dumps(value)
         return value
-    
+
     def process_result_value(self, value, dialect):
         if value is not None:
             value = json.loads(value)
@@ -338,3 +338,66 @@ class ProcessingBatch(Base):
     # Relationships
     user: Mapped["User"] = relationship("User")
     project: Mapped["Project"] = relationship("Project")
+
+# Add this to your database_models.py
+
+class UserActivityLog(Base):
+    """Model for tracking user activities and API usage."""
+    __tablename__ = "user_activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(String(500), nullable=True, index=True)  # Track user sessions
+
+    # Activity Details
+    activity_type = Column(String(50), nullable=False, index=True)  # 'login', 'logout', 'api_call'
+    endpoint = Column(String(200), nullable=True, index=True)  # API endpoint hit
+    http_method = Column(String(10), nullable=True)  # GET, POST, etc.
+
+    # Request Details
+    user_agent = Column(String(500), nullable=True)
+    client_type = Column(String(50), nullable=True)  # 'web', 'addin'
+    ip_address = Column(String(45), nullable=True)  # IPv4/IPv6
+
+    # Response Details
+    status_code = Column(Integer, nullable=True)
+    response_time_ms = Column(Float, nullable=True)
+
+    # Additional Context
+    project_id = Column(Integer, nullable=True, index=True)  # If applicable
+    feature_used = Column(String(100), nullable=True, index=True)  # e.g., 'ppt_title_generation'
+    additional_data = Column(JSON, nullable=True)  # Extra context as JSON
+
+    # Timestamps
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+
+    # Indexes for common queries
+    __table_args__ = (
+        Index('idx_user_activity_user_time', 'user_id', 'timestamp'),
+        Index('idx_user_activity_type_time', 'activity_type', 'timestamp'),
+        Index('idx_user_activity_endpoint', 'endpoint'),
+        Index('idx_user_activity_feature', 'feature_used'),
+    )
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'user_id': str(self.user_id),
+            'session_id': self.session_id,
+            'activity_type': self.activity_type,
+            'endpoint': self.endpoint,
+            'http_method': self.http_method,
+            'user_agent': self.user_agent,
+            'client_type': self.client_type,
+            'ip_address': self.ip_address,
+            'status_code': self.status_code,
+            'response_time_ms': self.response_time_ms,
+            'project_id': self.project_id,
+            'feature_used': self.feature_used,
+            'additional_data': self.additional_data,
+            'timestamp': self.timestamp.isoformat() if self.timestamp is not None else None
+        }
