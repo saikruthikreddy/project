@@ -110,13 +110,19 @@ def generate_titles(payload):
         prev1 = previous_titles[0] if len(previous_titles) > 0 else ""
         prev2 = previous_titles[1] if len(previous_titles) > 1 else ""
 
-        prompt_filename = (
-            "ppt_addin_prompts/title_regeneration_prompt.txt"
-            if is_regeneration else
-            "ppt_addin_prompts/title_generation_prompt.txt"
-        )
-        logger.debug(f"📄 Loading prompt template from: {prompt_filename}")
-        prompt_template = load_prompt_template(prompt_filename)
+        # Determine which prompt to load
+        has_valid_previous_titles = any(t.strip() for t in previous_titles)
+
+        if not has_valid_previous_titles:
+            prompt_file = "ppt_addin_prompts/first_slide_prompt.txt"
+        elif is_regeneration:
+            prompt_file = "ppt_addin_prompts/title_regeneration_prompt.txt"
+        else:
+            prompt_file = "ppt_addin_prompts/title_generation_prompt.txt"
+
+
+        logger.debug(f"📄 Loading prompt template from: {prompt_file}")
+        prompt_template = load_prompt_template(prompt_file)
 
         filled_prompt = prompt_template.format(
             currentProjectPurpose=project_purpose,
