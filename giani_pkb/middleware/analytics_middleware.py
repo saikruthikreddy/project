@@ -256,7 +256,7 @@ class AnalyticsMiddleware:
             if not success:
                 logger.warning("Failed to log API call to analytics")
             else:
-                logger.debug(f"📔Log saved for {getattr(g,"endpoint", "--endpoint--")}")
+                logger.debug(f"📔Log saved for {g.endpoint}")
 
         except Exception as e:
             logger.error(f"Error logging API call: {e}")
