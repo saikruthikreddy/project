@@ -427,7 +427,7 @@ if __name__ == '__main__':
     initializer = DatabaseInitializer()
 
     # Initialize database
-    if initializer.initialize_database(drop_existing=True):
+    if initializer.initialize_database():
         print("✅ Database initialized successfully!")
 
         # Verify integrity
