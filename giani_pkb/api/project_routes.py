@@ -150,8 +150,6 @@ def create_project_routes():
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
-            logger.debug(f'user_id : {user_id}')
-
             # Validate updates
             updates = {}
             if 'projectName' in data:
