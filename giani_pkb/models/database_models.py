@@ -1,15 +1,13 @@
 import uuid
 
 from typing import List
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, text, Index, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Index, Float
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
-from sqlalchemy.dialects.postgresql import UUID, ARRAY
+from sqlalchemy.dialects.postgresql import UUID
 from giani_pkb.utils.database import Base
 from sqlalchemy.types import TypeDecorator, TEXT
 import json
-
-
 
 class JSONEncodedList(TypeDecorator):
     """Represents a list structure as JSON-encoded string for SQLite compatibility."""
@@ -57,7 +55,6 @@ class Project(Base):
     target_audience = Column(Text)
     key_client_stakeholders_profiles = Column(Text)
     objectives = Column(Text)
-    # owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     is_active = Column(Boolean, default=True)
@@ -132,7 +129,6 @@ class Document(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Foreign keys
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
@@ -301,7 +297,6 @@ class TempDocument(Base):
     id = Column(Integer, primary_key=True, index=True)
     temp_document_id = Column(String(100), unique=True, index=True, nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     source = Column(String(50), nullable=False)
     original_filename = Column(String(255), nullable=False)
@@ -323,7 +318,6 @@ class ProcessingBatch(Base):
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(String(100), unique=True, index=True, nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     status = Column(String(50), default="QUEUED")
