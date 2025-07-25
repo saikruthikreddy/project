@@ -159,25 +159,27 @@ def create_project_routes():
                 updates['name'] = project_name
 
             if 'projectDescription' in data:
-                updates['projectDescription'] = data['projectDescription'].strip()
+                updates['description'] = data['projectDescription'].strip()
 
             if 'targetAudience' in data:
-                updates['targetAudience'] = data['targetAudience'].strip()
-            
+                updates['target_audience'] = data['targetAudience'].strip()
+
             if 'primaryProjectObjectivesSuccessMetrics' in data:
-                updates['primaryProjectObjectivesSuccessMetrics'] = data['primaryProjectObjectivesSuccessMetrics'].strip()
-            
+                updates['objectives'] = data['primaryProjectObjectivesSuccessMetrics'].strip()
+
             if 'keyClientStakeholdersProfiles' in data:
-                updates['keyClientStakeholdersProfiles'] = data['keyClientStakeholdersProfiles'].strip()
-            
+                updates['key_client_stakeholders_profiles'] = data['keyClientStakeholdersProfiles'].strip()
+
             if 'clientName' in data:
-                updates['clientName'] = data['clientName'].strip()
-            
+                updates['client_name'] = data['clientName'].strip()
+
             if 'clientIndustry' in data:
-                updates['clientIndustry'] = data['clientIndustry'].strip()
+                updates['client_industry'] = data['clientIndustry'].strip()
 
             if not updates:
                 return api_validation_error('No valid updates provided')
+
+            logger.debug('Project updates dict: %s', updates)
 
             success = project_service.update_project(project_id, user_id, updates)
             if not success:
@@ -554,33 +556,33 @@ def create_project_routes():
         try:
             print('inside query_project endpoint')
             user_id = g.current_user['user_id']
-            
+
             # Get JSON data from request body
             data = request.get_json()
             if not data or 'user_question' not in data:
                 return api_bad_request_error('Missing user_question in request body')
-            
+
             user_question = data['user_question']
-            
+
             # Optional parameters
             document_content_type = data.get('document_content_type', '')
             top_k = data.get('top_k', 10)
-            
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Execute query using the db_manager method
             retrieval_data = db_manager.query_project(
-                project_id=project_id, 
+                project_id=project_id,
                 user_question=user_question,
                 document_content_type=document_content_type,
                 top_k=top_k
             )
-            
+
             print('Query result:', retrieval_data)
             return api_success(retrieval_data, 'Project query executed successfully')
-            
+
         except ValueError as e:
             logger.error(f"Invalid input for project query: {e}")
             return api_bad_request_error(f'Invalid input: {str(e)}')
@@ -596,54 +598,54 @@ def create_project_routes():
     def download_document(project_id,document_id):
         """
         Download a document by its ID.
-        
+
         Args:
             document_id (str): UUID of the document to download
-            
+
         Query Parameters:
             as_attachment (bool): Whether to force download as attachment (default: True)
-            
+
         Returns:
             File response with appropriate headers or error response
         """
         try:
             user_id = g.current_user['user_id']
-            
+
             # Get the document from database
             document = db_manager.get_document_by_id(document_id,user_id)
-            
+
             if not document:
                 return api_not_found_error('Document not found')
-            
+
             # Verify user has access to this document
             # Check if user owns the document or has access through project
             if document.user_id != user_id:
                 # Check if user has access to the project
                 if not db_utils.verify_project_access(document.project_id, user_id):
                     return api_forbidden_error('Access denied to this document')
-            
+
             # Get document details
             storage_path = document.storage_path
             original_filename = document.original_filename
             file_mime_type = document.file_mime_type
             file_size = document.file_size
-            
+
             # Verify file exists on disk
             if not storage_path or not os.path.exists(storage_path):
                 logger.error(f"Document file not found at path: {storage_path}")
                 return api_not_found_error('Document file not found on server')
-            
+
             # Verify file size matches (security check)
             actual_file_size = os.path.getsize(storage_path)
             if actual_file_size != file_size:
                 logger.warning(f"File size mismatch for document {document_id}. Expected: {file_size}, Actual: {actual_file_size}")
-            
+
             # Determine if file should be downloaded as attachment
             as_attachment = request.args.get('as_attachment', 'true').lower() == 'true'
-            
+
             # Secure the filename
             safe_filename = secure_filename(original_filename) or f"document_{document_id}"
-            
+
             # Set appropriate headers
             headers = {
                 'Content-Length': str(actual_file_size),
@@ -651,10 +653,10 @@ def create_project_routes():
                 'Pragma': 'no-cache',
                 'Expires': '0'
             }
-            
+
             # Log download activity
             logger.info(f"User {user_id} downloading document {document_id}: {original_filename}")
-            
+
             # Send file
             return send_file(
                 storage_path,
@@ -664,21 +666,21 @@ def create_project_routes():
                 conditional=True,  # Enable conditional requests (range requests)
                 max_age=0  # Disable caching
             )
-            
+
         except ValidationError as e:
             logger.error(f"Validation error downloading document {document_id}: {e}")
             return api_validation_error(str(e))
-        
+
         except PermissionError as e:
             logger.error(f"Permission error accessing file {storage_path}: {e}")
             return api_internal_server_error('File access permission denied')
-        
+
         except FileNotFoundError as e:
             logger.error(f"File not found {storage_path}: {e}")
             return api_not_found_error('Document file not found')
-        
+
         except Exception as e:
             logger.error(f"Error downloading document {document_id}: {e}")
             return api_internal_server_error('Failed to download document', str(e))
-    
+
     return projects
