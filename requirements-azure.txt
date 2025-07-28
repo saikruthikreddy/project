@@ -62,3 +62,4 @@ azure-storage-blob==12.19.1
 azure-identity==1.16.1
 
 msal==1.28.0
+alembic>=1.13.0  # Database migrations
