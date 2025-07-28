@@ -1,7 +1,7 @@
 """
 User routes for handling user operations.
 """
-from flask import Blueprint, request
+from flask import Blueprint, request, g
 import logging
 
 from giani_pkb.database.database_manager import DatabaseManager
@@ -23,8 +23,7 @@ def create_user_routes() -> Blueprint:
     def get_user_profile():
         """Get current user profile."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             if not user_id:
                 return api_error("User ID is required", 400)
@@ -70,12 +69,12 @@ def create_user_routes() -> Blueprint:
             if not data:
                 return api_error("No update data provided", 400)
 
-            user_id = data.get('user_id')
+            user_id = g.user_id
             if not user_id:
                 return api_error("User ID is required", 400)
 
             # Validate update fields
-            allowed_fields = {'username', 'email'}
+            allowed_fields = {'username'}
             update_data = {}
 
             for key, value in data.items():
@@ -113,9 +112,9 @@ def create_user_routes() -> Blueprint:
             if not data:
                 return api_error("No password data provided", 400)
 
-            user_id = data.get('user_id')
             current_password = data.get('current_password')
             new_password = data.get('new_password')
+            user_id = g.user_id
 
             if not all([user_id, current_password, new_password]):
                 return api_error("User ID, current password, and new password are required", 400)
@@ -148,8 +147,7 @@ def create_user_routes() -> Blueprint:
     def get_user_documents():
         """Get all documents for a user."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             if not user_id:
                 return api_error("User ID is required", 400)
@@ -195,8 +193,7 @@ def create_user_routes() -> Blueprint:
     def get_user_statistics():
         """Get user statistics."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             if not user_id:
                 return api_error("User ID is required", 400)
@@ -281,7 +278,7 @@ def create_user_routes() -> Blueprint:
                 'id': user['id'],
                 'username': user['username'],
                 'email': user['email'],
-                'created_at': user['created_at'].isoformat() if user['created_at'] else None
+                'created_at': user['created_at'] if user['created_at'] else None
             }, "User registered successfully")
 
         except ValidationError as e:

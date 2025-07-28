@@ -129,7 +129,8 @@ class MetadataManagerService:
             "user_id": doc_meta_object.userID,
             "project_id": doc_meta_object.projectID,
             "document_purpose": doc_meta_object.finalPurpose,
-            "metadata_file_path": doc_meta_object.storedFilename
+            "metadata_file_path": doc_meta_object.storedFilename,
+            "source": doc_meta_object.source
         }
 
         existing_doc_index = next((index for (index, d) in enumerate(master_metadata["documents"]) if d["document_id"] == doc_id), None)

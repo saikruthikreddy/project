@@ -14,6 +14,7 @@ from giani_pkb.api import (
     create_ppt_routes,
     create_analytics_routes
 )
+from giani_pkb.middleware.auth_session_middleware import AuthSessionMiddleware
 from giani_pkb.utils.response_utils import api_success
 from giani_pkb.utils.config import config
 from giani_pkb.middleware.analytics_middleware import AnalyticsMiddleware
@@ -54,7 +55,7 @@ def create_app():
 
     config.ensure_directories_exist()
 
-    # Initialize Analytics Middleware
+    auth_session_middleware = AuthSessionMiddleware(app)
     analytics_middleware = AnalyticsMiddleware(app)
 
     # Register all route blueprints

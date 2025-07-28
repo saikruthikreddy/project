@@ -2,7 +2,7 @@
 Authentication utilities for JWT token management and user verification.
 """
 import jwt  # type: ignore
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Union
 from functools import wraps
 from flask import g, request
@@ -11,10 +11,8 @@ import hashlib
 import secrets
 import uuid
 
-from sqlalchemy.types import UUID
-
-from giani_pkb.utils.response_utils import api_error, api_authentication_error
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
+from giani_pkb.utils.response_utils import api_authentication_error
+from giani_pkb.utils.exceptions import DatabaseError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +97,17 @@ class AuthUtils:
 
         return None
 
+    def extract_refresh_token_from_request(self) -> Optional[str]:
+        """Extract Refresh JWT token from request headers or cookies."""
+        # Check cookies
+        refresh_token = request.cookies.get('refreshToken')
+        if not refresh_token and request.is_json:
+            # Check request body
+            data = request.get_json() or {}
+            refresh_token = data.get('refreshToken')
+
+        return refresh_token
+
     def verify_jwt_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify and decode JWT token."""
         try:
@@ -111,13 +120,15 @@ class AuthUtils:
             logger.warning("Invalid JWT token")
             return None
 
-    def create_jwt_token(self, user_id: str, email: str, expires_in: int = 3600) -> str:
+    def create_jwt_token(self, user_id: str, email: str, session_id: str, expires_in: int = 3600) -> str:
         """Create a new JWT token."""
+        now = datetime.now(timezone.utc)
         payload = {
             'user_id': user_id,
             'email': email,
-            'exp': datetime.utcnow() + timedelta(seconds=expires_in),
-            'iat': datetime.utcnow()
+            'session_id': session_id,
+            'exp': now + timedelta(seconds=expires_in),
+            'iat': now
         }
         return jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
 

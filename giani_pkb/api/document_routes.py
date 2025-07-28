@@ -1,7 +1,9 @@
 """
 Document routes for handling document operations.
 """
-from flask import Blueprint, request
+from typing import Union
+import uuid
+from flask import Blueprint, request, g
 import logging
 
 from giani_pkb.database.database_manager import DatabaseManager
@@ -61,12 +63,11 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error searching documents: {e}")
             return api_error("Failed to search documents", 500)
 
-    @documents.route('/<int:document_id>', methods=['GET'])
-    def get_document(document_id: int):
+    @documents.route('/<document_id>', methods=['GET'])
+    def get_document(document_id: Union[str, uuid.UUID]):
         """Get document details by ID."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             document = db_manager.get_document_by_id(document_id, user_id)
             if not document:
@@ -87,7 +88,7 @@ def create_document_routes() -> Blueprint:
                 'text_preview': document.text_preview,
                 'processed_content': document.processed_content,
                 'extracted_text': document.extracted_text,
-                'metadata': document.metadata or {},
+                # 'metadata': document.metadata or {}, # TODO: Fix this
                 'date_added': document.date_added_to_giani.isoformat() if document.date_added_to_giani else None,
                 'finalized_at': document.finalized_at.isoformat() if document.finalized_at else None,
                 'chunks_count': len(chunks),
@@ -100,7 +101,7 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error getting document {document_id}: {e}")
             return api_error("Failed to get document", 500)
 
-    @documents.route('/<int:document_id>', methods=['PUT'])
+    @documents.route('/<document_id>', methods=['PUT'])
     def update_document(document_id: int):
         """Update document metadata."""
         try:
@@ -145,15 +146,15 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error updating document {document_id}: {e}")
             return api_error("Failed to update document", 500)
 
-    @documents.route('/<int:document_id>', methods=['DELETE'])
+    @documents.route('/<document_id>', methods=['DELETE'])
     def delete_document(document_id: int):
         """Delete document."""
         try:
-            data = request.get_json()
-            if not data:
-                return api_error("No data provided", 400)
+            # data = request.get_json()
+            # if not data:
+            #     return api_error("No data provided", 400)
 
-            user_id = data.get('user_id')
+            user_id = g.user_id
             if not user_id:
                 return api_error("User ID is required", 400)
 
@@ -173,12 +174,11 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error deleting document {document_id}: {e}")
             return api_error("Failed to delete document", 500)
 
-    @documents.route('/<int:document_id>/chunks', methods=['GET'])
+    @documents.route('/<document_id>/chunks', methods=['GET'])
     def get_document_chunks(document_id: int):
         """Get document chunks."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             # Verify document access
             document = db_manager.get_document_by_id(document_id, user_id)
@@ -193,9 +193,9 @@ def create_document_routes() -> Blueprint:
                 results.append({
                     'id': chunk.id,
                     'chunk_id': chunk.chunk_id,
-                    'chunk_text_content': chunk.chunk_text_content,
+                    'chunk_text': chunk.chunk_text,
                     'source_page_number': chunk.source_page_number,
-                    'structural_metadata': chunk.structural_metadata or {},
+                    'metadata': chunk.metadata_ or {},
                     'vector_id': chunk.vector_id,
                     'created_at': chunk.created_at.isoformat() if chunk.created_at else None
                 })
@@ -210,12 +210,11 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error getting document chunks {document_id}: {e}")
             return api_error("Failed to get document chunks", 500)
 
-    @documents.route('/<int:document_id>/summaries', methods=['GET'])
+    @documents.route('/<document_id>/summaries', methods=['GET'])
     def get_document_summaries(document_id: int):
         """Get document summaries."""
         try:
-            data = request.get_json() or {}
-            user_id = data.get('user_id')
+            user_id = g.user_id
 
             # Verify document access
             document = db_manager.get_document_by_id(document_id, user_id)
@@ -229,11 +228,11 @@ def create_document_routes() -> Blueprint:
             for summary in summaries:
                 results.append({
                     'id': summary.id,
-                    'summary_content': summary.summary_content,
-                    'llm_used': summary.llm_used,
+                    'narrative_summary': summary.narrative_summary,
+                    'llm_used': summary.llm_model_used,
                     'processing_timestamp': summary.processing_timestamp.isoformat() if summary.processing_timestamp else None,
-                    'summary_metadata': summary.summary_metadata or {},
-                    'storage_path': summary.storage_path
+                    # 'summary_metadata': summary.summary_metadata or {},
+                    'storage_path': summary.summary_storage_path
                 })
 
             return api_success({
@@ -246,15 +245,12 @@ def create_document_routes() -> Blueprint:
             logger.error(f"Error getting document summaries {document_id}: {e}")
             return api_error("Failed to get document summaries", 500)
 
-    @documents.route('/<int:document_id>/classify', methods=['POST'])
+    @documents.route('/<document_id>/classify', methods=['POST'])
     def classify_document(document_id: int):
         """Reclassify document using AI."""
+        # TODO: Fix this: Getting "source" column error
         try:
-            data = request.get_json()
-            if not data:
-                return api_error("No classification data provided", 400)
-
-            user_id = data.get('user_id')
+            user_id = g.user_id
             if not user_id:
                 return api_error("User ID is required", 400)
 

@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 import os
 import msal
+from giani_pkb.middleware.analytics_middleware import log_user_activity
 from giani_pkb.utils.response_utils import (
     api_success,
     api_validation_error,
@@ -61,6 +62,7 @@ def create_auth_routes():
         return api_success({"method": request.method}, "CORS is working for Auth!")
 
     @auth.route("/login", methods=["POST"])
+    @log_user_activity("login")
     def login():
         """Username/password login"""
         try:
@@ -79,24 +81,43 @@ def create_auth_routes():
             if not user:
                 return api_authentication_error("Invalid Username")
 
-            # user_id will get used in the analytics
-            g.user_id = user["id"]
-
-            if user['hashed_password'] is None and user['microsoft_id'] is not None:
-                return api_authentication_error("User has registered using microsoft account. Login using the same.")
+            if user["hashed_password"] is None and user["microsoft_id"] is not None:
+                return api_authentication_error(
+                    "User has registered using microsoft account. Login using the same."
+                )
 
             # Verify password using auth_utils
             if not verify_password(password, user["hashed_password"]):
                 return api_authentication_error("Invalid Password")
 
-            # Generate tokens using auth_utils
-            accessToken = auth_utils.create_jwt_token(user["id"], user["email"], 30 * 60)  # 30 minutes
-            refreshToken = auth_utils.create_jwt_token(user["id"], user["email"], 7 * 24 * 60 * 60)  # 7 days
+            # Create session and tokens using AuthService
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
 
-            # Determine response format based on User-Agent or explicit header
-            is_addin = request.headers.get(
-                "X-Client-Type"
-            ) == "addin" or "Office" in request.headers.get("User-Agent", "")
+            client_type = g.client_type
+            user_agent = g.user_agent
+            ip_address = g.ip_address
+
+            # Create session
+            session_id = auth_service.create_session(
+                user_id=user["id"],
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            # Create tokens
+            tokens = auth_service.create_tokens(
+                user_id=user["id"],
+                email=email,
+                session_id=session_id,
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            setattr(g, "user_id", user["id"])
+            setattr(g, "session_id", session_id)
 
             response_data = {
                 "user": {
@@ -104,18 +125,24 @@ def create_auth_routes():
                     "email": user["email"],
                     "name": user["username"],
                 },
-                "tokens": {"accessToken": accessToken, "refreshToken": refreshToken},
+                "tokens": {
+                    "accessToken": tokens["access_token"],
+                    "refreshToken": tokens["refresh_token"]
+                },
+                "session": {
+                    "session_id": session_id,
+                    "expires_in": tokens["expires_in"]
+                }
             }
 
+            # Handle response format (cookies vs JSON)
+            is_addin = g.client_type == "addin"
+
             if is_addin:
-                # For Add-in: return tokens in response body
-                response_data["accessToken"] = accessToken
-                response_data["refreshToken"] = refreshToken
                 return api_success(response_data, "Login successful")
             else:
-                # For Web projects: set cookies
                 response = make_response(api_success(response_data, "Login successful"))
-                set_auth_cookies(response, accessToken, refreshToken)
+                set_auth_cookies(response, tokens["access_token"], tokens["refresh_token"])
                 return response
 
         except Exception as e:
@@ -126,7 +153,7 @@ def create_auth_routes():
     def get_microsoft_auth_url():
         """Generate Microsoft OAuth URL for frontend"""
         try:
-            redirect_uri = request.args.get('redirect_uri')
+            redirect_uri = request.args.get("redirect_uri")
             if not redirect_uri:
                 return api_validation_error("Redirect URI are required")
             msal_app = create_msal_app()
@@ -143,6 +170,7 @@ def create_auth_routes():
             return api_internal_server_error("Failed to generate auth url", str(e))
 
     @auth.route("/login/microsoft", methods=["POST"])
+    @log_user_activity("microsoft_login")
     def microsoft_login():
         """Handle Microsoft SSO login"""
         try:
@@ -153,7 +181,9 @@ def create_auth_routes():
             auth_code = data.get("code")
             redirect_uri = data.get("redirect_uri")
             if not auth_code or not redirect_uri:
-                return api_validation_error("Authorization code and redirect URI are required")
+                return api_validation_error(
+                    "Authorization code and redirect URI are required"
+                )
 
             msal_app = create_msal_app()
 
@@ -163,17 +193,25 @@ def create_auth_routes():
             )
 
             if "error" in result:
-                logger.error(f"MSAL token acquisition error: {result.get('error_description')}")
-                return api_authentication_error(f"Token exchange failed: {result.get('error_description', result.get('error'))}")
+                logger.error(
+                    f"MSAL token acquisition error: {result.get('error_description')}"
+                )
+                return api_authentication_error(
+                    f"Token exchange failed: {result.get('error_description', result.get('error'))}"
+                )
 
             # The id_token contains user information
             id_token_claims = result.get("id_token_claims", {})
-            email = id_token_claims.get("email") or id_token_claims.get("preferred_username")
+            email = id_token_claims.get("email") or id_token_claims.get(
+                "preferred_username"
+            )
             name = id_token_claims.get("name")
             microsoft_id = id_token_claims.get("sub")
 
             if not email or not microsoft_id:
-                return api_authentication_error('Required user information (email, sub) not found in Microsoft token')
+                return api_authentication_error(
+                    "Required user information (email, sub) not found in Microsoft token"
+                )
 
             user = auth_utils.get_user_by_microsoft_id(microsoft_id)
 
@@ -182,27 +220,56 @@ def create_auth_routes():
                 user = auth_utils.get_user_by_email(email)
                 if user:
                     logger.info(f"Existing user {email} found. Linking Microsoft ID.")
-                    auth_utils.link_microsoft_id(user['id'], microsoft_id)
+                    auth_utils.link_microsoft_id(user["id"], microsoft_id)
                 else:
                     # No user exists, creating a new one.
-                    logger.info(f"New user from Microsoft SSO, email: {email}, name: {name}. Creating account.")
+                    logger.info(
+                        f"New user from Microsoft SSO, email: {email}, name: {name}. Creating account."
+                    )
                     user_id = auth_utils.create_user(
-                        username=name or email.split('@')[0],
+                        username=name or email.split("@")[0],
                         email=email,
                         password=None,
                         microsoft_id=microsoft_id,
-                        is_superuser=False
+                        is_superuser=False,
                     )
                     if not user_id:
-                        return api_internal_server_error("Failed to create new user account")
+                        return api_internal_server_error(
+                            "Failed to create new user account"
+                        )
                     user = auth_utils.get_user_by_id(user_id)
 
             if not user:
-                return api_internal_server_error('User creation/retrieval failed')
+                return api_internal_server_error("User creation/retrieval failed")
 
             # User exists, generate auth tokens
-            accessToken = auth_utils.create_jwt_token(user["id"], user["email"], 30 * 60)
-            refreshToken = auth_utils.create_jwt_token(user["id"], user["email"], 7 * 24 * 60 * 60)
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
+
+            client_type = g.client_type
+            user_agent = g.user_agent
+            ip_address = g.ip_address
+
+            # Create session
+            session_id = auth_service.create_session(
+                user_id=user["id"],
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            # Create tokens
+            tokens = auth_service.create_tokens(
+                user_id=user["id"],
+                email=email,
+                session_id=session_id,
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            setattr(g, "user_id", user["id"])
+            setattr(g, "session_id", session_id)
 
             response_data = {
                 "user": {
@@ -210,20 +277,27 @@ def create_auth_routes():
                     "email": user["email"],
                     "name": user["username"],
                 },
-                "tokens": {"accessToken": accessToken, "refreshToken": refreshToken},
+                "tokens": {
+                    "accessToken": tokens["access_token"],
+                    "refreshToken": tokens["refresh_token"]
+                },
+                "session": {
+                    "session_id": session_id,
+                    "expires_in": tokens["expires_in"]
+                }
             }
 
             # Determine response format based on User-Agent or explicit header
-            is_addin = request.headers.get(
-                "X-Client-Type"
-            ) == "addin" or "Office" in request.headers.get("User-Agent", "")
+            is_addin = g.client_type == "addin"
 
             if is_addin:
                 return api_success(response_data, "Microsoft login successful")
             else:
                 # For Web projects: set cookies
-                response = make_response(api_success(response_data, "Microsoft login successful"))
-                set_auth_cookies(response, accessToken, refreshToken)
+                response = make_response(
+                    api_success(response_data, "Microsoft login successful")
+                )
+                set_auth_cookies(response, tokens["access_token"], tokens["refresh_token"])
                 return response
 
         except Exception as e:
@@ -233,56 +307,40 @@ def create_auth_routes():
             )
 
     @auth.route("/refresh", methods=["POST"])
-    def refreshToken():
+    def refresh_token():
         """Refresh access token"""
         try:
-            # Try to get refresh token from cookie (Web App) or request body (Add-in)
-            refreshToken_value = request.cookies.get("refreshToken")
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
 
-            if not refreshToken_value:
-                # Try request body for Add-in
-                data = request.get_json() or {}
-                refreshToken_value = data.get("refreshToken")
-
-            if not refreshToken_value:
+            # Extract refresh token
+            refresh_token_value = auth_utils.extract_refresh_token_from_request()
+            if not refresh_token_value:
                 return api_authentication_error("Refresh token required")
 
-            # Verify refresh token using auth_utils
-            payload = auth_utils.verify_jwt_token(refreshToken_value)
-            if not payload:
-                return api_authentication_error("Invalid refresh token")
+            # Refresh with rotation
+            new_tokens = auth_service.refresh_access_token(
+                refresh_token=refresh_token_value,
+                ip_address=g.ip_address
+            )
 
-            # Generate new access token using auth_utils
-            user_id = payload.get("user_id")
-            email = payload.get("email")
+            if not new_tokens:
+                return api_authentication_error("Invalid or expired refresh token")
 
-            if not user_id or not email:
-                return api_authentication_error("Invalid refresh token")
+            response_data = {
+                "accessToken": new_tokens["access_token"],
+                "refreshToken": new_tokens["refresh_token"],
+                "expires_in": new_tokens["expires_in"]
+            }
 
-            new_accessToken = auth_utils.create_jwt_token(
-                user_id, email, 3600
-            )  # 1 hour
-
-            # Determine response format
-            is_addin = request.headers.get(
-                "X-Client-Type"
-            ) == "addin" or "Office" in request.headers.get("User-Agent", "")
-
-            response_data = {"accessToken": new_accessToken}
+            # Handle response format
+            is_addin = g.client_type == "addin"
 
             if is_addin:
                 return api_success(response_data, "Token refreshed successfully")
             else:
-                response = make_response(
-                    api_success(response_data, "Token refreshed successfully")
-                )
-                response.set_cookie(
-                    "accessToken",
-                    new_accessToken,
-                    httponly=True,
-                    secure=True,
-                    samesite="None",
-                )
+                response = make_response(api_success(response_data, "Token refreshed successfully"))
+                set_auth_cookies(response, new_tokens["access_token"], new_tokens["refresh_token"])
                 return response
 
         except Exception as e:
@@ -290,12 +348,33 @@ def create_auth_routes():
             return api_internal_server_error("Token refresh failed", str(e))
 
     @auth.route("/logout", methods=["POST"])
+    @log_user_activity("logout")
     def logout():
         """Logout user"""
         try:
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
+
+            # Get tokens
+            access_token = auth_utils.extract_token_from_request()
+            refresh_token_value = auth_utils.extract_refresh_token_from_request()
+
+            if access_token:
+                payload = auth_utils.verify_jwt_token(access_token)
+                if payload:
+                    session_id = payload.get('session_id')
+
+                    # Revoke session and all its tokens
+                    auth_service.revoke_session(session_id, 'logout')
+
+            # Revoke specific refresh token if provided
+            if refresh_token_value:
+                auth_service.revoke_refresh_token(refresh_token_value, 'logout')
+
             response = make_response(api_success({}, "Logout successful"))
             response.delete_cookie(key="accessToken", httponly=True, secure=True, samesite="None")
             response.delete_cookie(key="refreshToken", httponly=True, secure=True, samesite="None")
+
             return response
 
         except Exception as e:
@@ -329,7 +408,13 @@ def create_auth_routes():
                 return api_authentication_error("User not found")
 
             return api_success(
-                {"user": {"id": user["id"], "email": user["email"], "name": user["username"]}},
+                {
+                    "user": {
+                        "id": user["id"],
+                        "email": user["email"],
+                        "name": user["username"],
+                    }
+                },
                 "User information retrieved successfully",
             )
 
@@ -338,8 +423,9 @@ def create_auth_routes():
             return api_internal_server_error("Failed to get user information", str(e))
 
     @auth.route("/register", methods=["POST"])
+    @log_user_activity("register")
     def register():
-        """Register new user"""
+        """Register new user with enhanced session management."""
         try:
             data = request.get_json()
             if not data:
@@ -356,22 +442,23 @@ def create_auth_routes():
             if not name:
                 return api_validation_error("Name is required")
 
-            # Check if user already exists (optional - db layer will also check)
+            # Check if user already exists
             existing_user = auth_utils.get_user_by_email(email)
             if existing_user:
-                if existing_user['microsoft_id']:
-                    return api_validation_error('User has already registered through microsoft. Login using Microsoft account.')
+                if existing_user["microsoft_id"]:
+                    return api_validation_error(
+                        "User has already registered through microsoft. Login using Microsoft account."
+                    )
                 else:
                     return api_validation_error("User already exists")
 
             # Create user - this will raise ValidationError if validation fails
             user_id = auth_utils.create_user(name, email, password, is_superuser=False)
 
-            # user_id will get used in the analytics
-            g.user_id = user_id
-
             if not user_id:
                 return api_internal_server_error("Failed to create user")
+
+            setattr(g, "user_id", user_id)
 
             # Fetch the newly created user
             user = auth_utils.get_user_by_email(email)
@@ -380,23 +467,55 @@ def create_auth_routes():
                     "User creation succeeded but user data fetch failed"
                 )
 
-            # Create JWT tokens
-            accessToken = auth_utils.create_jwt_token(
-                user_id, email, 30 * 60
-            )  # 30 mins
-            refreshToken = auth_utils.create_jwt_token(
-                user_id, email, 7 * 24 * 60 * 60
-            )  # 7 days
+            # Create session and tokens using AuthService
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
+
+            client_type = g.client_type
+            user_agent = g.user_agent
+            ip_address = g.ip_address
+
+            # Create session
+            session_id = auth_service.create_session(
+                user_id=user["id"],
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            # Create tokens
+            tokens = auth_service.create_tokens(
+                user_id=user["id"],
+                email=email,
+                session_id=session_id,
+                client_type=client_type,
+                user_agent=user_agent,
+                ip_address=ip_address
+            )
+
+            setattr(g, "user_id", user["id"])
+            setattr(g, "session_id", session_id)
 
             response_data = {
                 "user": {"id": user_id, "email": email, "name": name},
-                "tokens": {"accessToken": accessToken, "refreshToken": refreshToken},
+                "tokens": {
+                    "accessToken": tokens["access_token"],
+                    "refreshToken": tokens["refresh_token"]
+                },
+                "session": {
+                    "session_id": session_id,
+                    "expires_in": tokens["expires_in"]
+                }
             }
 
-            response = make_response(
-                api_success(response_data, "Registration successful")
-            )
-            set_auth_cookies(response, accessToken, refreshToken)
+            # Handle response format (cookies vs JSON)
+            is_addin = g.client_type == "addin"
+
+            if is_addin:
+                return api_success(response_data, "Registration successful")
+            else:
+                response = make_response(api_success(response_data, "Registration successful"))
+            set_auth_cookies(response, tokens["access_token"], tokens["refresh_token"])
             return response
 
         except ValidationError as e:
@@ -422,5 +541,56 @@ def create_auth_routes():
             {"status": "healthy", "service": "authentication"},
             "Authentication service is healthy",
         )
+
+    @auth.route("/sessions", methods=["GET"])
+    def get_user_sessions():
+        """Get all active sessions for current user."""
+        try:
+            token = auth_utils.extract_token_from_request()
+            if not token:
+                return api_authentication_error("Access token required")
+
+            payload = auth_utils.verify_jwt_token(token)
+            if not payload:
+                return api_authentication_error("Invalid access token")
+
+            user_id = payload.get("user_id")
+
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
+
+            sessions = auth_service.get_user_sessions(user_id)
+
+            return api_success({"sessions": sessions}, "Sessions retrieved successfully")
+
+        except Exception as e:
+            logger.error(f"Error getting user sessions: {e}")
+            return api_internal_server_error("Failed to get sessions", str(e))
+
+    @auth.route("/sessions/<session_id>", methods=["DELETE"])
+    def revoke_session(session_id):
+        """Revoke a specific session."""
+        try:
+            token = auth_utils.extract_token_from_request()
+            if not token:
+                return api_authentication_error("Access token required")
+
+            payload = auth_utils.verify_jwt_token(token)
+            if not payload:
+                return api_authentication_error("Invalid access token")
+
+            from giani_pkb.services.auth_service import AuthService
+            auth_service = AuthService()
+
+            success = auth_service.revoke_session(session_id, 'manual_revocation')
+
+            if success:
+                return api_success({}, "Session revoked successfully")
+            else:
+                return api_validation_error("Session not found or already revoked")
+
+        except Exception as e:
+            logger.error(f"Error revoking session: {e}")
+            return api_internal_server_error("Failed to revoke session", str(e))
 
     return auth

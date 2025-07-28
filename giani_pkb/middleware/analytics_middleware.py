@@ -33,9 +33,9 @@ class AnalyticsMiddleware:
         g.start_time = time.time()
 
         # Extract user information
-        g.user_id = self._extract_user_id()
+        g.user_id = self._extract_user_id() if getattr(g, 'user_id', None) is None else g.user_id
         g.client_type = self._extract_client_type()
-        g.session_id = self._extract_session_id() if self._extract_session_id() is not None else self._extract_user_id()
+        g.session_id = self._extract_session_id() if getattr(g, 'session_id', None) is None else g.session_id
         g.project_id = self._extract_project_id()
 
         # Store request info for later use
@@ -70,18 +70,11 @@ class AnalyticsMiddleware:
         """Extract user ID from request."""
         try:
             # Try to get from cookies first (web app)
-            token = request.cookies.get("accessToken")
-
-            # If not in cookies, try Authorization header (API/Add-in)
-            if not token:
-                auth_header = request.headers.get("Authorization", "")
-                if auth_header.startswith("Bearer "):
-                    token = auth_header.replace("Bearer ", "")
+            token = self.auth_utils.extract_token_from_request()
 
             # If still no token, try request body for refresh token scenarios
             if not token and request.is_json:
-                data = request.get_json(silent=True) or {}
-                token = data.get("accessToken")
+                token = self.auth_utils.extract_refresh_token_from_request()
 
             if token:
                 payload = self.auth_utils.verify_jwt_token(token)
@@ -109,11 +102,16 @@ class AnalyticsMiddleware:
         return "web"
 
     def _extract_session_id(self) -> Optional[str]:
-        """Extract session ID from request."""
-        # This could be from cookies, headers, or generated
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            return auth_header.replace("Bearer ", "")
+        """Extract session ID from JWT token."""
+        try:
+            token = self.auth_utils.extract_token_from_request()
+            if token:
+                payload = self.auth_utils.verify_jwt_token(token)
+                if payload:
+                    return payload.get("session_id")
+        except Exception as e:
+            logger.debug(f"Could not extract session_id: {e}")
+        return None
 
     def _extract_project_id(self) -> Optional[int]:
         """Extract project ID from request if available."""
@@ -163,6 +161,12 @@ class AnalyticsMiddleware:
         skip_endpoints = {
             "health_check",
             "auth.health_check",
+
+            # Below auth endpoints are logged using log_user_activity utility method
+            "auth.login",
+            "auth.register",
+            "auth.logout",
+            "auth.microsoft_login"
         }
 
         if request.endpoint in skip_endpoints:
@@ -182,34 +186,40 @@ class AnalyticsMiddleware:
         feature_map = {
             # Auth features
             "auth.login": "user_login",
+            "auth.get_microsoft_auth_url": "get_microsoft_auth_url",
             "auth.microsoft_login": "microsoft_sso_login",
             "auth.register": "user_registration",
-            "auth.refresh": "token_refresh",
+            "auth.refresh_token": "token_refresh",
             "auth.logout": "user_logout",
             "auth.get_current_user": "user_profile_access",
+            "auth.get_user_sessions": "get_user_sessions",
+            "auth.revoke_session": "revoke_session",
             # Project features
-            "projects.create_project": "create_project",
-            "projects.get_user_projects": "get_user_projects",
-            "projects.get_project_details": "get_project_details",
-            "projects.update_project": "update_project",
-            "projects.delete_project": "delete_project",
-            "projects.upload_documents": "upload_documents",
-            "projects.get_ai_suggestions": "get_ai_suggestions",
+            "projects.create_project": "project_creation",
+            "projects.get_user_projects": "projects_access",
+            "projects.get_project_details": "project_details_access",
+            "projects.update_project": "project_updation",
+            "projects.delete_project": "project_deletion",
+            "projects.upload_documents": "documents_upload",
+            "projects.get_ai_suggestions": "ai_suggestions_access",
             "projects.process_document_batch": "process_document_batch",
-            "projects.get_project_documents": "get_project_documents",
+            "projects.get_project_documents": "project_documents_access",
             "projects.get_batch_status": "get_batch_status",
             "projects.get_role_purpose_categories": "get_role_purpose_categories",
             "projects.list_temp_documents": "list_temp_documents",
-            "projects.get_temp_document": "get_temp_document",
-            "projects.delete_temp_document": "delete_temp_document",
-            "projects.get_document_summary": "get_document_summary",
+            "projects.get_temp_document": "temp_document_access",
+            "projects.delete_temp_document": "temp_document_deletion",
+            "projects.get_document_summary": "document_summary_access",
             "projects.query_project": "query_project",
-            "projects.download_document": "download_document",
+            "projects.download_document": "document_download",
             # Document features
-            "documents.upload_document": "document_upload",
             "documents.search_documents": "document_search",
             "documents.get_document": "document_access",
             "documents.delete_document": "document_deletion",
+            "documents.update_document": "document_updation",
+            "documents.get_document_chunks": "document_chunks_access",
+            "documents.get_document_summaries": "document_summaries_access",
+            "documents.classify_document": "document_classification",
             # PPT features (based on your ppt_routes)
             "ppt.suggest_titles": "suggest_titles",
             "ppt.list_user_projects": "list_user_projects",
@@ -272,6 +282,10 @@ def log_user_activity(activity_type: str, **kwargs):
 
             try:
                 user_id = getattr(g, "user_id", None)
+                response_time_ms = None
+                if hasattr(g, "start_time"):
+                    response_time_ms = (time.time() - g.start_time) * 1000
+
                 if user_id:
                     analytics_service = AnalyticsService()
                     analytics_service.log_activity(
@@ -280,6 +294,12 @@ def log_user_activity(activity_type: str, **kwargs):
                         session_id=getattr(g, "session_id", None),
                         client_type=getattr(g, "client_type", None),
                         ip_address=getattr(g, "ip_address", None),
+                        endpoint=getattr(g, "endpoint", None),
+                        http_method=getattr(g, "method", None),
+                        user_agent=getattr(g, "user_agent", None),
+                        status_code=result.status_code,
+                        response_time_ms=response_time_ms,
+                        feature_used=activity_type,
                         **kwargs,
                     )
             except Exception as e:

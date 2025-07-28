@@ -1,14 +1,12 @@
-# Updated: giani_pkb/services/analytics_service.py
-
 import uuid
 import time
 import json
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, and_, or_
+from sqlalchemy import func, desc, and_, or_, case
 from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.models.database_models import UserActivityLog, User
 import logging
@@ -89,7 +87,7 @@ class AnalyticsService:
         """Get activity summary for a user."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Basic activity counts
                 total_activities = (
@@ -187,7 +185,7 @@ class AnalyticsService:
         """Get paginated user activities with optional filters."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Build base query
                 query = db.query(UserActivityLog).filter(
@@ -242,7 +240,7 @@ class AnalyticsService:
         """Get detailed feature usage statistics for a user."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Feature usage with timestamps
                 feature_usage = (
@@ -319,7 +317,7 @@ class AnalyticsService:
         """Get API performance summary for a user."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Overall performance stats
                 perf_stats = (
@@ -354,7 +352,7 @@ class AnalyticsService:
                     db.query(
                         func.count(UserActivityLog.id).label("total_requests"),
                         func.sum(
-                            func.case((UserActivityLog.status_code >= 400, 1), else_=0)
+                            case((UserActivityLog.status_code >= 400, 1), else_=0)
                         ).label("error_count"),
                     )
                     .filter(
@@ -374,7 +372,7 @@ class AnalyticsService:
                             "avg_response_time"
                         ),
                         func.sum(
-                            func.case((UserActivityLog.status_code >= 400, 1), else_=0)
+                            case((UserActivityLog.status_code >= 400, 1), else_=0)
                         ).label("error_count"),
                     )
                     .filter(
@@ -457,7 +455,7 @@ class AnalyticsService:
         """Export user analytics data in specified format."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Get summary data
                 summary = self.get_user_activity_summary(user_id, days)
@@ -467,7 +465,7 @@ class AnalyticsService:
                 export_data = {
                     "export_info": {
                         "user_id": user_id,
-                        "export_date": datetime.utcnow().isoformat(),
+                        "export_date": datetime.now(timezone.utc).isoformat(),
                         "period_days": days,
                         "format": format,
                         "include_details": include_details,
@@ -580,7 +578,7 @@ class AnalyticsService:
         """Get system-wide analytics."""
         try:
             with self.db_manager.get_session() as db:
-                start_date = datetime.utcnow() - timedelta(days=days)
+                start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
                 # Active users
                 active_users = (
@@ -638,7 +636,7 @@ class AnalyticsService:
                         .within_group(UserActivityLog.response_time_ms)
                         .label("p95_response_time"),
                         func.sum(
-                            func.case((UserActivityLog.status_code >= 400, 1), else_=0)
+                            case((UserActivityLog.status_code >= 400, 1), else_=0)
                         ).label("error_count"),
                         func.count(UserActivityLog.id).label("total_requests"),
                     )
@@ -707,6 +705,24 @@ def log_user_login(
     return service.log_activity(
         user_id=user_id,
         activity_type="login",
+        client_type=client_type,
+        user_agent=user_agent,
+        ip_address=ip_address,
+        session_id=str(uuid.uuid4()),
+    )
+
+# Utility functions for easy access
+def log_user_register(
+    user_id: str,
+    client_type: str = None,
+    user_agent: str = None,
+    ip_address: str = None,
+):
+    """Quick function to log user register."""
+    service = AnalyticsService()
+    return service.log_activity(
+        user_id=user_id,
+        activity_type="register",
         client_type=client_type,
         user_agent=user_agent,
         ip_address=ip_address,

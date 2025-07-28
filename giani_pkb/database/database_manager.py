@@ -3,7 +3,7 @@ Unified database manager using SQLAlchemy ORM for all database operations.
 """
 import logging
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager
 from sqlalchemy import and_, or_, func, desc, asc, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -120,8 +120,8 @@ class DatabaseManager:
                     microsoft_id=microsoft_id,
                     is_superuser=is_superuser,
                     is_active=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
                 )
 
                 session.add(user)
@@ -233,7 +233,7 @@ class DatabaseManager:
                 # COMPLETED: Fixed the incomplete verification logic
                 if user and verify_password(password, user.hashed_password):
                     # Update last login timestamp
-                    user.updated_at = datetime.utcnow()
+                    user.updated_at = datetime.now(timezone.utc)
                     session.flush()
 
                     # Detach from session to prevent lazy loading issues
@@ -297,11 +297,10 @@ class DatabaseManager:
                         elif key == 'username' and value:
                             if not self._validate_username(value):
                                 raise ValidationError("Invalid username format")
-                            value = value.lower()
 
                         setattr(user, key, value)
 
-                setattr(user, "updated_at", datetime.utcnow())
+                setattr(user, "updated_at", datetime.now(timezone.utc))
                 session.flush()
 
                 # Detach from session
@@ -335,7 +334,7 @@ class DatabaseManager:
                     raise NotFoundError(f"User with ID {user_id} not found")
 
                 user.is_active = False
-                user.updated_at = datetime.utcnow()
+                user.updated_at = datetime.now(timezone.utc)
 
                 logger.info(f"Deleted user: {user.username}")
                 return True
@@ -394,8 +393,8 @@ class DatabaseManager:
                     key_client_stakeholders_profiles=stakeholders.strip() if stakeholders else None,
                     objectives=objectives.strip() if objectives else None,
                     is_active=True,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc)
                 )
 
                 session.add(project)
@@ -521,7 +520,7 @@ class DatabaseManager:
 
                         setattr(project, key, value)
 
-                project.updated_at = datetime.utcnow()
+                project.updated_at = datetime.now(timezone.utc)
                 session.flush()
 
                 # Detach from session
@@ -565,7 +564,7 @@ class DatabaseManager:
                     raise NotFoundError(f"Project with ID {project_id} not found or access denied")
 
                 project.is_active = False
-                project.updated_at = datetime.utcnow()
+                project.updated_at = datetime.now(timezone.utc)
 
                 logger.info(f"Deleted project: {project.name}")
                 return True
@@ -639,7 +638,7 @@ class DatabaseManager:
                     user_id=user_id,
                     total_documents=total_documents,
                     status='QUEUED',
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc)
                 )
 
                 session.add(processing_batch)
@@ -844,9 +843,9 @@ class DatabaseManager:
 
                 # Update timestamps based on status
                 if status == 'PROCESSING' and not batch.started_at:
-                    batch.started_at = datetime.utcnow()
+                    batch.started_at = datetime.now(timezone.utc)
                 elif status in ['COMPLETED', 'FAILED', 'CANCELLED'] and not batch.completed_at:
-                    batch.completed_at = datetime.utcnow()
+                    batch.completed_at = datetime.now(timezone.utc)
 
                 # Update other fields if provided with validation
                 allowed_fields = {'processed_documents', 'failed_documents', 'error_details'}
@@ -1006,7 +1005,7 @@ class DatabaseManager:
                 if total_processed >= total_documents and total_documents > 0:
                     batch.status = 'COMPLETED'
                     if not batch.completed_at:
-                        batch.completed_at = datetime.utcnow()
+                        batch.completed_at = datetime.now(timezone.utc)
 
                 session.flush()
                 logger.info(f"Updated batch {batch_id} progress: {total_processed}/{total_documents}")
@@ -1096,7 +1095,7 @@ class DatabaseManager:
 
                 # Set upload timestamp if not provided
                 if 'upload_timestamp' not in cleaned_kwargs:
-                    cleaned_kwargs['upload_timestamp'] = datetime.utcnow()
+                    cleaned_kwargs['upload_timestamp'] = datetime.now(timezone.utc)
 
                 # Create the temporary document
                 temp_document = TempDocument(**cleaned_kwargs)
@@ -1386,7 +1385,7 @@ class DatabaseManager:
 
                 # Set default timestamp if not provided
                 if 'date_added_to_giani' not in kwargs:
-                    kwargs['date_added_to_giani'] = datetime.utcnow()
+                    kwargs['date_added_to_giani'] = datetime.now(timezone.utc)
 
                 document = Document(**kwargs)
                 session.add(document)
@@ -1549,7 +1548,7 @@ class DatabaseManager:
 
                         setattr(document, key, value)
 
-                document.updated_at = datetime.utcnow()
+                document.updated_at = datetime.now(timezone.utc)
                 session.flush()
 
                 # Detach from session
@@ -1645,12 +1644,15 @@ class DatabaseManager:
             raise DatabaseError(f"Failed to create document chunk: {e}")
 
 
-    def get_document_chunks(self, document_id: int) -> List[DocumentChunk]:
+    def get_document_chunks(self, document_id: str) -> List[DocumentChunk]:
         """Get all chunks for a document with enhanced ordering."""
         try:
-            if not isinstance(document_id, int) or document_id <= 0:
-                logger.error(f"Invalid document_id: {document_id}")
-                return []
+            if isinstance(document_id, str):
+                try:
+                    document_id = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return False
 
             with self.get_session() as session:
                 chunks = session.query(DocumentChunk).filter(
@@ -1696,7 +1698,7 @@ class DatabaseManager:
 
                 # Set processing timestamp if not provided
                 if 'processing_timestamp' not in kwargs:
-                    kwargs['processing_timestamp'] = datetime.utcnow()
+                    kwargs['processing_timestamp'] = datetime.now(timezone.utc)
 
                 summary = DocumentSummary(**kwargs)
                 session.add(summary)
@@ -1732,12 +1734,15 @@ class DatabaseManager:
             logger.error(f"Error verifying document existence: {e}")
             return False
 
-    def get_document_summaries(self, document_id: int) -> List[DocumentSummary]:
+    def get_document_summaries(self, document_id: Union[str, uuid.UUID]) -> List[DocumentSummary]:
         """Get all summaries for a document with enhanced validation."""
         try:
-            if not isinstance(document_id, int) or document_id <= 0:
-                logger.error(f"Invalid document_id: {document_id}")
-                return []
+            if isinstance(document_id, str):
+                try:
+                    document_id = uuid.UUID(document_id)
+                except ValueError:
+                    logger.error(f"Invalid UUID format for document_id: {document_id}")
+                    return False
 
             with self.get_session() as session:
                 summaries = session.query(DocumentSummary).filter(
@@ -1774,7 +1779,7 @@ class DatabaseManager:
 
                 # Set timestamp if not provided
                 if 'timestamp' not in kwargs:
-                    kwargs['timestamp'] = datetime.utcnow()
+                    kwargs['timestamp'] = datetime.now(timezone.utc)
 
                 api_log = APICallLog(call_number=call_number, **kwargs)
                 session.add(api_log)
@@ -1853,7 +1858,7 @@ class DatabaseManager:
 
                 # Get recent activity
                 try:
-                    today = datetime.utcnow().date()
+                    today = datetime.now(timezone.utc).date()
                     recent_documents = session.query(func.count(Document.id)).filter(
                         func.date(Document.date_added_to_giani) == today
                     ).scalar() or 0
@@ -1917,7 +1922,7 @@ class DatabaseManager:
                 if existing_project:
                     if hasattr(user, 'projects') and existing_project not in user.projects:
                         user.projects.append(existing_project)
-                        user.updated_at = datetime.utcnow()
+                        user.updated_at = datetime.now(timezone.utc)
                         session.flush()
                         logger.info(f"Added existing project '{project_name}' to user {user.username}")
                     else:
@@ -1929,15 +1934,15 @@ class DatabaseManager:
                         name=project_name,
                         owner_id=user_id,
                         is_active=True,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
+                        created_at=datetime.now(timezone.utc),
+                        updated_at=datetime.now(timezone.utc)
                     )
                     session.add(new_project)
 
                     if hasattr(user, 'projects'):
                         user.projects.append(new_project)
 
-                    user.updated_at = datetime.utcnow()
+                    user.updated_at = datetime.now(timezone.utc)
                     session.flush()
                     logger.info(f"Created and added new project '{project_name}' for user {user.username}")
                     return True
@@ -1981,7 +1986,7 @@ class DatabaseManager:
 
                     if project_to_remove:
                         user.projects.remove(project_to_remove)
-                        user.updated_at = datetime.utcnow()
+                        user.updated_at = datetime.now(timezone.utc)
                         session.flush()
                         logger.info(f"Removed project '{project_name}' from user {user.username}")
                         return True
@@ -2161,7 +2166,7 @@ class DatabaseManager:
                 ).scalar() or 0
 
                 # Recent activity (last 30 days)
-                thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+                thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
                 stats['recent_documents'] = session.query(func.count(Document.id)).filter(
                     and_(
                         Document.user_id == user_id,
@@ -2194,7 +2199,7 @@ class DatabaseManager:
 
                 setattr(user, "microsoft_id", microsoft_id)
 
-            setattr(user, "updated_at", datetime.utcnow())
+            setattr(user, "updated_at", datetime.now(timezone.utc))
 
             session.flush()
             session.expunge(user)
@@ -2245,7 +2250,7 @@ class DatabaseManager:
                     user_note_purpose=summary_data.get("user_note_purpose"),
 
                     # Processing metadata
-                    processing_timestamp=datetime.utcnow(),
+                    processing_timestamp=datetime.now(timezone.utc),
                     llm_model_used=llm_analysis.get("llm_used_for_processing"),
                     summary_storage_path=summary_data.get("summaryStoragePath"),
 
