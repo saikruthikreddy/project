@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Database management script for Giani AI Project Knowledge Base.
-Provides commands for database initialization, migrations, and maintenance.
+Enhanced with proper migration workflow.
 """
+
 import os
 import sys
 import click
@@ -13,228 +14,171 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from giani_pkb.database.database_initialize import DatabaseInitializer
 from giani_pkb.database.database_migration import DatabaseMigration
-
+from giani_pkb.database.database_manager import DatabaseManager
 
 @click.group()
 def cli():
     """Giani AI Database Management Tool"""
     pass
 
+@cli.command()
+@click.option('--message', '-m', required=True, help='Migration message')
+def create_migration(message):
+    """Create a new migration."""
+    click.echo(f"📝 Creating migration: {message}")
+    try:
+        db_manager = DatabaseManager()
+        if db_manager.create_migration(message):
+            click.echo("✅ Migration created successfully!")
+            click.echo("📝 Review the migration file before applying")
+            click.echo("📝 Apply it with: python manage.py apply")
+        else:
+            click.echo("❌ Failed to create migration")
+            sys.exit(1)
+    except ImportError:
+        click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
+        sys.exit(1)
 
 @cli.command()
-@click.option('--drop-existing', is_flag=True, help='Drop existing tables before initialization')
-@click.option('--create-sample-data', is_flag=True, help='Create sample data after initialization')
-def init(drop_existing, create_sample_data):
-    """Initialize the database with all required tables."""
-    click.echo("🔧 Initializing database...")
+@click.option('--revision', default='head', help='Revision to upgrade to (default: head)')
+@click.option('--sql', is_flag=True, help='Generate SQL instead of applying')
+def apply(revision, sql):
+    """Apply database migrations."""
+    if sql:
+        click.echo(f"🔄 Generating SQL for migrations to: {revision}")
+        try:
+            import subprocess
+            result = subprocess.run([
+                'alembic', 'upgrade', revision, '--sql'
+            ], capture_output=True, text=True)
 
+            if result.returncode == 0:
+                click.echo("Generated SQL:")
+                click.echo(result.stdout)
+            else:
+                click.echo("❌ Failed to generate SQL")
+                click.echo(result.stderr)
+        except ImportError:
+            click.echo("❌ Alembic not installed")
+            sys.exit(1)
+    else:
+        click.echo(f"🔄 Applying migrations to: {revision}")
+        try:
+            db_manager = DatabaseManager()
+            if db_manager.run_migrations(revision):
+                click.echo("✅ Migrations applied successfully!")
+            else:
+                click.echo("❌ Failed to apply migrations")
+                sys.exit(1)
+        except ImportError:
+            click.echo("❌ Alembic not installed")
+            sys.exit(1)
+
+@cli.command()
+def status():
+    """Show migration status."""
+    click.echo("📊 Migration Status:")
+    try:
+        db_manager = DatabaseManager()
+        status_info = db_manager.get_migration_status()
+
+        if status_info['status'] == 'success':
+            click.echo(f"Current revision: {status_info['current_revision']}")
+            click.echo("\nMigration history:")
+            click.echo(status_info['history'])
+        else:
+            click.echo(f"❌ Error: {status_info.get('error', 'Unknown error')}")
+    except ImportError:
+        click.echo("❌ Alembic not installed")
+        sys.exit(1)
+
+@cli.command()
+@click.option('--steps', default=1, help='Number of steps to downgrade')
+@click.confirmation_option(prompt='Are you sure you want to downgrade?')
+def downgrade(steps):
+    """Downgrade database migrations."""
+    click.echo(f"⬇️ Downgrading {steps} step(s)...")
+    try:
+        import subprocess
+        target = f"-{steps}"
+        result = subprocess.run([
+            'alembic', 'downgrade', target
+        ], capture_output=True, text=True)
+
+        if result.returncode == 0:
+            click.echo("✅ Downgrade completed successfully!")
+        else:
+            click.echo("❌ Downgrade failed")
+            click.echo(result.stderr)
+            sys.exit(1)
+    except ImportError:
+        click.echo("❌ Alembic not installed")
+        sys.exit(1)
+
+@cli.command()
+def init_alembic():
+    """Initialize Alembic migrations if not already done."""
+    click.echo("🔧 Initializing Alembic...")
+
+    if Path("migrations").exists():
+        click.echo("⚠️ Migrations directory already exists")
+        return
+
+    try:
+        import subprocess
+        result = subprocess.run(['alembic', 'init', 'migrations'],
+                              capture_output=True, text=True)
+
+        if result.returncode == 0:
+            click.echo("✅ Alembic initialized successfully!")
+            click.echo("📝 Creating initial migration...")
+
+            # Create initial migration
+            result = subprocess.run([
+                'alembic', 'revision', '--autogenerate', '-m', 'Initial migration'
+            ], capture_output=True, text=True)
+
+            if result.returncode == 0:
+                click.echo("✅ Initial migration created!")
+            else:
+                click.echo("⚠️ Could not create initial migration")
+        else:
+            click.echo("❌ Failed to initialize Alembic")
+            click.echo(result.stderr)
+    except ImportError:
+        click.echo("❌ Alembic not installed. Install with: pip install alembic")
+        sys.exit(1)
+
+# Keep your existing commands...
+@cli.command()
+@click.option('--drop-existing', is_flag=True, help='Drop existing tables before initialization')
+def init_db(drop_existing):
+    """Initialize database (legacy method - use migrations instead)."""
+    click.echo("⚠️ WARNING: This will recreate all tables!")
+    click.echo("⚠️ Consider using migrations instead: python manage.py create-migration")
+
+    if not click.confirm('Do you want to continue?'):
+        return
+
+    click.echo("🔧 Initializing database...")
     initializer = DatabaseInitializer()
 
     if initializer.initialize_database(drop_existing=drop_existing):
         click.echo("✅ Database initialized successfully!")
 
-        if initializer.verify_database_integrity():
-            click.echo("✅ Database integrity verified!")
+        if initializer.create_initial_data():
+            click.echo("✅ Initial data created!")
 
-            if initializer.create_initial_data():
-                click.echo("✅ Initial data created!")
-
-            if create_sample_data:
-                if initializer.add_sample_data():
-                    click.echo("✅ Sample data added!")
-                else:
-                    click.echo("❌ Failed to add sample data")
-        else:
-            click.echo("❌ Database integrity check failed")
+        # Mark current state as migrated
+        try:
+            import subprocess
+            subprocess.run(['alembic', 'stamp', 'head'], check=True)
+            click.echo("✅ Marked current schema as up-to-date")
+        except:
+            click.echo("⚠️ Could not mark schema as migrated")
     else:
         click.echo("❌ Database initialization failed")
         sys.exit(1)
-
-
-@cli.command()
-def migrate():
-    """Migrate data from old database format to new SQLAlchemy format."""
-    click.echo("🔄 Starting database migration...")
-
-    migrator = DatabaseMigration()
-
-    if migrator.check_old_database_exists():
-        info = migrator.get_old_database_info()
-        click.echo(f"📊 Found old database: {info}")
-
-        results = migrator.run_full_migration(backup_old=True)
-
-        if results['migration_success']:
-            click.echo("✅ Migration completed successfully!")
-            click.echo(f"📈 Migrated: {results['users_migrated']} users, "
-                      f"{results['projects_migrated']} projects, "
-                      f"{results['documents_migrated']} documents")
-        else:
-            click.echo("❌ Migration failed!")
-            for error in results['errors']:
-                click.echo(f"   Error: {error}")
-            sys.exit(1)
-    else:
-        click.echo("ℹ️  No old database found, nothing to migrate")
-
-
-@cli.command()
-def rollback():
-    """Rollback the last migration."""
-    click.echo("🔄 Rolling back migration...")
-
-    migrator = DatabaseMigration()
-
-    if migrator.rollback_migration():
-        click.echo("✅ Migration rollback completed!")
-    else:
-        click.echo("❌ Migration rollback failed!")
-        sys.exit(1)
-
-
-@cli.command()
-def info():
-    """Show database information and statistics."""
-    click.echo("📊 Database Information:")
-
-    initializer = DatabaseInitializer()
-    info = initializer.get_database_info()
-
-    for key, value in info.items():
-        click.echo(f"   {key}: {value}")
-
-
-@cli.command()
-def verify():
-    """Verify database integrity."""
-    click.echo("🔍 Verifying database integrity...")
-
-    initializer = DatabaseInitializer()
-
-    if initializer.verify_database_integrity():
-        click.echo("✅ Database integrity verified!")
-    else:
-        click.echo("❌ Database integrity check failed!")
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--overwrite', is_flag=True, help='Overwrite existing sample data')
-def sample_data(overwrite):
-    """Add sample data for testing and development."""
-    click.echo("📝 Adding sample data...")
-
-    initializer = DatabaseInitializer()
-
-    if initializer.add_sample_data(overwrite=overwrite):
-        click.echo("✅ Sample data added successfully!")
-        click.echo("🔑 Test credentials: email=test@example.com, password=password123")
-    else:
-        click.echo("❌ Failed to add sample data")
-        sys.exit(1)
-
-
-@cli.command()
-def alembic_init():
-    """Initialize Alembic for database migrations."""
-    click.echo("🔧 Initializing Alembic...")
-
-    try:
-        import subprocess
-
-        # Check if alembic is installed
-        result = subprocess.run(['alembic', '--version'], capture_output=True, text=True)
-        if result.returncode != 0:
-            click.echo("❌ Alembic not found. Please install it with: pip install alembic")
-            sys.exit(1)
-
-        # Initialize alembic
-        result = subprocess.run(['alembic', 'init', 'migrations'], capture_output=True, text=True)
-        if result.returncode != 0:
-            click.echo("❌ Failed to initialize Alembic")
-            click.echo(result.stderr)
-            sys.exit(1)
-
-        click.echo("✅ Alembic initialized successfully!")
-        click.echo("📝 You can now create migrations with: alembic revision --autogenerate -m 'description'")
-        click.echo("📝 Apply migrations with: alembic upgrade head")
-
-    except ImportError:
-        click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
-        sys.exit(1)
-
-
-@cli.command()
-@click.argument('message')
-def create_migration(message):
-    """Create a new migration."""
-    click.echo(f"📝 Creating migration: {message}")
-
-    try:
-        import subprocess
-
-        result = subprocess.run([
-            'alembic', 'revision', '--autogenerate', '-m', message
-        ], capture_output=True, text=True)
-
-        if result.returncode == 0:
-            click.echo("✅ Migration created successfully!")
-            click.echo("📝 Apply it with: python manage.py apply-migrations")
-        else:
-            click.echo("❌ Failed to create migration")
-            click.echo(result.stderr)
-            sys.exit(1)
-
-    except ImportError:
-        click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--revision', default='head', help='Revision to upgrade to (default: head)')
-def apply_migrations(revision):
-    """Apply database migrations."""
-    click.echo(f"🔄 Applying migrations to revision: {revision}")
-
-    try:
-        import subprocess
-
-        result = subprocess.run([
-            'alembic', 'upgrade', revision
-        ], capture_output=True, text=True)
-
-        if result.returncode == 0:
-            click.echo("✅ Migrations applied successfully!")
-        else:
-            click.echo("❌ Failed to apply migrations")
-            click.echo(result.stderr)
-            sys.exit(1)
-
-    except ImportError:
-        click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
-        sys.exit(1)
-
-
-@cli.command()
-def migration_status():
-    """Show migration status."""
-    click.echo("📊 Migration Status:")
-
-    try:
-        import subprocess
-
-        result = subprocess.run(['alembic', 'current'], capture_output=True, text=True)
-        if result.returncode == 0:
-            click.echo(result.stdout)
-        else:
-            click.echo("❌ Failed to get migration status")
-            click.echo(result.stderr)
-            sys.exit(1)
-
-    except ImportError:
-        click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
-        sys.exit(1)
-
 
 @cli.command()
 def history():
@@ -256,6 +200,18 @@ def history():
         click.echo("❌ Alembic not installed. Please install it with: pip install alembic")
         sys.exit(1)
 
+@cli.command()
+def rollback():
+    """Rollback the last migration."""
+    click.echo("🔄 Rolling back migration...")
+
+    migrator = DatabaseMigration()
+
+    if migrator.rollback_migration():
+        click.echo("✅ Migration rollback completed!")
+    else:
+        click.echo("❌ Migration rollback failed!")
+        sys.exit(1)
 
 if __name__ == '__main__':
     cli()

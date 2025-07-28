@@ -47,7 +47,8 @@ class DatabaseInitializer:
 
             expected_tables = {
                 'users', 'projects', 'documents', 'document_chunks',
-                'document_summaries', 'api_call_logs'
+                'document_summaries', 'api_call_logs', "temp_documents" ,"processing_batches"
+                "user_activity_logs", "refresh_tokens", "user_sessions"
             }
 
             created_tables = set(tables)
@@ -431,7 +432,7 @@ if __name__ == '__main__':
     initializer = DatabaseInitializer()
 
     # Initialize database
-    if initializer.initialize_database(drop_existing=True):
+    if initializer.initialize_database():
         print("✅ Database initialized successfully!")
 
         # Verify integrity
