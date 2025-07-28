@@ -25,3 +25,5 @@ unattended-upgrades==0.1
 urllib3==1.26.12
 
 msal==1.28.0
+
+alembic>=1.13.0  # Database migrations

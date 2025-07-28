@@ -2615,3 +2615,63 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
             raise
+
+    def run_migrations(self, target_revision: str = "head") -> bool:
+        """Run database migrations to target revision."""
+        try:
+            import subprocess
+            result = subprocess.run([
+                'alembic', 'upgrade', target_revision
+            ], capture_output=True, text=True, cwd=os.getcwd())
+
+            if result.returncode == 0:
+                logger.info(f"Migrations applied successfully to {target_revision}")
+                return True
+            else:
+                logger.error(f"Migration failed: {result.stderr}")
+                return False
+        except Exception as e:
+            logger.error(f"Error running migrations: {e}")
+            return False
+
+    def create_migration(self, message: str) -> bool:
+        """Create a new migration."""
+        try:
+            import subprocess
+            result = subprocess.run([
+                'alembic', 'revision', '--autogenerate', '-m', message
+            ], capture_output=True, text=True, cwd=os.getcwd())
+
+            if result.returncode == 0:
+                logger.info(f"Migration created: {message}")
+                return True
+            else:
+                logger.error(f"Migration creation failed: {result.stderr}")
+                return False
+        except Exception as e:
+            logger.error(f"Error creating migration: {e}")
+            return False
+
+    def get_migration_status(self) -> Dict[str, Any]:
+        """Get current migration status."""
+        try:
+            import subprocess
+
+            # Get current revision
+            current_result = subprocess.run([
+                'alembic', 'current'
+            ], capture_output=True, text=True, cwd=os.getcwd())
+
+            # Get migration history
+            history_result = subprocess.run([
+                'alembic', 'history'
+            ], capture_output=True, text=True, cwd=os.getcwd())
+
+            return {
+                'current_revision': current_result.stdout.strip(),
+                'history': history_result.stdout.strip(),
+                'status': 'success' if current_result.returncode == 0 else 'error'
+            }
+        except Exception as e:
+            logger.error(f"Error getting migration status: {e}")
+            return {'status': 'error', 'error': str(e)}

@@ -7,9 +7,16 @@ set -e
 echo "Starting SSH service..."
 /usr/sbin/sshd
 
-# Run your existing database initialization command
-echo "Running Giani PKB database initialization..."
-python -m giani_pkb.database.database_initialize
+# Run database migrations
+echo "Running database migrations..."
+python manage.py apply --revision head
 
-# Now, execute the main command passed to this script (your web server)
+# If migrations fail, try to initialize (for new deployments)
+if [ $? -ne 0 ]; then
+    echo "Migrations failed, checking if this is a new deployment..."
+    python manage.py init-alembic 2>/dev/null || true
+    python manage.py apply --revision head 2>/dev/null || true
+fi
+
+# Execute the main command
 exec "$@"

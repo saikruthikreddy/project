@@ -47,7 +47,8 @@ class DatabaseInitializer:
 
             expected_tables = {
                 'users', 'projects', 'documents', 'document_chunks',
-                'document_summaries', 'api_call_logs'
+                'document_summaries', 'api_call_logs', "temp_documents" ,"processing_batches"
+                "user_activity_logs", "refresh_tokens", "user_sessions"
             }
 
             created_tables = set(tables)
@@ -258,6 +259,7 @@ class DatabaseInitializer:
                 storage_path='/data/uploaded_documents/formal/sample_document.pdf',
                 category_folder='formal',
                 stored_filename='sample_document_20240101.pdf',
+                source='upload',  # Add default source
                 final_category='1. Strategy Document/Deck',
                 final_purpose='Sample document for testing the system functionality',
                 priority='Medium',
@@ -274,7 +276,7 @@ class DatabaseInitializer:
                 document_id=sample_document.id,
                 chunk_text='This is a sample chunk of document content for testing the chunking functionality.',
                 source_page_number=[1],
-                structural_metadata={
+                metadata_={
                     'block_type': 'paragraph',
                     'source_type': 'text',
                     'page_number': 1
@@ -285,12 +287,15 @@ class DatabaseInitializer:
             # Create sample document summary
             sample_summary = DocumentSummary(
                 document_id=sample_document.id,
-                summary_content='This is a sample document that demonstrates the system functionality.',
-                llm_used='gpt-3.5-turbo',
-                summary_metadata={
-                    'summary_type': 'extractive',
-                    'word_count': 15
-                }
+                llm_analysis={
+                    'summary_content': 'This is a sample document that demonstrates the system functionality.',
+                    'llm_used_for_processing': 'gpt-3.5-turbo',
+                    'summary_metadata': {
+                        'summary_type': 'extractive',
+                        'word_count': 15
+                    }
+                },
+                llm_model_used='gpt-3.5-turbo'
             )
             db.add(sample_summary)
 
@@ -427,7 +432,7 @@ if __name__ == '__main__':
     initializer = DatabaseInitializer()
 
     # Initialize database
-    if initializer.initialize_database(drop_existing=True):
+    if initializer.initialize_database():
         print("✅ Database initialized successfully!")
 
         # Verify integrity
