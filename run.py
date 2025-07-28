@@ -9,8 +9,6 @@ if __name__ == '__main__':
     print("API available at: http://localhost:8000")
     print("Test endpoints:")
     print("  - Home: http://localhost:8000/")
-    print("  - Projects API: http://localhost:8000/api/v1/test")
-    print("  - Auth API: http://localhost:8000/auth/test")
     print("\nPress Ctrl+C to stop the server.")
 
     app.run(

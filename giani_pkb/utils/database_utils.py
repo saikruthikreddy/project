@@ -121,7 +121,8 @@ class DatabaseUtils:
         """Get batch processing status."""
         try:
             # TODO: Implement batch status retrieval in DatabaseManager
-            batch_info = self.db_manager.get_processing_batch(uuid.UUID(batch_id))
+            batch_info = self.db_manager.get_processing_batch(batch_id)
+            return batch_info
 
             # For now, return None as placeholder
             logger.warning("get_batch_status not yet implemented in DatabaseManager")

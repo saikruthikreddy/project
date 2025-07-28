@@ -54,6 +54,7 @@ def test_database_setup():
             file_mime_type="application/pdf",
             storage_path="/path/to/test_document.pdf",
             category_folder="documents",
+            source="doc_source",
             stored_filename="test_metadata.json",
             final_category="1. Strategy Document/Deck",
             final_purpose="Test document for database verification",

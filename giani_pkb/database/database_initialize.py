@@ -272,7 +272,7 @@ class DatabaseInitializer:
             sample_chunk = DocumentChunk(
                 chunk_id='sample-chunk-001',
                 document_id=sample_document.id,
-                chunk_text_content='This is a sample chunk of document content for testing the chunking functionality.',
+                chunk_text='This is a sample chunk of document content for testing the chunking functionality.',
                 source_page_number=[1],
                 structural_metadata={
                     'block_type': 'paragraph',
@@ -427,7 +427,7 @@ if __name__ == '__main__':
     initializer = DatabaseInitializer()
 
     # Initialize database
-    if initializer.initialize_database():
+    if initializer.initialize_database(drop_existing=True):
         print("✅ Database initialized successfully!")
 
         # Verify integrity

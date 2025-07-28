@@ -188,7 +188,7 @@ class DatabaseMigration:
                 SELECT document_id, project_id, user_id, original_filename, stored_filename,
                        file_path, file_size, mime_type, role_purpose_category, other_category_specification,
                        ai_content_type, ai_purpose_note, user_validated_content_type, user_purpose_note,
-                       document_priority, processing_status, created_at, processed_at, text_preview, metadata_path
+                       document_priority, processing_status, created_at, processed_at, text_preview, metadata_path, source
                 FROM documents
             ''')
 
@@ -224,6 +224,7 @@ class DatabaseMigration:
                         file_mime_type=doc_data[7] or "application/octet-stream",
                         storage_path=doc_data[5] or "",
                         category_folder=doc_data[8] or "unknown",
+                        source=doc_data[19] or "unknown",
                         stored_filename=doc_data[4] or doc_data[3] or "unknown",
                         final_category=doc_data[8] or "39. Generic Text Document",
                         final_purpose=doc_data[12] or doc_data[11] or "Document purpose not specified",
