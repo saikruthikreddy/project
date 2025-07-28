@@ -1,7 +1,7 @@
 """
 API routes for project operations.
 """
-from flask import g, Blueprint, request
+from flask import g, Blueprint, request, send_file, abort
 import logging
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.utils import secure_filename
@@ -9,26 +9,24 @@ import os
 import uuid
 from giani_pkb.services.project_service import ProjectService
 from giani_pkb.services.document_upload_service import DocumentUploadService
-from giani_pkb.utils.auth_utils import AuthUtils
 from giani_pkb.utils.database_utils import db_utils
 from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import config
 from giani_pkb.utils.exceptions import ProjectError, ValidationError, FileProcessingError
 from giani_pkb.utils.response_utils import (
-    api_error, api_success, api_validation_error, api_not_found_error,
+    api_authorization_error, api_error, api_success, api_validation_error, api_not_found_error,
     api_database_error, api_file_processing_error, api_internal_server_error
 )
 logger = logging.getLogger(__name__)
 
 def create_project_routes():
     """Create and configure the projects blueprint."""
-    projects = Blueprint('projects', __name__, url_prefix='/api/v1')
+    projects = Blueprint('projects', __name__, url_prefix='/api/v1/projects')
 
     # Initialize services
     project_service = ProjectService()
     upload_service = DocumentUploadService()
     db_manager = DatabaseManager()
-    auth_utils = AuthUtils()
 
     # Initialize database tables
     db_utils.create_document_tables()
@@ -45,8 +43,7 @@ def create_project_routes():
             200
         )
 
-    @projects.route('/projects', methods=['POST'])
-    @auth_utils.auth_required
+    @projects.route('', methods=['POST'])
     def create_project():
         """Create a new project."""
         try:
@@ -65,8 +62,7 @@ def create_project_routes():
             if not project_name:
                 return api_validation_error('Project name is required')
 
-            user_id = g.current_user['user_id']
-
+            user_id = g.user_id
 
             project = project_service.create_project(user_id, project_name,  description, client_name, client_industry, targetAudience, stakeholders, objectives)
 
@@ -87,12 +83,11 @@ def create_project_routes():
             logger.error(f"Error creating project: {e}")
             return api_internal_server_error('Failed to create project', str(e))
 
-    @projects.route('/projects', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('', methods=['GET'])
     def get_user_projects():
         """Get all projects for the current user."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
             projects_list = project_service.get_user_projects(user_id)
 
             # Convert each project to dictionary
@@ -108,12 +103,11 @@ def create_project_routes():
             logger.error(f"Error getting user projects: {e}")
             return api_internal_server_error('Failed to retrieve projects', str(e))
 
-    @projects.route('/projects/<project_id>', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>', methods=['GET'])
     def get_project_details(project_id):
         """Get project details by ID."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -136,8 +130,7 @@ def create_project_routes():
             logger.error(f"Error getting project details: {e}")
             return api_internal_server_error('Failed to retrieve project details', str(e))
 
-    @projects.route('/projects/<project_id>', methods=['PUT'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>', methods=['PUT'])
     def update_project(project_id):
         """Update project details."""
         try:
@@ -145,24 +138,40 @@ def create_project_routes():
             if not data:
                 return api_validation_error('No data provided')
 
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
             # Validate updates
             updates = {}
-            if 'project_name' in data:
-                project_name = data['project_name'].strip()
+            if 'projectName' in data:
+                project_name = data['projectName'].strip()
                 if not project_name:
                     return api_validation_error('Project name cannot be empty')
                 updates['name'] = project_name
 
-            if 'description' in data:
-                updates['description'] = data['description'].strip()
+            if 'projectDescription' in data:
+                updates['description'] = data['projectDescription'].strip()
+
+            if 'targetAudience' in data:
+                updates['target_audience'] = data['targetAudience'].strip()
+
+            if 'primaryProjectObjectivesSuccessMetrics' in data:
+                updates['objectives'] = data['primaryProjectObjectivesSuccessMetrics'].strip()
+
+            if 'keyClientStakeholdersProfiles' in data:
+                updates['key_client_stakeholders_profiles'] = data['keyClientStakeholdersProfiles'].strip()
+
+            if 'clientName' in data:
+                updates['client_name'] = data['clientName'].strip()
+
+            if 'clientIndustry' in data:
+                updates['client_industry'] = data['clientIndustry'].strip()
 
             if not updates:
                 return api_validation_error('No valid updates provided')
+
 
             success = project_service.update_project(project_id, user_id, updates)
             if not success:
@@ -181,12 +190,11 @@ def create_project_routes():
             logger.error(f"Error updating project: {e}")
             return api_internal_server_error('Failed to update project', str(e))
 
-    @projects.route('/projects/<project_id>', methods=['DELETE'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>', methods=['DELETE'])
     def delete_project(project_id):
         """Delete a project."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -206,12 +214,11 @@ def create_project_routes():
             logger.error(f"Error deleting project: {e}")
             return api_internal_server_error('Failed to delete project', str(e))
 
-    @projects.route('/projects/<project_id>/documents/upload', methods=['POST'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/upload', methods=['POST'])
     def upload_documents(project_id):
         """Upload documents to a project."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -255,12 +262,11 @@ def create_project_routes():
             logger.error(f"Error uploading documents: {e}")
             return api_internal_server_error('Failed to upload documents', str(e))
 
-    @projects.route('/projects/<project_id>/documents/ai-suggestions', methods=['POST'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/ai-suggestions', methods=['POST'])
     def get_ai_suggestions(project_id):
         """Get AI suggestions for document classification."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
             data = request.get_json()
 
             if not data or 'temp_document_id' not in data:
@@ -284,12 +290,11 @@ def create_project_routes():
             logger.error(f"Error getting AI suggestions: {e}")
             return api_internal_server_error('Failed to get AI suggestions', str(e))
 
-    @projects.route('/projects/<project_id>/documents/process-batch', methods=['POST'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/process-batch', methods=['POST'])
     def process_document_batch(project_id):
         """Process a batch of documents."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
             data = request.get_json()
 
             if not data or 'documents' not in data:
@@ -317,12 +322,11 @@ def create_project_routes():
             logger.error(f"Error processing batch: {e}")
             return api_internal_server_error('Failed to process batch', str(e))
 
-    @projects.route('/projects/<project_id>/documents', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents', methods=['GET'])
     def get_project_documents(project_id):
         """Get all documents for a project."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
@@ -344,11 +348,10 @@ def create_project_routes():
             return api_internal_server_error('Failed to retrieve project documents', str(e))
 
     @projects.route('/batches/<batch_id>/status', methods=['GET'])
-    @auth_utils.auth_required
     def get_batch_status(batch_id):
         """Get batch processing status."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
             status = db_utils.get_batch_status(batch_id, user_id)
 
             if not status:
@@ -367,12 +370,11 @@ def create_project_routes():
             'categories': config.ROLE_PURPOSE_CATEGORIES
         }, 'Role/purpose categories retrieved successfully')
 
-    @projects.route('/projects/<project_id>/documents/temp', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/temp', methods=['GET'])
     def list_temp_documents(project_id):
         """List temporary documents for a project."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
@@ -432,12 +434,11 @@ def create_project_routes():
             return api_internal_server_error('Failed to list temporary documents', str(e))
 
 
-    @projects.route('/projects/<project_id>/documents/temp/<temp_document_id>', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/temp/<temp_document_id>', methods=['GET'])
     def get_temp_document(project_id, temp_document_id):
         """Get a specific temporary document."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
@@ -462,12 +463,11 @@ def create_project_routes():
             return api_internal_server_error('Failed to get temporary document', str(e))
 
 
-    @projects.route('/projects/<project_id>/documents/temp/<temp_document_id>', methods=['DELETE'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/temp/<temp_document_id>', methods=['DELETE'])
     def delete_temp_document(project_id, temp_document_id):
         """Delete a specific temporary document."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
@@ -504,12 +504,11 @@ def create_project_routes():
             return api_internal_server_error('Failed to delete temporary document', str(e))
 
 
-    @projects.route('/projects/<project_id>/documents/<document_id>/summary', methods=['GET'])
-    @auth_utils.auth_required
+    @projects.route('/<project_id>/documents/<document_id>/summary', methods=['GET'])
     def get_document_summary(project_id, document_id):
         """Get the summary for a specific document."""
         try:
-            user_id = g.current_user['user_id']
+            user_id = g.user_id
 
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
@@ -532,28 +531,136 @@ def create_project_routes():
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return api_internal_server_error('Failed to retrieve document summary', str(e))
 
-    @projects.route('/projects/<project_id>/query', methods=['GET'])
-    @auth_utils.auth_required
-    def query(project_id):
-        """Get the summary for a specific document."""
+    @projects.route('/<project_id>/query', methods=['POST'])  # Changed to POST
+    def query_project(project_id):
+        """Query a specific project with a user question."""
         try:
-            user_id = g.current_user['user_id']
-            data=request.get_json()
+            print('inside query_project endpoint')
+            user_id = g.user_id
 
-            user_question=data['user_question']
+            # Get JSON data from request body
+            data = request.get_json()
+            if not data or 'user_question' not in data:
+                return api_validation_error('Missing user_question in request body')
+
+            user_question = data['user_question']
+
+            # Optional parameters
+            document_content_type = data.get('document_content_type', '')
+            top_k = data.get('top_k', 10)
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
-            # Prepare response data
-            retrieval_data = db_manager.query(project_id,user_question)
-            return api_success(retrieval_data, 'project query retrieved successfully')
+            # Execute query using the db_manager method
+            retrieval_data = db_manager.query_project(
+                project_id=project_id,
+                user_question=user_question,
+                document_content_type=document_content_type,
+                top_k=top_k
+            )
 
+            print('Query result:', retrieval_data)
+            return api_success(retrieval_data, 'Project query executed successfully')
+
+        except ValueError as e:
+            logger.error(f"Invalid input for project query: {e}")
+            return api_bad_request_error(f'Invalid input: {str(e)}')
         except SQLAlchemyError as e:
-            logger.error(f"Database error retrieving query response for project: {e}")
-            return api_database_error('Failed to retrieve document summary')
+            logger.error(f"Database error during project query: {e}")
+            return api_database_error('Failed to execute project query')
         except Exception as e:
-            logger.error(f"Unexpected error retrieving query response for project: {e}")
-            return api_internal_server_error('Failed to retrieve document summary', str(e))
+            logger.error(f"Unexpected error during project query: {e}")
+            return api_internal_server_error('Failed to execute project query', str(e))
+
+    @projects.route('/<project_id>/documents/<document_id>/download', methods=['GET'])
+    def download_document(project_id,document_id):
+        """
+        Download a document by its ID.
+
+        Args:
+            document_id (str): UUID of the document to download
+
+        Query Parameters:
+            as_attachment (bool): Whether to force download as attachment (default: True)
+
+        Returns:
+            File response with appropriate headers or error response
+        """
+        try:
+            user_id = g.user_id
+
+            # Get the document from database
+            document = db_manager.get_document_by_id(document_id,user_id)
+
+            if not document:
+                return api_not_found_error('Document not found')
+
+            # Verify user has access to this document
+            # Check if user owns the document or has access through project
+            if document.user_id != user_id:
+                # Check if user has access to the project
+                if not db_utils.verify_project_access(document.project_id, user_id):
+                    return api_authorization_error('Access denied to this document')
+
+            # Get document details
+            storage_path = document.storage_path
+            original_filename = document.original_filename
+            file_mime_type = document.file_mime_type
+            file_size = document.file_size
+
+            # Verify file exists on disk
+            if not storage_path or not os.path.exists(storage_path):
+                logger.error(f"Document file not found at path: {storage_path}")
+                return api_not_found_error('Document file not found on server')
+
+            # Verify file size matches (security check)
+            actual_file_size = os.path.getsize(storage_path)
+            if actual_file_size != file_size:
+                logger.warning(f"File size mismatch for document {document_id}. Expected: {file_size}, Actual: {actual_file_size}")
+
+            # Determine if file should be downloaded as attachment
+            as_attachment = request.args.get('as_attachment', 'true').lower() == 'true'
+
+            # Secure the filename
+            safe_filename = secure_filename(original_filename) or f"document_{document_id}"
+
+            # Set appropriate headers
+            headers = {
+                'Content-Length': str(actual_file_size),
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            }
+
+            # Log download activity
+            logger.info(f"User {user_id} downloading document {document_id}: {original_filename}")
+
+            # Send file
+            return send_file(
+                storage_path,
+                as_attachment=as_attachment,
+                download_name=safe_filename,
+                mimetype=file_mime_type,
+                conditional=True,  # Enable conditional requests (range requests)
+                max_age=0  # Disable caching
+            )
+
+        except ValidationError as e:
+            logger.error(f"Validation error downloading document {document_id}: {e}")
+            return api_validation_error(str(e))
+
+        except PermissionError as e:
+            logger.error(f"Permission error accessing file {storage_path}: {e}")
+            return api_internal_server_error('File access permission denied')
+
+        except FileNotFoundError as e:
+            logger.error(f"File not found {storage_path}: {e}")
+            return api_not_found_error('Document file not found')
+
+        except Exception as e:
+            logger.error(f"Error downloading document {document_id}: {e}")
+            return api_internal_server_error('Failed to download document', str(e))
 
     return projects

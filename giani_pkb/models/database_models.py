@@ -1,11 +1,30 @@
 import uuid
 
 from typing import List
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, text, Index, Float
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, ForeignKey, JSON, Index, Float
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
 from giani_pkb.utils.database import Base
+from sqlalchemy.types import TypeDecorator, TEXT
+import json
+from datetime import datetime, timezone
+
+class JSONEncodedList(TypeDecorator):
+    """Represents a list structure as JSON-encoded string for SQLite compatibility."""
+
+    impl = TEXT
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None:
+            value = json.dumps(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            value = json.loads(value)
+        return value
 
 class User(Base):
     """User model for authentication and user management."""
@@ -37,7 +56,6 @@ class Project(Base):
     target_audience = Column(Text)
     key_client_stakeholders_profiles = Column(Text)
     objectives = Column(Text)
-    # owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     is_active = Column(Boolean, default=True)
@@ -112,7 +130,6 @@ class Document(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Foreign keys
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
@@ -163,8 +180,10 @@ class DocumentChunk(Base):
     source_page_number = Column(JSON)
     metadata_ = Column(JSON, default=dict)
     vector_id = Column(String(100))
-    embedding_checksum = Column(String(64))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    embedding_vector = Column(JSONEncodedList, nullable=True)
+    embedding_model = Column(String(100), default="openai-embeddings")
+    embedding_checksum = Column(String(64))
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
 
@@ -279,7 +298,6 @@ class TempDocument(Base):
     id = Column(Integer, primary_key=True, index=True)
     temp_document_id = Column(String(100), unique=True, index=True, nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     source = Column(String(50), nullable=False)
     original_filename = Column(String(255), nullable=False)
@@ -301,7 +319,6 @@ class ProcessingBatch(Base):
     id = Column(Integer, primary_key=True, index=True)
     batch_id = Column(String(100), unique=True, index=True, nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
-    # user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
 
     status = Column(String(50), default="QUEUED")
@@ -316,3 +333,132 @@ class ProcessingBatch(Base):
     # Relationships
     user: Mapped["User"] = relationship("User")
     project: Mapped["Project"] = relationship("Project")
+
+class UserActivityLog(Base):
+    """Model for tracking user activities and API usage."""
+    __tablename__ = "user_activity_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(String(500), nullable=True, index=True)  # Track user sessions
+
+    # Activity Details
+    activity_type = Column(String(50), nullable=False, index=True)  # 'login', 'logout', 'api_call'
+    endpoint = Column(String(200), nullable=True, index=True)
+    http_method = Column(String(10), nullable=True)
+
+    # Request Details
+    user_agent = Column(String(500), nullable=True)
+    client_type = Column(String(50), nullable=True)  # 'web', 'addin'
+    ip_address = Column(String(45), nullable=True)
+
+    # Response Details
+    status_code = Column(Integer, nullable=True)
+    response_time_ms = Column(Float, nullable=True)
+
+    # Additional Context
+    project_id = Column(Integer, nullable=True, index=True)
+    feature_used = Column(String(100), nullable=True, index=True)
+    additional_data = Column(JSON, nullable=True)
+
+    # Timestamps
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+
+    # Indexes for common queries
+    __table_args__ = (
+        Index('idx_user_activity_user_time', 'user_id', 'timestamp'),
+        Index('idx_user_activity_type_time', 'activity_type', 'timestamp'),
+        Index('idx_user_activity_endpoint', 'endpoint'),
+        Index('idx_user_activity_feature', 'feature_used'),
+    )
+
+    def to_dict(self):
+        """Convert to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'user_id': str(self.user_id),
+            'session_id': self.session_id,
+            'activity_type': self.activity_type,
+            'endpoint': self.endpoint,
+            'http_method': self.http_method,
+            'user_agent': self.user_agent,
+            'client_type': self.client_type,
+            'ip_address': self.ip_address,
+            'status_code': self.status_code,
+            'response_time_ms': self.response_time_ms,
+            'project_id': self.project_id,
+            'feature_used': self.feature_used,
+            'additional_data': self.additional_data,
+            'timestamp': self.timestamp.isoformat() if self.timestamp is not None else None
+        }
+
+class RefreshToken(Base):
+    """Model for storing refresh tokens with rotation."""
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token_id = Column(String(64), unique=True, index=True, nullable=False)  # Opaque token
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    session_id = Column(String(64), ForeignKey("user_sessions.session_id"), nullable=False, index=True)
+
+    # Token metadata
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True))
+
+    # Security tracking
+    client_type = Column(String(20))  # 'web', 'addin'
+    user_agent = Column(String(500))
+    ip_address = Column(String(45))
+
+    # Status
+    is_active = Column(Boolean, default=True, index=True)
+    revoked_at = Column(DateTime(timezone=True))
+    revoked_reason = Column(String(100))  # 'rotation', 'logout', 'suspicious'
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    session: Mapped["UserSession"] = relationship("UserSession", back_populates="refresh_tokens")
+
+    def is_expired(self) -> bool:
+        return datetime.now(timezone.utc) > self.expires_at
+
+    def is_valid(self) -> bool:
+        return self.is_active and not self.is_expired()
+
+class UserSession(Base):
+    """Model for tracking user sessions across devices/clients."""
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+
+    # Session metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_activity_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    # Client information
+    client_type = Column(String(20))  # 'web', 'addin'
+    user_agent = Column(String(500))
+    ip_address = Column(String(45))
+    device_fingerprint = Column(String(64))
+
+    # Status
+    is_active = Column(Boolean, default=True, index=True)
+    ended_at = Column(DateTime(timezone=True))
+    end_reason = Column(String(50))  # 'logout', 'timeout', 'security'
+
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    refresh_tokens: Mapped[List["RefreshToken"]] = relationship("RefreshToken", back_populates="session")
+
+    def is_expired(self) -> bool:
+        return datetime.now(timezone.utc) > self.expires_at
+
+    def update_activity(self):
+        self.last_activity_at = datetime.now(timezone.utc)

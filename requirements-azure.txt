@@ -33,6 +33,7 @@ tiktoken>=0.9.0
 spacy>=3.8.0
 transformers>=4.53.0
 torch>=2.7.0
+llama-index>=0.12.50
 
 # Production server
 gunicorn>=21.0.0
