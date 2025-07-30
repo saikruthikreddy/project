@@ -1,4 +1,4 @@
-zy# Core dependencies
+# Core dependencies
 google-generativeai>=0.3.0
 python-dotenv>=1.0.0
 
@@ -62,8 +62,8 @@ azure-storage-blob==12.19.1
 azure-identity==1.16.1
 
 msal==1.28.0
+
 # Additional requirements for enhanced parsing
-uuid
 opencv-python-headless>=4.5.5.64
 sentence-transformers>=2.2.2
 scikit-learn>=1.3.0
