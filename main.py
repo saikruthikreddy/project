@@ -12,7 +12,8 @@ from giani_pkb.api import (
     create_user_routes,
     create_health_routes,
     create_ppt_routes,
-    create_analytics_routes
+    create_analytics_routes,
+    create_onboarding_guide_routes
 )
 from giani_pkb.middleware.auth_session_middleware import AuthSessionMiddleware
 from giani_pkb.utils.response_utils import api_success
@@ -66,6 +67,7 @@ def create_app():
     app.register_blueprint(create_health_routes())
     app.register_blueprint(create_ppt_routes())
     app.register_blueprint(create_analytics_routes())
+    app.register_blueprint(create_onboarding_guide_routes())
 
     @app.route("/")
     def home():
