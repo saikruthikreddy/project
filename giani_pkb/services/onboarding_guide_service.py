@@ -1,123 +1,319 @@
 """
 Service for generating the Project Onboarding Guide.
+Improved version with parallel processing, better error handling, and optimized database queries.
 """
 
 import logging
 import json
+import asyncio
 from typing import Dict, Any, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+import time
 
 from giani_pkb.database.database_manager import DatabaseManager
-from giani_pkb.utils.config import GEMINI_API_KEY
+from giani_pkb.utils.config import GEMINI_API_KEY, LLM_CONFIG
 from giani_pkb.utils.gemini_client import initialize_gemini_client
 import google.generativeai as genai
 
-
 class OnboardingGuideGenerator:
     """
-    Orchestrates the generation of the Project Onboarding Guide.
+    Orchestrates the generation of the Project Onboarding Guide with improved performance and error handling.
     """
 
-    def __init__(self, db_manager: DatabaseManager, gemini_api_key: Optional[str] = None):
+    def __init__(self, db_manager: DatabaseManager, gemini_api_key: Optional[str] = None, model_config: Optional[Dict] = None):
         self.logger = logging.getLogger(__name__)
         self.db_manager = db_manager
         self.gemini_api_key = gemini_api_key or GEMINI_API_KEY
+        
+        # Load model configuration from config or use defaults
+        self.model_config = model_config or getattr(LLM_CONFIG, 'ONBOARDING_GUIDE', {
+            'primary_model': 'gemini-1.5-pro',
+            'fallback_model': 'gemini-pro',
+            'max_retries': 3,
+            'timeout': 30
+        })
+        
         if not self.gemini_api_key:
             raise ValueError("Gemini API key must be provided.")
+        
         initialize_gemini_client(self.gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel(self.model_config['primary_model'])
+        self.fallback_model = genai.GenerativeModel(self.model_config['fallback_model'])
 
     def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
         """
-        Generates the project onboarding guide for a given project_id.
+        Generates the project onboarding guide for a given project_id with parallel processing.
         """
+        start_time = time.time()
         self.logger.info(f"Generating onboarding guide for project_id: {project_id}")
 
-        # Step 1: Data Aggregation
-        project_context = self._get_project_context(project_id)
-        document_summaries = self._get_document_summaries(project_id)
+        try:
+            # Step 1: Data Aggregation (Sequential - these depend on each other)
+            project_context = self._get_project_context(project_id)
+            document_summaries = self._get_document_summaries_optimized(project_id)
 
-        # Step 2: AI-Powered Synthesis
-        mission_and_approach = self._synthesize_mission_and_approach(project_context, document_summaries)
-        strategic_intelligence_readout = self._synthesize_strategic_intelligence_readout(document_summaries)
-        priority_reading_list = self._identify_priority_reading_list(document_summaries)
-        knowledge_base_faq = self._generate_knowledge_base_faq(document_summaries)
+            if not document_summaries:
+                self.logger.warning(f"No document summaries found for project_id: {project_id}")
+                return self._create_empty_guide(project_context)
 
-        # Step 3: Data Aggregation & Caching
-        onboarding_guide = {
-            "projectName": project_context.get("name"),
-            "lastSynthesized": "2025-06-18T10:00:00Z",  # TODO: Use current time
-            "missionAndApproach": mission_and_approach,
-            "knowledgeAtAGlance": {
-                "documentsProcessed": len(document_summaries),
-                "keyThemesIdentified": len(set(theme for s in document_summaries for theme in s.get("key_themes", []))),
-                "mustReadDocuments": len(priority_reading_list.get("highPriority", [])),
-                "distributionBySource": self._get_distribution_by_source(document_summaries),
-            },
-            "strategicIntelligenceReadout": self._format_strategic_intelligence_readout(strategic_intelligence_readout),
-            "priorityReadingList": priority_reading_list.get("priorityReadingList"),
-            "knowledgeFAQ": knowledge_base_faq.get("knowledgeFAQ", []),
+            # Step 2: AI-Powered Synthesis (Parallel - these are independent)
+            synthesis_results = self._run_parallel_synthesis(project_context, document_summaries)
+
+            # Step 3: Data Aggregation & Assembly - FIXED to match LLM outputs
+            mission_and_approach = synthesis_results.get("mission_and_approach", {})
+            priority_reading = synthesis_results.get("priority_reading_list", {})
+            knowledge_faq = synthesis_results.get("knowledge_base_faq", {})
+            
+            onboarding_guide = {
+                "projectName": project_context.get("name", "Unknown Project"),
+                "lastSynthesized": datetime.utcnow().isoformat() + "Z",
+                "missionAndApproach": {
+                    "projectMandate": mission_and_approach.get("projectMandate", ""),
+                    "keyProjectPhases": mission_and_approach.get("keyProjectPhases", []),
+                    "coreAnalyticalWorkstreams": mission_and_approach.get("strategicApproach", [])  # Fixed mapping
+                },
+                "knowledgeAtAGlance": {
+                    "documentsProcessed": len(document_summaries),
+                    "keyThemesIdentified": len(set(theme for s in document_summaries for theme in s.get("key_themes", []))),
+                    "mustReadDocuments": len(priority_reading.get("priorityReadingList", {}).get("highPriority", [])),
+                    "distributionBySource": self._get_distribution_by_source(document_summaries),
+                },
+                "strategicIntelligenceReadout": self._format_strategic_intelligence_readout(
+                    synthesis_results.get("strategic_intelligence_readout", {})
+                ),
+                "priorityReadingList": priority_reading.get("priorityReadingList", {"highPriority": [], "mediumPriority": []}),
+                "knowledgeFAQ": knowledge_faq.get("knowledgeFAQ", []),
+            }
+
+            # Add synthesis status for debugging
+            onboarding_guide["synthesisStatus"] = {
+                "totalTime": round(time.time() - start_time, 2),
+                "errors": synthesis_results.get("errors", {}),
+                "successfulSections": [k for k, v in synthesis_results.items() if k != "errors" and v]
+            }
+
+            self.logger.info(f"Onboarding guide generated successfully in {onboarding_guide['synthesisStatus']['totalTime']}s")
+            return onboarding_guide
+
+        except Exception as e:
+            self.logger.error(f"Fatal error generating onboarding guide for project_id {project_id}: {e}")
+            return {
+                "error": "Failed to generate onboarding guide",
+                "details": str(e),
+                "projectName": project_context.get("name", "Unknown Project") if 'project_context' in locals() else "Unknown Project",
+                "lastSynthesized": datetime.utcnow().isoformat() + "Z"
+            }
+
+    def _safe_synthesis_call(self, func, task_name: str, *args) -> Dict[str, Any]:
+        """
+        Safely executes a synthesis function with retry logic and error handling.
+        """
+        max_retries = self.model_config.get('max_retries', 3)
+        
+        for attempt in range(max_retries):
+            try:
+                result = func(*args)
+                if result:  # Non-empty result
+                    return {"success": True, "data": result}
+                else:
+                    self.logger.warning(f"{task_name} returned empty result on attempt {attempt + 1}")
+            except json.JSONDecodeError as e:
+                self.logger.warning(f"{task_name} JSON decode error on attempt {attempt + 1}: {e}")
+                if attempt == max_retries - 1:
+                    return {"success": False, "error": f"JSON decode failed after {max_retries} attempts: {str(e)}"}
+            except Exception as e:
+                self.logger.warning(f"{task_name} failed on attempt {attempt + 1}: {e}")
+                if attempt == max_retries - 1:
+                    return {"success": False, "error": f"Failed after {max_retries} attempts: {str(e)}"}
+            
+            # Wait before retry
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # Exponential backoff
+        
+        return {"success": False, "error": f"All {max_retries} attempts failed"}
+
+    def _run_parallel_synthesis(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Runs all synthesis tasks in parallel using ThreadPoolExecutor.
+        """
+        synthesis_results = {"errors": {}}
+        
+        # Define synthesis tasks
+        tasks = {
+            "mission_and_approach": (self._synthesize_mission_and_approach, project_context, document_summaries),
+            "strategic_intelligence_readout": (self._synthesize_strategic_intelligence_readout, document_summaries),
+            "priority_reading_list": (self._identify_priority_reading_list, document_summaries),
+            "knowledge_base_faq": (self._generate_knowledge_base_faq, document_summaries)
         }
 
-        # TODO: Implement caching
+        # Execute tasks in parallel
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all tasks
+            future_to_task = {}
+            for task_name, (func, *args) in tasks.items():
+                future = executor.submit(self._safe_synthesis_call, func, task_name, *args)
+                future_to_task[future] = task_name
 
-        return onboarding_guide
+            # Collect results as they complete
+            for future in as_completed(future_to_task):
+                task_name = future_to_task[future]
+                try:
+                    result = future.result()
+                    if result.get("success"):
+                        synthesis_results[task_name] = result["data"]
+                    else:
+                        synthesis_results["errors"][task_name] = result["error"]
+                        self.logger.error(f"Task {task_name} failed: {result['error']}")
+                except Exception as e:
+                    synthesis_results["errors"][task_name] = str(e)
+                    self.logger.error(f"Task {task_name} raised exception: {e}")
 
+        return synthesis_results
+
+    def _format_strategic_intelligence_readout(self, strategic_intelligence_readout: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Formats the strategic intelligence readout to match the API contract.
+        """
+        formatted_readout = []
+        for source_type, data in strategic_intelligence_readout.items():
+            formatted_readout.append({
+                "sourceType": source_type,
+                "comprehensiveSummary": data.get("comprehensiveSummary", ""),
+                "keyTakeaways": data.get("keyTakeaways", []),
+                "keyThemes": data.get("keyThemes", [])  # Added keyThemes from LLM output
+            })
+        return formatted_readout
+
+    def _create_empty_guide(self, project_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Creates an empty guide structure when no documents are available.
+        """
+        return {
+            "projectName": project_context.get("name", "Unknown Project"),
+            "lastSynthesized": datetime.utcnow().isoformat() + "Z",
+            "missionAndApproach": {
+                "projectMandate": "No project documents available for analysis.",
+                "keyProjectPhases": [],
+                "coreAnalyticalWorkstreams": [],
+            },
+            "knowledgeAtAGlance": {
+                "documentsProcessed": 0,
+                "keyThemesIdentified": 0,
+                "mustReadDocuments": 0,
+                "distributionBySource": [],
+            },
+            "strategicIntelligenceReadout": [],
+            "priorityReadingList": {"highPriority": [], "mediumPriority": []},
+            "knowledgeFAQ": [],
+            "synthesisStatus": {
+                "totalTime": 0,
+                "errors": {"general": "No documents available"},
+                "successfulSections": []
+            }
+        }
+
+    # Keep all other existing methods unchanged
     def _get_project_context(self, project_id: int) -> Dict[str, Any]:
-        """
-        Retrieves project context from the database.
-        """
+        """Retrieves project context from the database."""
         self.logger.info(f"Getting project context for project_id: {project_id}")
-        project = self.db_manager.get_project(project_id)
-        if project:
-            return project.to_dict_detailed()
+        try:
+            project = self.db_manager.get_project(project_id)
+            if project:
+                return project.to_dict_detailed()
+        except Exception as e:
+            self.logger.error(f"Error getting project context: {e}")
         return {}
 
-    def _get_document_summaries(self, project_id: int) -> List[Dict[str, Any]]:
-        """
-        Retrieves document summaries from the database.
-        """
+    def _get_document_summaries_optimized(self, project_id: int) -> List[Dict[str, Any]]:
+        """Retrieves document summaries from the database in a single optimized query."""
         self.logger.info(f"Getting document summaries for project_id: {project_id}")
-        documents = self.db_manager.get_project_documents(project_id)
-        summaries = []
-        for doc in documents:
-            summary = self.db_manager.get_document_summary(doc.id)
-            if summary:
-                summaries.append(summary)
-        return summaries
+        try:
+            # Use optimized method that gets all summaries in one query
+            if hasattr(self.db_manager, 'get_all_summaries_for_project'):
+                summaries = self.db_manager.get_all_summaries_for_project(project_id)
+            else:
+                # Fallback to original method if optimized version doesn't exist yet
+                self.logger.warning("Using fallback method for document summaries - consider implementing get_all_summaries_for_project")
+                documents = self.db_manager.get_project_documents(project_id)
+                summaries = []
+                for doc in documents:
+                    summary = self.db_manager.get_document_summary(doc.id)
+                    if summary:
+                        summaries.append(summary)
+            return summaries
+        except Exception as e:
+            self.logger.error(f"Error getting document summaries: {e}")
+            return []
 
-    def _synthesize_mission_and_approach(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Synthesizes the 'Mission & Approach' section of the onboarding guide.
-        """
-        self.logger.info("Synthesizing 'Mission & Approach' section")
-
+    def _create_lean_context_for_mission(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> str:
+        """Creates a lean context string for mission and approach synthesis."""
         sow_and_proposal_summaries = [
             s for s in document_summaries
             if s.get("document_category") in ["SoW / Proposal Document", "Project Plan"]
         ]
-
+        
         if not sow_and_proposal_summaries:
+            return "No foundational documents available."
+        
+        context_parts = []
+        context_parts.append(f"Project Context: {json.dumps(project_context, indent=2)}")
+        
+        for summary in sow_and_proposal_summaries:
+            doc_context = f"""
+Document: {summary.get('document_filename', 'Unknown')}
+Category: {summary.get('document_category', 'Unknown')}
+Problem Summary: {summary.get('extracted_metadata', {}).get('stated_client_problem_summary', 'N/A')}
+Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
+Timeline: {summary.get('extracted_metadata', {}).get('project_phases_timeline_summary', 'N/A')}
+Milestones: {summary.get('extracted_metadata', {}).get('key_milestones_or_deadlines_list', [])}
+Scope: {summary.get('extracted_metadata', {}).get('scope_in_list', [])}
+Deliverables: {summary.get('extracted_metadata', {}).get('key_deliverables_list', [])}
+"""
+            context_parts.append(doc_context)
+        
+        return "\n".join(context_parts)
+
+    def _create_lean_context_for_readout(self, summaries_for_type: List[Dict[str, Any]]) -> str:
+        """Creates a lean context string for strategic intelligence readout."""
+        context_parts = []
+        for summary in summaries_for_type:
+            doc_context = f"""
+Document: {summary.get('document_filename', 'Unknown')}
+Narrative: {summary.get('ai_high_level_narrative_summary', 'N/A')}
+Key Takeaways: {summary.get('ai_key_takeaways_bullets', [])}
+Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
+Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements_or_pain_points_expressed_list', [])}
+"""
+            context_parts.append(doc_context)
+        
+        return "\n".join(context_parts)
+
+    def _synthesize_mission_and_approach(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Synthesizes the 'Mission & Approach' section of the onboarding guide."""
+        self.logger.info("Synthesizing 'Mission & Approach' section")
+
+        lean_context = self._create_lean_context_for_mission(project_context, document_summaries)
+        
+        if "No foundational documents available" in lean_context:
             return {
                 "projectMandate": "N/A",
                 "keyProjectPhases": [],
-                "coreAnalyticalWorkstreams": [],
+                "strategicApproach": [],
             }
 
         prompt = f"""
         You are a Giani.ai AI Strategist, acting as an experienced Engagement Manager. Your task is to distill foundational project documents into a clear and concise "Mission & Approach" briefing for a new consultant joining the team. The output must be professional, strategically sound, and easy to understand at a glance.
 
         CONTEXT PROVIDED:
-        You will be given two key pieces of information:
-
-        1.  **`projectContext`**: {project_context}
-        2.  **`foundationalDocumentSummaries`**: {sow_and_proposal_summaries}
+        {lean_context}
 
         YOUR TASK:
-        Synthesize the provided `projectContext` and `foundationalDocumentSummaries` into a clear, professional "Mission & Approach" section. Your output MUST be a single, clean JSON object.
+        Synthesize the provided context into a clear, professional "Mission & Approach" section. Your output MUST be a single, clean JSON object.
 
         SPECIFIC INSTRUCTIONS & TONE:
         *   **Tone:** Your writing style must be that of a senior consultant briefing a new team member: clear, confident, professional, and direct.
-        *   **Synthesis, Not Repetition:** Do not just copy and paste information from the summaries. Synthesize the most critical points into a coherent narrative. For example, if multiple documents mention the same objective, distill it into one clear statement.
+        *   **Synthesis, Not Repetition:** Do not just copy and paste information from the summaries. Synthesize the most critical points into a coherent narrative.
         *   **Focus on the "What" and "When":** This section is about the project's official mandate and high-level plan.
 
         JSON OUTPUT STRUCTURE AND CONTENT REQUIREMENTS:
@@ -126,33 +322,45 @@ class OnboardingGuideGenerator:
 
         1.  **`projectMandate`**:
             *   **Content:** Generate a single, well-crafted paragraph (2-4 sentences) that clearly and concisely states the core client challenge and our mandated objective for the engagement.
-            *   **Source:** Synthesize this from `projectContext.primaryProjectObjectives` and the `stated_client_problem_summary` and `project_objectives_stated_list` fields from the metadata of the provided SoW/Proposal summaries.
 
         2.  **`keyProjectPhases`**:
             *   **Content:** Generate a list of 2-4 objects, where each object represents a major phase of the project.
-            *   **Source:** Synthesize this from the `project_phases_timeline_summary` and `key_milestones_or_deadlines_list` fields in the document metadata, as well as the overall structure of any Project Plan documents.
             *   **Object Structure:** Each object in the list must have the following keys:
-                *   `phaseName`: A string with the name of the phase (e.g., "Phase 1: As-Is Analysis & Benchmarking").
-                *   `phaseObjective`: A brief string describing the goal of that phase (e.g., "To understand the current state and identify key performance gaps.").
-                *   `targetCompletionDate`: A string with the target end date for that phase (e.g., "Ends July 31, 2025"). If a specific date isn't available, state the quarter (e.g., "Ends Q3 2025").
+                *   `phaseName`: A string with the name of the phase.
+                *   `phaseObjective`: A brief string describing the goal of that phase.
+                *   `targetCompletionDate`: A string with the target end date for that phase.
 
-        3.  **`coreAnalyticalWorkstreams`**:
+        3.  **`strategicApproach`**:
             *   **Content:** Generate a list of 2-4 strings describing the main types of analysis the team will be conducting throughout the project.
-            *   **Source:** Infer these workstreams from the `scope_in_list`, `key_deliverables_list`, and the overall content of the provided summaries. Look for recurring analytical themes.
-            *   **Example Strings:** "Market Sizing & Competitive Positioning," "Operational Process Optimization & Cost-Benefit Analysis," "Financial Modeling & Business Case Development."
         """
 
         try:
             response = self.model.generate_content(prompt)
-            return json.loads(response.text)
+            result = json.loads(response.text)
+            # Validate the structure
+            if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
+                raise ValueError("LLM response missing required keys")
+            return result
         except Exception as e:
             self.logger.error(f"Error synthesizing 'Mission & Approach' section: {e}")
-            return {}
+            # Try fallback model
+            try:
+                response = self.fallback_model.generate_content(prompt)
+                result = json.loads(response.text)
+                if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
+                    raise ValueError("Fallback LLM response missing required keys")
+                return result
+            except Exception as fallback_error:
+                self.logger.error(f"Fallback model also failed: {fallback_error}")
+                # Return default structure
+                return {
+                    "projectMandate": "Unable to synthesize project mandate from available documents.",
+                    "keyProjectPhases": [],
+                    "strategicApproach": []
+                }
 
     def _synthesize_strategic_intelligence_readout(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Synthesizes the 'Strategic Intelligence Readout' section of the onboarding guide.
-        """
+        """Synthesizes the 'Strategic Intelligence Readout' section of the onboarding guide."""
         self.logger.info("Synthesizing 'Strategic Intelligence Readout' section")
 
         # Group summaries by source type
@@ -165,212 +373,148 @@ class OnboardingGuideGenerator:
 
         strategic_intelligence_readout = {}
         for source_type, summaries in summaries_by_source_type.items():
+            lean_context = self._create_lean_context_for_readout(summaries)
+            
             prompt = f"""
-            You are an expert Giani.ai AI Strategist, acting as a senior consultant. Your task is to analyze a collection of document summaries from a single category (e.g., all client-provided documents) and distill the most critical, overarching intelligence from them. The output must be a high-level synthesis, not just a list of individual document facts.
+            You are an expert Giani.ai AI Strategist, acting as a senior consultant. Your task is to analyze a collection of document summaries from a single category and distill the most critical, overarching intelligence from them.
 
             CONTEXT PROVIDED:
-            You will be given two key pieces of information for a specific project:
-
-            1.  **`documentSourceType`**: "{source_type}"
-            2.  **`documentSummariesForType`**: {summaries}
+            Document Source Type: "{source_type}"
+            Document Summaries:
+            {lean_context}
 
             YOUR TASK:
-            Synthesize the provided `documentSummariesForType` into a single, cohesive "Intelligence Readout" for the specified `documentSourceType`. Your output MUST be a single, clean JSON object.
+            Synthesize the provided document summaries into a single, cohesive "Intelligence Readout" for the specified source type. Your output MUST be a single, clean JSON object.
 
-            SPECIFIC INSTRUCTIONS & TONE:
-            *   **Tone:** Your writing style must be that of a senior consultant briefing a new team member: insightful, analytical, and focused on strategic relevance.
-            *   **Cross-Document Synthesis:** Your primary goal is to **find the patterns, common themes, and most critical overarching points across ALL the provided document summaries.** Do not just pick one document; synthesize the collective intelligence.
-            *   **Focus on the "Why":** Why is this category of information important for the project? What does it collectively tell us?
+            JSON OUTPUT STRUCTURE:
+            You MUST generate a JSON object with the following keys:
 
-            JSON OUTPUT STRUCTURE AND CONTENT REQUIREMENTS:
+            1.  **`comprehensiveSummary`**: A single, well-crafted paragraph (3-5 sentences) that provides a holistic summary of the key intelligence contained within this entire group of documents.
 
-            You MUST generate a JSON object with the following two keys:
+            2.  **`keyTakeaways`**: A list of 3-5 distinct, critical, and standalone bullet points. Each takeaway should represent a crucial fact, finding, or directive that a consultant must know from this category of documents.
 
-            1.  **`comprehensiveSummary`**:
-                *   **Content:** Generate a single, well-crafted paragraph (3-5 sentences) that provides a **holistic summary of the key intelligence** contained within this entire group of documents. This should be a true synthesis.
-                *   **Example (for "Client-Provided Material"):** "Client documents consistently highlight a primary concern with market share erosion in their core technology segments while simultaneously showing a strong executive appetite for aggressive growth into new verticals. The client has mandated a comprehensive strategic review to identify $15M in cost savings and has emphasized that digital transformation is seen as a critical competitive differentiator for improving operational efficiency and customer experience."
-                *   **Source:** Synthesize this from the `ai_high_level_narrative_summary` and key metadata fields (like `project_objectives_stated_list`, `client_requirements_or_pain_points_expressed_list`) across ALL documents in the `documentSummariesForType` list.
-
-            2.  **`keyTakeaways`**:
-                *   **Content:** Generate a list of 3-5 distinct, critical, and standalone bullet points. Each takeaway should represent a crucial fact, finding, or directive that a consultant **must know** from this category of documents.
-                *   **Example (for "Client-Provided Material"):**
-                    *   "The project is officially mandated to identify $15M in actionable cost savings."
-                    *   "A 5-year growth strategy targeting 25% market expansion is the primary definition of success."
-                    *   "Client feedback strongly indicates dissatisfaction with the current customer service response times."
-                *   **Source:** Distill the most important and frequently mentioned points from the `ai_key_takeaways_bullets` and `extracted_metadata` of ALL documents in the `documentSummariesForType` list.
+            3.  **`keyThemes`**: A list of 3-5 key themes present in this document category.
             """
 
             try:
                 response = self.model.generate_content(prompt)
-                strategic_intelligence_readout[source_type] = json.loads(response.text)
+                result = json.loads(response.text)
+                # Validate structure
+                if not all(key in result for key in ['comprehensiveSummary', 'keyTakeaways', 'keyThemes']):
+                    raise ValueError("LLM response missing required keys")
+                strategic_intelligence_readout[source_type] = result
             except Exception as e:
                 self.logger.error(f"Error synthesizing 'Strategic Intelligence Readout' for source type '{source_type}': {e}")
-                strategic_intelligence_readout[source_type] = {}
+                strategic_intelligence_readout[source_type] = {
+                    "comprehensiveSummary": f"Unable to synthesize intelligence for {source_type} documents.",
+                    "keyTakeaways": [],
+                    "keyThemes": []
+                }
 
         return strategic_intelligence_readout
 
     def _identify_priority_reading_list(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Identifies the 'Priority Reading List' section of the onboarding guide.
-        """
+        """Identifies the 'Priority Reading List' section of the onboarding guide."""
         self.logger.info("Identifying 'Priority Reading List' section")
 
-        document_list = [
-            {
-                "filename": s.get("document_filename"),
-                "documentSourceType": s.get("document_source_type"),
-                "ai_overall_key_themes_list": s.get("key_themes"),
-                "summary_snippet": (s.get("narrative_summary")[0] if s.get("narrative_summary") else "")[:200],
-            }
-            for s in document_summaries
-        ]
+        # Create lean document list for prompt
+        document_context = ""
+        for i, s in enumerate(document_summaries):
+            doc_info = f"""
+Document {i+1}:
+- Filename: {s.get("document_filename", "Unknown")}
+- Source Type: {s.get("document_source_type", "Unknown")}
+- Summary: {(s.get("narrative_summary", [""])[0] if s.get("narrative_summary") else "")[:200]}
+- Key Themes: {", ".join(s.get("key_themes", [])[:5])}  # Limit to first 5 themes
+"""
+            document_context += doc_info
 
         prompt = f"""
-        You are an expert Giani.ai AI Strategist, acting as a seasoned Engagement Manager on a consulting project. Your critical task is to review a list of all available project documents and create a prioritized reading list for a new team member who needs to get up to speed as quickly and effectively as possible. Your prioritization must be strategic, logical, and clearly justified.
+        You are an expert Giani.ai AI Strategist, acting as a seasoned Engagement Manager. Your task is to create a prioritized reading list for a new team member.
 
         CONTEXT PROVIDED:
-        You will be given a JSON list of all processed documents for the project. Each document object in the list contains the following key metadata:
-        *   `documentId`: A unique identifier for the document.
-        *   `filename`: The original name of the document.
-        *   `documentSourceType`: The user-validated category, like "SoW / Proposal Document", "Client Strategy Deck", "Meeting Artifacts", "Internal Research & Analysis".
-        *   `summarySnippet`: A concise, high-level summary of the document's content.
-        *   `keyThemes`: A list of the main themes covered in the document.
-        *   `userNoteOnPurpose`: The original note provided by the user about the document's purpose.
+        Available Documents:
+        {document_context}
 
         YOUR TASK:
-        Based on the provided list of all project documents and their metadata, analyze the entire set and select a curated subset for a new team member's reading list. You must categorize your selections into two distinct tiers: "High-Priority ('Must-Reads')" and "Medium-Priority ('Should-Reads')". For every document you select, you must provide a concise, one-sentence justification for its inclusion and priority.
+        Select and prioritize documents into "High-Priority ('Must-Reads')" and "Medium-Priority ('Should-Reads')" categories.
 
-        Your output MUST be a single, clean JSON object.
+        JSON OUTPUT STRUCTURE:
+        Generate a JSON object with key `priorityReadingList` containing:
 
-        PRIORITIZATION CRITERIA (How to think like an Engagement Manager):
-        You must use the following criteria to determine a document's priority level.
+        1. **`highPriority`**: List of 2-4 document objects with keys:
+           - `documentId`: Document identifier (use the document number from context)
+           - `filename`: Document filename  
+           - `documentSourceType`: Source type
+           - `reasonForPriority`: One-sentence justification
 
-        **High-Priority ("Must-Read") documents are typically:**
-        *   **Foundational & Scoping:** Documents that define the project's entire purpose, scope, and mandate (e.g., `Statement of Work (SoW)`, `Proposal Document`, `Client Brief/RFP`).
-        *   **Core Strategy:** The primary strategic documents provided by the client or developed by the team that form the basis of the analysis (e.g., `Client Strategy Deck`).
-        *   **Key Decisions:** The most recent, critical `Meeting Artifacts` that document major go/no-go decisions or significant changes in project direction.
-
-        **Medium-Priority ("Should-Read") documents are typically:**
-        *   **Supporting Analysis:** Key research and analysis documents that provide the evidence for the strategy (e.g., `Market Sizing Model`, `Competitive Landscape Analysis`, `External Third-Party Research`).
-        *   **Detailed Plans:** Documents that outline the "how" (e.g., `Project Plan / Timeline`).
-        *   **Recent Context:** Important but not foundational `Meeting Artifacts` that provide recent context on progress.
-        *   **Past Learnings:** `Past Similar Project References` that offer useful context or templates.
-
-        **Justification Requirement:**
-        Your one-sentence justification for each document ("Reason for Priority") must be specific and helpful.
-        *   **Bad Justification:** "This document is important."
-        *   **Good Justification:** "This SoW document outlines the official project scope, key deliverables, and timeline agreed upon with the client." OR "This market analysis report contains the key data that supports our core hypothesis."
-
-        JSON OUTPUT STRUCTURE AND CONTENT REQUIREMENTS:
-
-        You MUST generate a JSON object with a single key, `priorityReadingList`, which contains two keys: `highPriority` and `mediumPriority`.
-
-        1.  **`highPriority`**:
-            *   **Content:** A list containing **2 to 4** document objects. Do not select more than 4 for this category.
-            *   **Object Structure:** Each object in the list must have the following keys:
-                *   `documentId`: The original `documentId` from the input.
-                *   `filename`: The original `filename` from the input.
-                *   `documentSourceType`: The `documentSourceType` from the input.
-                *   `reasonForPriority`: Your concise, one-sentence justification for why this document is a "Must-Read."
-
-        2.  **`mediumPriority`**:
-            *   **Content:** A list containing **4 to 6** document objects.
-            *   **Object Structure:** Each object must have the same keys as the `highPriority` objects (`documentId`, `filename`, `documentSourceType`, `reasonForPriority`).
-        
-        Document List:
-        {document_list}
+        2. **`mediumPriority`**: List of 4-6 document objects with same structure
         """
 
         try:
             response = self.model.generate_content(prompt)
-            return json.loads(response.text)
+            result = json.loads(response.text)
+            # Validate structure
+            if "priorityReadingList" not in result:
+                raise ValueError("LLM response missing priorityReadingList key")
+            reading_list = result["priorityReadingList"]
+            if not all(key in reading_list for key in ['highPriority', 'mediumPriority']):
+                raise ValueError("priorityReadingList missing required keys")
+            return result
         except Exception as e:
             self.logger.error(f"Error identifying 'Priority Reading List': {e}")
-            return {}
+            return {"priorityReadingList": {"highPriority": [], "mediumPriority": []}}
 
     def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Generates the 'Knowledge Base FAQ' section of the onboarding guide.
-        """
+        """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
         self.logger.info("Generating 'Knowledge Base FAQ' section")
 
-        curated_project_insights = {
-            "projectObjectives": list(set(o for s in document_summaries for o in s.get("extracted_metadata", {}).get("project_objectives_stated_list", []))),
-            "keyClientRequirementsAndConcerns": list(set(c for s in document_summaries for c in s.get("extracted_metadata", {}).get("client_requirements_or_pain_points_expressed_list", []))),
-            "keyFindingsFromResearch": list(set(f for s in document_summaries for f in s.get("extracted_metadata", {}).get("core_analytical_findings_insights_list", []))),
-            "keyDecisionsAndActionItems": list(set(d["decision"] for s in document_summaries for d in s.get("extracted_metadata", {}).get("key_decisions_made_list_of_objects", []))),
-            "keyIdentifiedRisks": list(set(r["risk"] for s in document_summaries for r in s.get("extracted_metadata", {}).get("key_risks_issues_status_list_of_objects", []))),
-            "keyLearningsFromPastProjects": [],  # This would need to be populated from a different source
-            "documentIndex": {s["document_id"]: {"filename": s["document_filename"], "documentSourceType": s["document_source_type"]} for s in document_summaries},
+        # Create curated insights with limited data to avoid context overflow
+        curated_insights = {
+            "projectObjectives": list(set(o for s in document_summaries for o in s.get("extracted_metadata", {}).get("project_objectives_stated_list", [])))[:10],
+            "keyClientConcerns": list(set(c for s in document_summaries for c in s.get("extracted_metadata", {}).get("client_requirements_or_pain_points_expressed_list", [])))[:10],
+            "keyFindings": list(set(f for s in document_summaries for f in s.get("extracted_metadata", {}).get("core_analytical_findings_insights_list", [])))[:10],
+            "keyDecisions": [d.get("decision", "") for s in document_summaries for d in s.get("extracted_metadata", {}).get("key_decisions_made_list_of_objects", []) if d.get("decision")][:10],
+            "keyRisks": [r.get("risk", "") for s in document_summaries for r in s.get("extracted_metadata", {}).get("key_risks_issues_status_list_of_objects", []) if r.get("risk")][:10],
         }
 
         prompt = f"""
-        You are an expert Giani.ai AI Strategist, acting as a highly experienced Consulting Partner. Your task is to review a curated list of key findings and insights from an entire project knowledge base and proactively identify the most strategic questions a new consultant would (or should) have. You must then synthesize concise, evidence-based answers to these questions.
+        You are an expert Giani.ai AI Strategist. Generate 3-5 strategic Q&A pairs for a project knowledge FAQ.
 
-        CONTEXT PROVIDED:
-        You will be given a `curatedProjectInsights` JSON object containing a distilled collection of the most critical facts, findings, objectives, and risks from across ALL processed documents in the project. This is your "briefing packet." The structure will be:
-        *   `projectObjectives`: A list of the core project goals.
-        *   `keyClientRequirementsAndConcerns`: A list of the client's main stated needs or worries.
-        *   `keyFindingsFromResearch`: A list of the most important analytical findings from internal/external research.
-        *   `keyDecisionsAndActionItems`: A list of critical decisions made and key action items from meetings.
-        *   `keyIdentifiedRisks`: A list of the most significant identified project risks.
-        *   `keyLearningsFromPastProjects`: A list of relevant lessons from past work, if applicable.
-        *   `documentIndex`: A simple mapping of `documentId` to `filename` and `documentSourceType` for citation purposes.
+        CURATED PROJECT INSIGHTS:
+        {json.dumps(curated_insights, indent=2)}
 
         YOUR TASK:
-        Based ONLY on the provided `curatedProjectInsights`, your task is twofold:
-        1.  **Generate a list of 3-5 highly strategic, frequently asked questions** that a consultant reviewing this project would need answered to be effective.
-        2.  For each question you generate, **synthesize a concise, direct answer** using only the information available in the `curatedProjectInsights`.
+        Generate strategic questions a consultant would ask and provide evidence-based answers.
 
-        Your output MUST be a single, clean JSON object.
-
-        INSTRUCTIONS FOR QUESTION GENERATION:
-        *   **Think Like a Partner:** Your questions should not be simple factual lookups. They should be strategic. Ask "why" and "so what."
-        *   **Focus on Key Levers:** Frame questions around the most critical aspects of a consulting project: Strategy, Risk, Client Management, and Value Delivery.
-        *   **Synthesize, Don't Invent:** The questions must be answerable using the provided `curatedProjectInsights`.
-        *   **Examples of Good Strategic Questions:**
-            *   "What are the primary data points supporting our core recommendation?"
-            *   "Are there any conflicting perspectives between what the client asked for and what our research suggests?"
-            *   "What is the most critical risk to the project timeline and how is it being mitigated?"
-            *   "Based on past projects, what is the single most important lesson we should apply here?"
-
-        INSTRUCTIONS FOR ANSWER SYNTHESIS:
-        *   **Be Direct & Concise:** Provide a 2-4 sentence answer for each question. Get straight to the point.
-        *   **Synthesize Across Sources:** Your answer should combine information from different parts of the `curatedProjectInsights` if necessary to form a complete picture.
-        *   **Cite Your Sources:** For each key piece of information in your answer, you MUST cite the likely `documentSourceType` where that information would be found, based on the nature of the insight. Use parentheses for citations, e.g., (SoW / Proposal Document). If multiple source types contribute, cite the most direct one.
-        *   **Grounding:** All answers must be directly supported by the provided `curatedProjectInsights`. Do not introduce external information or make assumptions.
-
-        JSON OUTPUT STRUCTURE AND CONTENT REQUIREMENTS:
-
-        You MUST generate a JSON object with a single key, `knowledgeFAQ`, which contains a list of 3-5 Q&A objects.
-
-        *   **`knowledgeFAQ`**:
-            *   **Content:** A list containing **3 to 5** question-and-answer objects.
-            *   **Object Structure:** Each object in the list must have the following two keys:
-                *   `question`: Your AI-generated strategic question (string).
-                *   `answer`: Your AI-synthesized, cited answer to that question (string).
-        
-        Curated Project Insights:
-        {curated_project_insights}
+        JSON OUTPUT:
+        Generate a JSON object with key `knowledgeFAQ` containing a list of 3-5 objects, each with:
+        - `question`: Strategic question (string)
+        - `answer`: Synthesized answer with source citations (string)
         """
 
         try:
             response = self.model.generate_content(prompt)
-            return json.loads(response.text)
+            result = json.loads(response.text)
+            # Validate structure
+            if "knowledgeFAQ" not in result:
+                raise ValueError("LLM response missing knowledgeFAQ key")
+            return result
         except Exception as e:
             self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
-            return {}
+            return {"knowledgeFAQ": []}
 
     def _get_distribution_by_source(self, document_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Calculates the distribution of documents by source type.
-        """
+        """Calculates the distribution of documents by source type."""
         source_counts = {}
         for summary in document_summaries:
             source_type = summary.get("document_source_type", "Unknown")
             source_counts[source_type] = source_counts.get(source_type, 0) + 1
 
         total_documents = len(document_summaries)
+        if total_documents == 0:
+            return []
+            
         distribution = [
             {
                 "sourceType": source_type,
@@ -379,18 +523,3 @@ class OnboardingGuideGenerator:
             for source_type, count in source_counts.items()
         ]
         return distribution
-
-    def _format_strategic_intelligence_readout(self, strategic_intelligence_readout: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Formats the strategic intelligence readout to match the API contract.
-        """
-        formatted_readout = []
-        for source_type, data in strategic_intelligence_readout.items():
-            formatted_readout.append(
-                {
-                    "sourceType": source_type,
-                    "comprehensiveSummary": data.get("summary"),
-                    "keyTakeaways": data.get("key_takeaways"),
-                }
-            )
-        return formatted_readout
