@@ -6,6 +6,7 @@ Improved version with parallel processing, better error handling, and optimized 
 import logging
 import json
 import asyncio
+import os
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -15,6 +16,8 @@ from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import GEMINI_API_KEY, LLM_CONFIG
 from giani_pkb.utils.gemini_client import initialize_gemini_client
 import google.generativeai as genai
+
+PROMPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "prompts"))
 
 class OnboardingGuideGenerator:
     """
@@ -40,6 +43,76 @@ class OnboardingGuideGenerator:
         initialize_gemini_client(self.gemini_api_key)
         self.model = genai.GenerativeModel(self.model_config['primary_model'])
         self.fallback_model = genai.GenerativeModel(self.model_config['fallback_model'])
+        
+        # Load prompts from files
+        self.prompts = self._load_prompts()
+
+    def _load_prompts(self) -> Dict[str, str]:
+        """Load prompts from the prompts directory."""
+        prompts = {}
+        prompt_files = {
+            'mission_and_approach': 'mission_and_approach_prompt.txt',
+            'strategic_intelligence_readout': 'strategic_intelligence_readout_prompt.txt',
+            'priority_reading_list': 'priority_reading_list_prompt.txt',
+            'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'
+        }
+        
+        for key, filename in prompt_files.items():
+            file_path = os.path.join(PROMPTS_DIR, filename)
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    prompts[key] = f.read().strip()
+                self.logger.info(f"Loaded prompt: {key}")
+            except FileNotFoundError:
+                self.logger.warning(f"Prompt file not found: {file_path}, using fallback")
+                prompts[key] = self._get_fallback_prompt(key)
+            except Exception as e:
+                self.logger.error(f"Error loading prompt {key}: {e}")
+                prompts[key] = self._get_fallback_prompt(key)
+        
+        return prompts
+
+    def _get_fallback_prompt(self, prompt_type: str) -> str:
+        """Provide fallback prompts if files are not found."""
+        fallback_prompts = {
+            'mission_and_approach': """
+You are a Giani.ai AI Strategist, acting as an experienced Engagement Manager. Your task is to distill foundational project documents into a clear and concise "Mission & Approach" briefing for a new consultant joining the team.
+
+CONTEXT PROVIDED:
+{lean_context}
+
+YOUR TASK:
+Synthesize the provided context into a clear, professional "Mission & Approach" section. Your output MUST be a single, clean JSON object with keys: projectMandate, keyProjectPhases, and strategicApproach.
+""",
+            'strategic_intelligence_readout': """
+You are an expert Giani.ai AI Strategist. Analyze document summaries from source type "{source_type}" and create an intelligence readout.
+
+CONTEXT PROVIDED:
+{lean_context}
+
+YOUR TASK:
+Generate a JSON object with keys: comprehensiveSummary, keyTakeaways, and keyThemes.
+""",
+            'priority_reading_list': """
+You are an expert Giani.ai AI Strategist. Create a prioritized reading list for a new team member.
+
+CONTEXT PROVIDED:
+{document_context}
+
+YOUR TASK:
+Generate a JSON object with key `priorityReadingList` containing highPriority and mediumPriority document lists.
+""",
+            'knowledge_base_faq': """
+You are an expert Giani.ai AI Strategist. Generate strategic Q&A pairs for a project knowledge FAQ.
+
+CURATED PROJECT INSIGHTS:
+{curated_insights}
+
+YOUR TASK:
+Generate a JSON object with key `knowledgeFAQ` containing 3-5 strategic question-answer pairs.
+"""
+        }
+        return fallback_prompts.get(prompt_type, "Default prompt not available.")
 
     def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
         """
@@ -302,37 +375,8 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
                 "strategicApproach": [],
             }
 
-        prompt = f"""
-        You are a Giani.ai AI Strategist, acting as an experienced Engagement Manager. Your task is to distill foundational project documents into a clear and concise "Mission & Approach" briefing for a new consultant joining the team. The output must be professional, strategically sound, and easy to understand at a glance.
-
-        CONTEXT PROVIDED:
-        {lean_context}
-
-        YOUR TASK:
-        Synthesize the provided context into a clear, professional "Mission & Approach" section. Your output MUST be a single, clean JSON object.
-
-        SPECIFIC INSTRUCTIONS & TONE:
-        *   **Tone:** Your writing style must be that of a senior consultant briefing a new team member: clear, confident, professional, and direct.
-        *   **Synthesis, Not Repetition:** Do not just copy and paste information from the summaries. Synthesize the most critical points into a coherent narrative.
-        *   **Focus on the "What" and "When":** This section is about the project's official mandate and high-level plan.
-
-        JSON OUTPUT STRUCTURE AND CONTENT REQUIREMENTS:
-
-        You MUST generate a JSON object with the following three keys:
-
-        1.  **`projectMandate`**:
-            *   **Content:** Generate a single, well-crafted paragraph (2-4 sentences) that clearly and concisely states the core client challenge and our mandated objective for the engagement.
-
-        2.  **`keyProjectPhases`**:
-            *   **Content:** Generate a list of 2-4 objects, where each object represents a major phase of the project.
-            *   **Object Structure:** Each object in the list must have the following keys:
-                *   `phaseName`: A string with the name of the phase.
-                *   `phaseObjective`: A brief string describing the goal of that phase.
-                *   `targetCompletionDate`: A string with the target end date for that phase.
-
-        3.  **`strategicApproach`**:
-            *   **Content:** Generate a list of 2-4 strings describing the main types of analysis the team will be conducting throughout the project.
-        """
+        # Use loaded prompt with context substitution
+        prompt = self.prompts['mission_and_approach'].format(lean_context=lean_context)
 
         try:
             response = self.model.generate_content(prompt)
@@ -375,26 +419,11 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         for source_type, summaries in summaries_by_source_type.items():
             lean_context = self._create_lean_context_for_readout(summaries)
             
-            prompt = f"""
-            You are an expert Giani.ai AI Strategist, acting as a senior consultant. Your task is to analyze a collection of document summaries from a single category and distill the most critical, overarching intelligence from them.
-
-            CONTEXT PROVIDED:
-            Document Source Type: "{source_type}"
-            Document Summaries:
-            {lean_context}
-
-            YOUR TASK:
-            Synthesize the provided document summaries into a single, cohesive "Intelligence Readout" for the specified source type. Your output MUST be a single, clean JSON object.
-
-            JSON OUTPUT STRUCTURE:
-            You MUST generate a JSON object with the following keys:
-
-            1.  **`comprehensiveSummary`**: A single, well-crafted paragraph (3-5 sentences) that provides a holistic summary of the key intelligence contained within this entire group of documents.
-
-            2.  **`keyTakeaways`**: A list of 3-5 distinct, critical, and standalone bullet points. Each takeaway should represent a crucial fact, finding, or directive that a consultant must know from this category of documents.
-
-            3.  **`keyThemes`**: A list of 3-5 key themes present in this document category.
-            """
+            # Use loaded prompt with context substitution
+            prompt = self.prompts['strategic_intelligence_readout'].format(
+                source_type=source_type,
+                lean_context=lean_context
+            )
 
             try:
                 response = self.model.generate_content(prompt)
@@ -429,27 +458,8 @@ Document {i+1}:
 """
             document_context += doc_info
 
-        prompt = f"""
-        You are an expert Giani.ai AI Strategist, acting as a seasoned Engagement Manager. Your task is to create a prioritized reading list for a new team member.
-
-        CONTEXT PROVIDED:
-        Available Documents:
-        {document_context}
-
-        YOUR TASK:
-        Select and prioritize documents into "High-Priority ('Must-Reads')" and "Medium-Priority ('Should-Reads')" categories.
-
-        JSON OUTPUT STRUCTURE:
-        Generate a JSON object with key `priorityReadingList` containing:
-
-        1. **`highPriority`**: List of 2-4 document objects with keys:
-           - `documentId`: Document identifier (use the document number from context)
-           - `filename`: Document filename  
-           - `documentSourceType`: Source type
-           - `reasonForPriority`: One-sentence justification
-
-        2. **`mediumPriority`**: List of 4-6 document objects with same structure
-        """
+        # Use loaded prompt with context substitution
+        prompt = self.prompts['priority_reading_list'].format(document_context=document_context)
 
         try:
             response = self.model.generate_content(prompt)
@@ -478,20 +488,10 @@ Document {i+1}:
             "keyRisks": [r.get("risk", "") for s in document_summaries for r in s.get("extracted_metadata", {}).get("key_risks_issues_status_list_of_objects", []) if r.get("risk")][:10],
         }
 
-        prompt = f"""
-        You are an expert Giani.ai AI Strategist. Generate 3-5 strategic Q&A pairs for a project knowledge FAQ.
-
-        CURATED PROJECT INSIGHTS:
-        {json.dumps(curated_insights, indent=2)}
-
-        YOUR TASK:
-        Generate strategic questions a consultant would ask and provide evidence-based answers.
-
-        JSON OUTPUT:
-        Generate a JSON object with key `knowledgeFAQ` containing a list of 3-5 objects, each with:
-        - `question`: Strategic question (string)
-        - `answer`: Synthesized answer with source citations (string)
-        """
+        # Use loaded prompt with context substitution
+        prompt = self.prompts['knowledge_base_faq'].format(
+            curated_insights=json.dumps(curated_insights, indent=2)
+        )
 
         try:
             response = self.model.generate_content(prompt)
