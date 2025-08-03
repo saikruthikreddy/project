@@ -17,7 +17,20 @@ ANSWER GUIDELINES:
 - Include relevant context from the source documents
 - When possible, mention which types of documents inform the answer
 
-JSON OUTPUT:
-Generate a JSON object with key `knowledgeFAQ` containing a list of 3-5 objects, each with:
-- `question`: Strategic question that a new consultant would ask (string)
-- `answer`: Synthesized answer with relevant context and source attribution (string)
+CRITICAL JSON FORMATTING REQUIREMENTS:
+- Your response MUST be valid JSON only
+- Do NOT include any text before or after the JSON
+- Use double quotes for all strings
+- Ensure all JSON syntax is correct
+
+REQUIRED JSON SCHEMA:
+{{
+  "knowledgeFAQ": [
+    {{
+      "question": "string",
+      "answer": "string"
+    }}
+  ]
+}}
+
+Generate exactly 3-5 Q&A pairs following this exact structure. Your entire response must be valid JSON that can be parsed directly.
