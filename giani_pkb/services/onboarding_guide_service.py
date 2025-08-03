@@ -386,7 +386,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         # Group summaries by source type
         summaries_by_source_type = {}
         for summary in document_summaries:
-            source_type = summary.get("document_source_type", "Unknown")
+            source_type = summary.get("document_group", "Unknown")
             if source_type not in summaries_by_source_type:
                 summaries_by_source_type[source_type] = []
             summaries_by_source_type[source_type].append(summary)
@@ -429,7 +429,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             doc_info = f"""
 Document {i+1}:
 - Filename: {s.get("document_filename", "Unknown")}
-- Source Type: {s.get("document_source_type", "Unknown")}
+- Source Type: {s.get("document_group", "Unknown")}
 - Summary: {(s.get("narrative_summary", [""])[0] if s.get("narrative_summary") else "")[:200]}
 - Key Themes: {", ".join(s.get("key_themes", [])[:5])}  # Limit to first 5 themes
 """
@@ -487,7 +487,7 @@ Document {i+1}:
         """Calculates the distribution of documents by source type."""
         source_counts = {}
         for summary in document_summaries:
-            source_type = summary.get("document_source_type", "Unknown")
+            source_type = summary.get("document_group", "Unknown")
             source_counts[source_type] = source_counts.get(source_type, 0) + 1
 
         total_documents = len(document_summaries)
