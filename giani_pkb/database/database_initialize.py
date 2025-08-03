@@ -47,7 +47,7 @@ class DatabaseInitializer:
 
             expected_tables = {
                 'users', 'projects', 'documents', 'document_chunks',
-                'document_summaries', 'api_call_logs', "temp_documents" ,"processing_batches"
+                'document_summaries', 'api_call_logs', "temp_documents" ,"processing_batches",
                 "user_activity_logs", "refresh_tokens", "user_sessions"
             }
 
