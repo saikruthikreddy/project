@@ -2248,6 +2248,7 @@ class DatabaseManager:
                     document_category=summary_data.get("document_category"),
                     document_group=summary_data.get("document_group"),
                     user_note_purpose=summary_data.get("user_note_purpose"),
+                    source=summary_data.get("source"),
 
                     # Processing metadata
                     processing_timestamp=datetime.now(timezone.utc),

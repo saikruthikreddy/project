@@ -280,6 +280,7 @@ class SummarizationService:
                 "document_id": document.id,
                 "document_filename": document.originalFilename,
                 "document_category": document.finalCategory,
+                "source": document.source,
                 "document_group": self.get_document_group(document.finalCategory).value,
                 "user_note_purpose": document.finalPurpose,
                 "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),

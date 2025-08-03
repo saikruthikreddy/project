@@ -203,6 +203,7 @@ class DocumentSummary(Base):
     document_category = Column(String(100), index=True)
     document_group = Column(String(50), index=True)
     user_note_purpose = Column(Text)
+    source=Column(String(50), nullable=False)
 
     # Processing metadata
     processing_timestamp = Column(DateTime(timezone=True), server_default=func.now())

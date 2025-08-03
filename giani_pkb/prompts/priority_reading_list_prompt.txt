@@ -26,7 +26,8 @@ REQUIRED JSON SCHEMA:
         "documentId": integer,
         "filename": "string",
         "documentSourceType": "string",
-        "reasonForPriority": "string (one sentence)"
+        "reasonForPriority": "string (one sentence)",
+        "keyThemes":"key Themes and tags related to this document"
       }}
     ],
     "mediumPriority": [
@@ -34,7 +35,8 @@ REQUIRED JSON SCHEMA:
         "documentId": integer,
         "filename": "string", 
         "documentSourceType": "string",
-        "reasonForPriority": "string (one sentence)"
+        "reasonForPriority": "string (one sentence)",
+        "keyThemes":"key Themes and tags related to this document"
       }}
     ]
   }}
