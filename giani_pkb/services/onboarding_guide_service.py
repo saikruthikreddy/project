@@ -1,6 +1,7 @@
 """
 Service for generating the Project Onboarding Guide.
 Improved version with parallel processing, better error handling, and optimized database queries.
+Updated to return document UUIDs instead of integer IDs.
 """
 
 import logging
@@ -288,7 +289,25 @@ class OnboardingGuideGenerator:
                     summary = self.db_manager.get_document_summary(doc.id)
                     if summary:
                         summaries.append(summary)
-            return summaries
+            
+            # Convert summaries to dict format and ensure document_id is UUID string
+            formatted_summaries = []
+            for summary in summaries:
+                if hasattr(summary, 'to_dict'):
+                    summary_dict = summary.to_dict()
+                else:
+                    summary_dict = summary
+                
+                # Ensure document_id is the UUID, not integer id
+                if hasattr(summary, 'document_id'):
+                    summary_dict['document_id'] = str(summary.document_id)
+                elif 'document_id' in summary_dict:
+                    # Convert to string if it's a UUID object
+                    summary_dict['document_id'] = str(summary_dict['document_id'])
+                
+                formatted_summaries.append(summary_dict)
+            
+            return formatted_summaries
         except Exception as e:
             self.logger.error(f"Error getting document summaries: {e}")
             return []
@@ -308,7 +327,7 @@ class OnboardingGuideGenerator:
         
         for summary in sow_and_proposal_summaries:
             doc_context = f"""
-Document: {summary.get('document_filename', 'Unknown')}
+Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
 Category: {summary.get('document_category', 'Unknown')}
 Problem Summary: {summary.get('extracted_metadata', {}).get('stated_client_problem_summary', 'N/A')}
 Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
@@ -326,7 +345,7 @@ Deliverables: {summary.get('extracted_metadata', {}).get('key_deliverables_list'
         context_parts = []
         for summary in summaries_for_type:
             doc_context = f"""
-Document: {summary.get('document_filename', 'Unknown')}
+Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
 Narrative: {summary.get('ai_high_level_narrative_summary', 'N/A')}
 Key Takeaways: {summary.get('ai_key_takeaways_bullets', [])}
 Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
@@ -386,7 +405,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         # Group summaries by source type
         summaries_by_source_type = {}
         for summary in document_summaries:
-            source_type = summary.get("document_group", "Unknown")
+            source_type = summary.get("source", "Unknown")
             if source_type not in summaries_by_source_type:
                 summaries_by_source_type[source_type] = []
             summaries_by_source_type[source_type].append(summary)
@@ -423,13 +442,14 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         """Identifies the 'Priority Reading List' section of the onboarding guide."""
         self.logger.info("Identifying 'Priority Reading List' section")
 
-        # Create lean document list for prompt
+        # Create lean document list for prompt with UUID document IDs
         document_context = ""
         for i, s in enumerate(document_summaries):
             doc_info = f"""
 Document {i+1}:
+- Document ID: {s.get("document_id", "Unknown")}
 - Filename: {s.get("document_filename", "Unknown")}
-- Source Type: {s.get("document_group", "Unknown")}
+- Source Type: {s.get("source", "Unknown")}
 - Summary: {(s.get("narrative_summary", [""])[0] if s.get("narrative_summary") else "")[:200]}
 - Key Themes: {", ".join(s.get("key_themes", [])[:5])}  # Limit to first 5 themes
 """
@@ -448,6 +468,15 @@ Document {i+1}:
             reading_list = result["priorityReadingList"]
             if not all(key in reading_list for key in ['highPriority', 'mediumPriority']):
                 raise ValueError("priorityReadingList missing required keys")
+            
+            # Ensure document IDs in the reading list are UUIDs
+            for priority_level in ['highPriority', 'mediumPriority']:
+                if priority_level in reading_list:
+                    for doc in reading_list[priority_level]:
+                        if 'documentId' in doc:
+                            # Ensure it's a string representation of UUID
+                            doc['documentId'] = str(doc['documentId'])
+            
             return result
         except Exception as e:
             self.logger.error(f"Error identifying 'Priority Reading List': {e}")
@@ -464,6 +493,7 @@ Document {i+1}:
             "keyFindings": list(set(f for s in document_summaries for f in s.get("extracted_metadata", {}).get("core_analytical_findings_insights_list", [])))[:10],
             "keyDecisions": [d.get("decision", "") for s in document_summaries for d in s.get("extracted_metadata", {}).get("key_decisions_made_list_of_objects", []) if d.get("decision")][:10],
             "keyRisks": [r.get("risk", "") for s in document_summaries for r in s.get("extracted_metadata", {}).get("key_risks_issues_status_list_of_objects", []) if r.get("risk")][:10],
+            "documentIds": [s.get("document_id") for s in document_summaries if s.get("document_id")]  # Include document UUIDs for reference
         }
 
         # Use loaded prompt with context substitution
@@ -478,6 +508,12 @@ Document {i+1}:
             # Validate structure
             if "knowledgeFAQ" not in result:
                 raise ValueError("LLM response missing knowledgeFAQ key")
+            
+            # Ensure any document references in FAQ answers use UUID format
+            for faq_item in result.get("knowledgeFAQ", []):
+                if 'relatedDocuments' in faq_item:
+                    faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
+            
             return result
         except Exception as e:
             self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
@@ -487,7 +523,7 @@ Document {i+1}:
         """Calculates the distribution of documents by source type."""
         source_counts = {}
         for summary in document_summaries:
-            source_type = summary.get("document_group", "Unknown")
+            source_type = summary.get("source", "Unknown")
             source_counts[source_type] = source_counts.get(source_type, 0) + 1
 
         total_documents = len(document_summaries)
