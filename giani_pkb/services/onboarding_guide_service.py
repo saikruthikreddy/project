@@ -13,7 +13,7 @@ from datetime import datetime
 import time
 
 from giani_pkb.database.database_manager import DatabaseManager
-from giani_pkb.utils.config import GEMINI_API_KEY, LLM_CONFIG
+from giani_pkb.utils.config import GEMINI_API_KEY
 from giani_pkb.utils.gemini_client import initialize_gemini_client
 import google.generativeai as genai
 
@@ -30,12 +30,12 @@ class OnboardingGuideGenerator:
         self.gemini_api_key = gemini_api_key or GEMINI_API_KEY
         
         # Load model configuration from config or use defaults
-        self.model_config = model_config or getattr(LLM_CONFIG, 'ONBOARDING_GUIDE', {
+        self.model_config = model_config or {
             'primary_model': 'gemini-1.5-pro',
             'fallback_model': 'gemini-pro',
             'max_retries': 3,
             'timeout': 30
-        })
+        }
         
         if not self.gemini_api_key:
             raise ValueError("Gemini API key must be provided.")
