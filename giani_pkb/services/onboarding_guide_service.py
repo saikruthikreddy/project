@@ -41,8 +41,24 @@ class OnboardingGuideGenerator:
             raise ValueError("Gemini API key must be provided.")
         
         initialize_gemini_client(self.gemini_api_key)
-        self.model = genai.GenerativeModel(self.model_config['primary_model'])
-        self.fallback_model = genai.GenerativeModel(self.model_config['fallback_model'])
+        
+        # Configure generation config to force JSON output
+        generation_config = genai.types.GenerationConfig(
+            response_mime_type="application/json",
+            temperature=0.1,
+            top_p=0.8,
+            top_k=40,
+            max_output_tokens=4096,
+        )
+        
+        self.model = genai.GenerativeModel(
+            self.model_config['primary_model'],
+            generation_config=generation_config
+        )
+        self.fallback_model = genai.GenerativeModel(
+            self.model_config['fallback_model'],
+            generation_config=generation_config
+        )
         
         # Load prompts from files
         self.prompts = self._load_prompts()
@@ -64,55 +80,13 @@ class OnboardingGuideGenerator:
                     prompts[key] = f.read().strip()
                 self.logger.info(f"Loaded prompt: {key}")
             except FileNotFoundError:
-                self.logger.warning(f"Prompt file not found: {file_path}, using fallback")
-                prompts[key] = self._get_fallback_prompt(key)
+                self.logger.error(f"Prompt file not found: {file_path}")
+                raise FileNotFoundError(f"Required prompt file not found: {file_path}")
             except Exception as e:
                 self.logger.error(f"Error loading prompt {key}: {e}")
-                prompts[key] = self._get_fallback_prompt(key)
+                raise
         
         return prompts
-
-    def _get_fallback_prompt(self, prompt_type: str) -> str:
-        """Provide fallback prompts if files are not found."""
-        fallback_prompts = {
-            'mission_and_approach': """
-You are a Giani.ai AI Strategist, acting as an experienced Engagement Manager. Your task is to distill foundational project documents into a clear and concise "Mission & Approach" briefing for a new consultant joining the team.
-
-CONTEXT PROVIDED:
-{lean_context}
-
-YOUR TASK:
-Synthesize the provided context into a clear, professional "Mission & Approach" section. Your output MUST be a single, clean JSON object with keys: projectMandate, keyProjectPhases, and strategicApproach.
-""",
-            'strategic_intelligence_readout': """
-You are an expert Giani.ai AI Strategist. Analyze document summaries from source type "{source_type}" and create an intelligence readout.
-
-CONTEXT PROVIDED:
-{lean_context}
-
-YOUR TASK:
-Generate a JSON object with keys: comprehensiveSummary, keyTakeaways, and keyThemes.
-""",
-            'priority_reading_list': """
-You are an expert Giani.ai AI Strategist. Create a prioritized reading list for a new team member.
-
-CONTEXT PROVIDED:
-{document_context}
-
-YOUR TASK:
-Generate a JSON object with key `priorityReadingList` containing highPriority and mediumPriority document lists.
-""",
-            'knowledge_base_faq': """
-You are an expert Giani.ai AI Strategist. Generate strategic Q&A pairs for a project knowledge FAQ.
-
-CURATED PROJECT INSIGHTS:
-{curated_insights}
-
-YOUR TASK:
-Generate a JSON object with key `knowledgeFAQ` containing 3-5 strategic question-answer pairs.
-"""
-        }
-        return fallback_prompts.get(prompt_type, "Default prompt not available.")
 
     def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
         """
@@ -380,6 +354,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
 
         try:
             response = self.model.generate_content(prompt)
+            self.logger.info(f"Mission & Approach LLM Response: {response.text}")
             result = json.loads(response.text)
             # Validate the structure
             if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
@@ -390,6 +365,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             # Try fallback model
             try:
                 response = self.fallback_model.generate_content(prompt)
+                self.logger.info(f"Mission & Approach Fallback LLM Response: {response.text}")
                 result = json.loads(response.text)
                 if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
                     raise ValueError("Fallback LLM response missing required keys")
@@ -427,6 +403,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
 
             try:
                 response = self.model.generate_content(prompt)
+                self.logger.info(f"Strategic Intelligence Readout LLM Response for {source_type}: {response.text}")
                 result = json.loads(response.text)
                 # Validate structure
                 if not all(key in result for key in ['comprehensiveSummary', 'keyTakeaways', 'keyThemes']):
@@ -463,6 +440,7 @@ Document {i+1}:
 
         try:
             response = self.model.generate_content(prompt)
+            self.logger.info(f"Priority Reading List LLM Response: {response.text}")
             result = json.loads(response.text)
             # Validate structure
             if "priorityReadingList" not in result:
@@ -495,6 +473,7 @@ Document {i+1}:
 
         try:
             response = self.model.generate_content(prompt)
+            self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
             result = json.loads(response.text)
             # Validate structure
             if "knowledgeFAQ" not in result:

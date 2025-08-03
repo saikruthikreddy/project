@@ -11,14 +11,33 @@ PRIORITIZATION CRITERIA:
 - **High-Priority**: Documents essential for understanding the project mandate, core objectives, and immediate next steps
 - **Medium-Priority**: Documents that provide valuable context but are not immediately critical for onboarding
 
-JSON OUTPUT STRUCTURE:
-Generate a JSON object with key `priorityReadingList` containing:
+CRITICAL JSON FORMATTING REQUIREMENTS:
+- Your response MUST be valid JSON only
+- Do NOT include any text before or after the JSON  
+- Use double quotes for all strings
+- Ensure all JSON syntax is correct
+- documentId should be an integer
 
-1. **`highPriority`**: List of 2-4 document objects with keys:
-   - `documentId`: Document identifier (use the document number from context)
-   - `filename`: Document filename  
-   - `documentSourceType`: Source type
-   - `reasonForPriority`: One-sentence justification for why this is a must-read
+REQUIRED JSON SCHEMA:
+{{
+  "priorityReadingList": {{
+    "highPriority": [
+      {{
+        "documentId": integer,
+        "filename": "string",
+        "documentSourceType": "string",
+        "reasonForPriority": "string (one sentence)"
+      }}
+    ],
+    "mediumPriority": [
+      {{
+        "documentId": integer,
+        "filename": "string", 
+        "documentSourceType": "string",
+        "reasonForPriority": "string (one sentence)"
+      }}
+    ]
+  }}
+}}
 
-2. **`mediumPriority`**: List of 4-6 document objects with same structure as above
-   - Focus on documents that provide valuable supplementary context
+Generate exactly 2-4 high-priority documents and 3-6 medium-priority documents following this exact structure. Your entire response must be valid JSON that can be parsed directly.
