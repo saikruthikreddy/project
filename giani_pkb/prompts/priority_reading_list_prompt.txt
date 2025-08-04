@@ -23,7 +23,7 @@ REQUIRED JSON SCHEMA:
   "priorityReadingList": {{
     "highPriority": [
       {{
-        "documentId": integer,
+        "documentId": UUID,
         "filename": "string",
         "documentSourceType": "string",
         "reasonForPriority": "string (one sentence)",
@@ -32,7 +32,7 @@ REQUIRED JSON SCHEMA:
     ],
     "mediumPriority": [
       {{
-        "documentId": integer,
+        "documentId": UUID,
         "filename": "string", 
         "documentSourceType": "string",
         "reasonForPriority": "string (one sentence)",
