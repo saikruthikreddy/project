@@ -277,18 +277,14 @@ class OnboardingGuideGenerator:
         """Retrieves document summaries from the database in a single optimized query."""
         self.logger.info(f"Getting document summaries for project_id: {project_id}")
         try:
-            # Use optimized method that gets all summaries in one query
-            if hasattr(self.db_manager, 'get_all_summaries_for_project'):
-                summaries = self.db_manager.get_all_summaries_for_project(project_id)
-            else:
-                # Fallback to original method if optimized version doesn't exist yet
-                self.logger.warning("Using fallback method for document summaries - consider implementing get_all_summaries_for_project")
-                documents = self.db_manager.get_project_documents(project_id)
-                summaries = []
-                for doc in documents:
-                    summary = self.db_manager.get_document_summary(doc.id)
-                    if summary:
-                        summaries.append(summary)
+
+            self.logger.warning("Using fallback method for document summaries - consider implementing get_all_summaries_for_project")
+            documents = self.db_manager.get_project_documents(project_id)
+            summaries = []
+            for doc in documents:
+                summary = self.db_manager.get_document_summary(doc.id)
+                if summary:
+                    summaries.append(summary)
             
             # Convert summaries to dict format and ensure document_id is UUID string
             formatted_summaries = []
@@ -405,6 +401,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         # Group summaries by source type
         summaries_by_source_type = {}
         for summary in document_summaries:
+            print(summary)
             source_type = summary.get("source", "Unknown")
             if source_type not in summaries_by_source_type:
                 summaries_by_source_type[source_type] = []
