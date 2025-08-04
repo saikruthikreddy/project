@@ -312,7 +312,7 @@ class OnboardingGuideGenerator:
         """Creates a lean context string for mission and approach synthesis."""
         sow_and_proposal_summaries = [
             s for s in document_summaries
-            if s.get("document_category") in ["SoW / Proposal Document", "Project Plan"]
+            if s.get("source") in ["SoW / Proposal Document", "Project Plan"]
         ]
         
         if not sow_and_proposal_summaries:
@@ -358,11 +358,14 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         lean_context = self._create_lean_context_for_mission(project_context, document_summaries)
         
         if "No foundational documents available" in lean_context:
+            self.logger.info(f"No foundational documents available")
             return {
                 "projectMandate": "N/A",
                 "keyProjectPhases": [],
                 "strategicApproach": [],
             }
+        
+        self.logger.info(f"Mission & Approach LLM Response: {response.text}")
 
         # Use loaded prompt with context substitution
         prompt = self.prompts['mission_and_approach'].format(lean_context=lean_context)
@@ -482,39 +485,169 @@ Document {i+1}:
     def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
         self.logger.info("Generating 'Knowledge Base FAQ' section")
+        
 
-        # Create curated insights with limited data to avoid context overflow
+        # Create curated insights using actual database columns only
+        all_objectives = []     # Use key_takeaways as proxy for objectives
+        all_concerns = []       # Use key_themes as proxy for concerns/challenges
+        all_findings = []       # Use key_takeaways as findings
+        all_doc_ids = []
+        all_themes = []
+        all_takeaways = []
+        all_narratives = []
+        all_keywords = []
+        all_people = []
+        all_organizations = []
+        all_dates = []
+        
+        for summary in document_summaries:
+            # Extract from actual database columns only
+            
+            # Key takeaways (use for both objectives and findings)
+            takeaways = summary.get("key_takeaways", [])
+            if isinstance(takeaways, list):
+                all_takeaways.extend(takeaways)
+                all_objectives.extend(takeaways)  # Takeaways often contain objectives
+                all_findings.extend(takeaways)    # Takeaways are key findings
+            
+            # Key themes (use for concerns and strategic areas)
+            themes = summary.get("key_themes", [])
+            if isinstance(themes, list):
+                all_themes.extend(themes)
+                all_concerns.extend(themes)  # Themes often highlight concerns/challenges
+            
+            # Narrative summary for context
+            narrative = summary.get("narrative_summary")
+            if narrative:
+                all_narratives.append(narrative)
+            
+            # Extracted keywords for additional context
+            keywords = summary.get("extracted_keywords", [])
+            if isinstance(keywords, list):
+                all_keywords.extend(keywords)
+            
+            # Key entities from denormalized fields
+            people = summary.get("key_people_mentioned", [])
+            if isinstance(people, list):
+                all_people.extend(people)
+            
+            organizations = summary.get("key_organizations_mentioned", [])
+            if isinstance(organizations, list):
+                all_organizations.extend(organizations)
+            
+            dates = summary.get("key_dates_mentioned", [])
+            if isinstance(dates, list):
+                all_dates.extend(dates)
+            
+            # Document ID
+            doc_id = summary.get("document_id")
+            if doc_id:
+                all_doc_ids.append(doc_id)
+        
         curated_insights = {
-            "projectObjectives": list(set(o for s in document_summaries for o in s.get("extracted_metadata", {}).get("project_objectives_stated_list", [])))[:10],
-            "keyClientConcerns": list(set(c for s in document_summaries for c in s.get("extracted_metadata", {}).get("client_requirements_or_pain_points_expressed_list", [])))[:10],
-            "keyFindings": list(set(f for s in document_summaries for f in s.get("extracted_metadata", {}).get("core_analytical_findings_insights_list", [])))[:10],
-            "keyDecisions": [d.get("decision", "") for s in document_summaries for d in s.get("extracted_metadata", {}).get("key_decisions_made_list_of_objects", []) if d.get("decision")][:10],
-            "keyRisks": [r.get("risk", "") for s in document_summaries for r in s.get("extracted_metadata", {}).get("key_risks_issues_status_list_of_objects", []) if r.get("risk")][:10],
-            "documentIds": [s.get("document_id") for s in document_summaries if s.get("document_id")]  # Include document UUIDs for reference
+            # Primary content from denormalized fields
+            "projectObjectives": list(set(filter(None, all_objectives)))[:10],  # From key_takeaways
+            "keyClientConcerns": list(set(filter(None, all_concerns)))[:10],    # From key_themes  
+            "keyFindings": list(set(filter(None, all_findings)))[:10],          # From key_takeaways
+            "keyThemes": list(set(filter(None, all_themes)))[:8],               # From key_themes column
+            "extractedKeywords": list(set(filter(None, all_keywords)))[:15],    # From extracted_keywords
+            "narrativeSummaries": all_narratives[:3],                           # From narrative_summary column
+            
+            # Entity information for context
+            "keyPeople": list(set(filter(None, all_people)))[:10],              # From key_people_mentioned
+            "keyOrganizations": list(set(filter(None, all_organizations)))[:10], # From key_organizations_mentioned
+            "keyDates": list(set(filter(None, all_dates)))[:8],                 # From key_dates_mentioned
+            
+            # Document metadata for richer context
+            "documentMetadata": [
+                {
+                    "filename": summary.get("document_filename", "Unknown"),
+                    "category": summary.get("document_category", "Uncategorized"), 
+                    "group": summary.get("document_group", ""),
+                    "sentiment": summary.get("document_sentiment", "Neutral"),
+                    "suggestedTitle": summary.get("suggested_title", ""),
+                    "impliedAudience": summary.get("implied_audience", ""),
+                    "geographicalFocus": summary.get("geographical_focus", ""),
+                    "userNotePurpose": summary.get("user_note_purpose", "")[:200] if summary.get("user_note_purpose") else ""  # Truncate for context
+                }
+                for summary in document_summaries[:5]  # Limit to avoid context overflow
+            ],
+            
+            # Summary stats
+            "documentIds": all_doc_ids,
+            "totalDocuments": len(document_summaries),
+            "dataQuality": {
+                "takeawaysFound": len(all_takeaways),
+                "themesFound": len(all_themes), 
+                "narrativesFound": len(all_narratives),
+                "keywordsFound": len(all_keywords),
+                "peopleFound": len(all_people),
+                "organizationsFound": len(all_organizations),
+                "datesFound": len(all_dates),
+                "documentsWithNarratives": sum(1 for s in document_summaries if s.get("narrative_summary")),
+                "documentsWithTakeaways": sum(1 for s in document_summaries if s.get("key_takeaways")),
+                "documentsWithThemes": sum(1 for s in document_summaries if s.get("key_themes"))
+            }
         }
-
+        
+        # Log data quality for monitoring
+        self.logger.info(f"FAQ data extraction summary: {curated_insights['dataQuality']}")
+        
         # Use loaded prompt with context substitution
         prompt = self.prompts['knowledge_base_faq'].format(
             curated_insights=json.dumps(curated_insights, indent=2)
         )
-
+        
         try:
             response = self.model.generate_content(prompt)
-            self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
-            result = json.loads(response.text)
+            self.logger.info(f"Knowledge Base FAQ LLM Response length: {len(response.text)} characters")
+            
+            # Clean response text (remove potential markdown formatting)
+            response_text = response.text.strip()
+            if response_text.startswith('```json'):
+                response_text = response_text[7:]  # Remove ```json
+            if response_text.endswith('```'):
+                response_text = response_text[:-3]  # Remove ```
+            response_text = response_text.strip()
+            
+            result = json.loads(response_text)
+            
             # Validate structure
             if "knowledgeFAQ" not in result:
                 raise ValueError("LLM response missing knowledgeFAQ key")
             
-            # Ensure any document references in FAQ answers use UUID format
-            for faq_item in result.get("knowledgeFAQ", []):
+            if not isinstance(result["knowledgeFAQ"], list):
+                raise ValueError("knowledgeFAQ must be a list")
+            
+            # Validate each FAQ item
+            for i, faq_item in enumerate(result.get("knowledgeFAQ", [])):
+                if not isinstance(faq_item, dict):
+                    raise ValueError(f"FAQ item {i} must be a dictionary")
+                if "question" not in faq_item or "answer" not in faq_item:
+                    raise ValueError(f"FAQ item {i} missing required fields")
+                
+                # Ensure any document references use UUID format
                 if 'relatedDocuments' in faq_item:
                     faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
             
+            # Add metadata to result
+            result["metadata"] = {
+                "generatedAt": datetime.utcnow().isoformat(),
+                "sourceDocuments": len(document_summaries),
+                "faqCount": len(result["knowledgeFAQ"]),
+                "dataQuality": curated_insights["dataQuality"]
+            }
+            
+            self.logger.info(f"Successfully generated {len(result['knowledgeFAQ'])} FAQ items")
             return result
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON parsing error in FAQ generation: {e}")
+            self.logger.error(f"Raw response: {response.text[:500]}...")  # Log first 500 chars
+            return {"knowledgeFAQ": [], "error": "JSON parsing failed"}
         except Exception as e:
             self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
-            return {"knowledgeFAQ": []}
+            return {"knowledgeFAQ": [], "error": str(e)}
 
     def _get_distribution_by_source(self, document_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculates the distribution of documents by source type."""
