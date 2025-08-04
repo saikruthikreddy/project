@@ -2529,6 +2529,7 @@ class DatabaseManager:
                     'document_category': summary.document_category,
                     'document_group': summary.document_group,
                     'user_note_purpose': summary.user_note_purpose,
+                    'source': summary.source,
                     'processing_timestamp': summary.processing_timestamp.isoformat() if summary.processing_timestamp else None,
                     'llm_model_used': summary.llm_model_used,
                     'summary_storage_path': summary.summary_storage_path,
