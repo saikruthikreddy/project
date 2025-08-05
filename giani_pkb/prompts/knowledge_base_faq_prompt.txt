@@ -40,16 +40,16 @@ Generate strategic questions a consultant would ask and provide evidence-based a
 - No trailing commas
 
 ## REQUIRED JSON SCHEMA:
-{
+{{
   "knowledgeFAQ": [
-    {
+    {{
       "question": "string",
       "answer": "string",
       "confidence": "high|medium|low",
       "sourceTypes": ["takeaways", "themes", "narratives", "keywords", "entities", "metadata"]
-    }
+    }}
   ]
-}
+}}
 
 ## QUALITY REQUIREMENTS:
 - Generate exactly 3-5 Q&A pairs
