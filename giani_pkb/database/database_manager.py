@@ -2217,56 +2217,8 @@ class DatabaseManager:
             raise DatabaseError(f"Unexpected error updating the microsoft id for the user: {e}")
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
-        """
-        Save a document summary to the database with comprehensive validation and error handling.
-        
-        Args:
-            document_id: UUID string of the document to save summary for
-            summary_data: Dictionary containing the complete summary analysis data
-            
-        Returns:
-            bool: True if summary was saved successfully, False otherwise
-            
-        Expected summary_data structure:
-        {
-            "document_filename": str,
-            "document_category": str,
-            "document_group": str,
-            "user_note_purpose": str,
-            "source": str,
-            "summaryStoragePath": str,
-            "llm_analysis": {
-                "llm_used_for_processing": str,
-                "ai_high_level_narrative_summary": str/dict,
-                "ai_overall_key_themes_list": list,
-                "ai_key_takeaways_bullets": list,
-                "extracted_keywords": list,
-                "extracted_metadata": {
-                    "document_overall_sentiment": str,
-                    "suggested_document_title": str,
-                    "implied_audience": str,
-                    "primary_geographical_focus": str,
-                    "key_people_or_roles_mentioned": list,
-                    "key_companies_organizations_mentioned": list,
-                    "key_dates_mentioned": list
-                }
-            }
-        }
-        """
+        """Save a document summary to the database."""
         try:
-            # Input validation
-            if not document_id:
-                logger.error("Document ID cannot be empty")
-                return False
-                
-            if not summary_data or not isinstance(summary_data, dict):
-                logger.error("Summary data must be a non-empty dictionary")
-                return False
-                
-            if not summary_data.get("llm_analysis"):
-                logger.error("Summary data must contain 'llm_analysis' field")
-                return False
-
             # Convert string to UUID if necessary
             if isinstance(document_id, str):
                 try:
@@ -2282,206 +2234,55 @@ class DatabaseManager:
                 logger.error(f"Cannot save summary: document_id {document_id} does not exist")
                 return False
 
-            # Extract and validate llm_analysis structure
+            # Extract llm_analysis for easier access
             llm_analysis = summary_data.get("llm_analysis", {})
-            if not isinstance(llm_analysis, dict):
-                logger.error("llm_analysis must be a dictionary")
-                return False
-                
             extracted_metadata = llm_analysis.get("extracted_metadata", {})
-            if extracted_metadata and not isinstance(extracted_metadata, dict):
-                logger.warning("extracted_metadata should be a dictionary, converting to dict")
-                extracted_metadata = {}
-
-            # Prepare summary data with safe extraction and type checking
-            summary_fields = {
-                'document_id': document_uuid,
-                'llm_analysis': llm_analysis,
-                
-                # Document context with safe extraction
-                'document_filename': self._safe_extract_string(summary_data, "document_filename", max_length=255),
-                'document_category': self._safe_extract_string(summary_data, "document_category", max_length=100),
-                'document_group': self._safe_extract_string(summary_data, "document_group", max_length=50),
-                'user_note_purpose': self._safe_extract_text(summary_data, "user_note_purpose"),
-                'source': self._safe_extract_string(summary_data, "source", max_length=50, required=True),
-                
-                # Processing metadata
-                'processing_timestamp': datetime.now(timezone.utc),
-                'llm_model_used': self._safe_extract_string(llm_analysis, "llm_used_for_processing", max_length=100),
-                'summary_storage_path': self._safe_extract_string(summary_data, "summaryStoragePath", max_length=500),
-                
-                # Extracted fields for easy querying - stored as JSON
-                'narrative_summary': self._safe_extract_json_field(llm_analysis, "ai_high_level_narrative_summary"),
-                'key_themes': self._safe_extract_json_field(llm_analysis, "ai_overall_key_themes_list"),
-                'key_takeaways': self._safe_extract_json_field(llm_analysis, "ai_key_takeaways_bullets"),
-                'extracted_keywords': self._safe_extract_json_field(llm_analysis, "extracted_keywords"),
-                
-                # Metadata for search and filtering
-                'document_sentiment': self._safe_extract_string(extracted_metadata, "document_overall_sentiment", max_length=20),
-                'suggested_title': self._safe_extract_string(extracted_metadata, "suggested_document_title", max_length=500),
-                'implied_audience': self._safe_extract_string(extracted_metadata, "implied_audience", max_length=200),
-                'geographical_focus': self._safe_extract_string(extracted_metadata, "primary_geographical_focus", max_length=200),
-                
-                # Key entities - stored as JSON arrays
-                'key_people_mentioned': self._safe_extract_json_field(extracted_metadata, "key_people_or_roles_mentioned"),
-                'key_organizations_mentioned': self._safe_extract_json_field(extracted_metadata, "key_companies_organizations_mentioned"),
-                'key_dates_mentioned': self._safe_extract_json_field(extracted_metadata, "key_dates_mentioned"),
-            }
-
-            # Validate required fields
-            if not summary_fields['source']:
-                logger.error("Source field is required but was empty or invalid")
-                return False
 
             with self.get_session() as session:
-                # Check for existing summary for this document
-                existing_summary = session.query(DocumentSummary).filter(
-                    DocumentSummary.document_id == document_uuid
-                ).first()
-                
-                if existing_summary:
-                    logger.info(f"Found existing summary for document {document_id}, updating...")
-                    # Update existing summary
-                    for key, value in summary_fields.items():
-                        if key != 'document_id':  # Don't update the primary key
-                            setattr(existing_summary, key, value)
-                    
-                    # Update the processing timestamp to reflect the update
-                    existing_summary.processing_timestamp = datetime.now(timezone.utc)
-                    
-                else:
-                    # Create new summary
-                    summary = DocumentSummary(**summary_fields)
-                    session.add(summary)
-                
+                summary = DocumentSummary(
+                    document_id=document_uuid,
+                    llm_analysis=llm_analysis,
+
+                    # Document context
+                    document_filename=summary_data.get("document_filename"),
+                    document_category=summary_data.get("document_category"),
+                    document_group=summary_data.get("document_group"),
+                    user_note_purpose=summary_data.get("user_note_purpose"),
+                    source=summary_data.get("source"),
+
+                    # Processing metadata
+                    processing_timestamp=datetime.now(timezone.utc),
+                    llm_model_used=llm_analysis.get("llm_used_for_processing"),
+                    summary_storage_path=summary_data.get("summaryStoragePath"),
+
+                    # Extracted fields for easy querying
+                    narrative_summary=llm_analysis.get("ai_high_level_narrative_summary"),
+                    key_themes=llm_analysis.get("ai_overall_key_themes_list"),
+                    key_takeaways=llm_analysis.get("ai_key_takeaways_bullets"),
+                    extracted_keywords=llm_analysis.get("extracted_keywords"),
+
+                    # Metadata for search and filtering
+                    document_sentiment=extracted_metadata.get("document_overall_sentiment"),
+                    suggested_title=extracted_metadata.get("suggested_document_title"),
+                    implied_audience=extracted_metadata.get("implied_audience"),
+                    geographical_focus=extracted_metadata.get("primary_geographical_focus"),
+
+                    # Key entities
+                    key_people_mentioned=extracted_metadata.get("key_people_or_roles_mentioned"),
+                    key_organizations_mentioned=extracted_metadata.get("key_companies_organizations_mentioned"),
+                    key_dates_mentioned=extracted_metadata.get("key_dates_mentioned"),
+                )
+                session.add(summary)
                 session.commit()
-                
-                action = "updated" if existing_summary else "created"
-                logger.info(f"Successfully {action} summary for document {document_id}")
-                
+                logger.info(f"Successfully saved summary for document {document_id}")
                 return True
 
-        except ValidationError as e:
-            logger.error(f"Validation error saving summary for document {document_id}: {e}")
-            return False
         except SQLAlchemyError as e:
-            logger.error(f"Database error saving summary for document {document_id}: {e}")
+            logger.error(f"Database error saving summary: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error saving summary for document {document_id}: {e}")
-            import traceback
-            logger.debug(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Unexpected error saving summary: {e}")
             return False
-
-    def _safe_extract_string(self, data: Dict[str, Any], key: str, max_length: int = None, required: bool = False) -> Optional[str]:
-        """
-        Safely extract a string value from dictionary with validation.
-        
-        Args:
-            data: Dictionary to extract from
-            key: Key to extract
-            max_length: Maximum allowed length (truncates if longer)
-            required: Whether the field is required
-            
-        Returns:
-            String value or None if not found/invalid
-        """
-        try:
-            value = data.get(key)
-            
-            if value is None:
-                if required:
-                    raise ValidationError(f"Required field '{key}' is missing")
-                return None
-                
-            # Convert to string if not already
-            if not isinstance(value, str):
-                value = str(value)
-                
-            # Strip whitespace
-            value = value.strip()
-            
-            # Check if empty after stripping
-            if not value:
-                if required:
-                    raise ValidationError(f"Required field '{key}' is empty")
-                return None
-                
-            # Truncate if too long
-            if max_length and len(value) > max_length:
-                logger.warning(f"Field '{key}' truncated from {len(value)} to {max_length} characters")
-                value = value[:max_length]
-                
-            return value
-            
-        except Exception as e:
-            if required:
-                raise ValidationError(f"Error processing required field '{key}': {e}")
-            logger.warning(f"Error extracting field '{key}': {e}")
-            return None
-
-    def _safe_extract_text(self, data: Dict[str, Any], key: str) -> Optional[str]:
-        """
-        Safely extract a text field (can be longer than string fields).
-        
-        Args:
-            data: Dictionary to extract from
-            key: Key to extract
-            
-        Returns:
-            Text value or None if not found/invalid
-        """
-        try:
-            value = data.get(key)
-            
-            if value is None:
-                return None
-                
-            # Convert to string if not already
-            if not isinstance(value, str):
-                value = str(value)
-                
-            # Strip whitespace but allow empty strings for text fields
-            value = value.strip()
-            
-            return value if value else None
-            
-        except Exception as e:
-            logger.warning(f"Error extracting text field '{key}': {e}")
-            return None
-
-    def _safe_extract_json_field(self, data: Dict[str, Any], key: str) -> Optional[Any]:
-        """
-        Safely extract a field that should be stored as JSON.
-        
-        Args:
-            data: Dictionary to extract from
-            key: Key to extract
-            
-        Returns:
-            JSON-serializable value or None if not found/invalid
-        """
-        try:
-            value = data.get(key)
-            
-            if value is None:
-                return None
-                
-            # Ensure the value is JSON serializable
-            import json
-            json.dumps(value)  # This will raise an exception if not serializable
-            
-            return value
-            
-        except (TypeError, ValueError) as e:
-            logger.warning(f"Field '{key}' is not JSON serializable, converting to string: {e}")
-            try:
-                return str(data.get(key)) if data.get(key) is not None else None
-            except Exception:
-                return None
-        except Exception as e:
-            logger.warning(f"Error extracting JSON field '{key}': {e}")
-            return None
 
     def _normalize_document_id(self, document_id: Union[str, uuid.UUID]) -> str:
         """Normalize document ID to string format for database storage."""
