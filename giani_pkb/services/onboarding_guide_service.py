@@ -8,6 +8,7 @@ import logging
 import json
 import asyncio
 import os
+import re
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -71,9 +72,10 @@ class OnboardingGuideGenerator:
             'mission_and_approach': 'mission_and_approach_prompt.txt',
             'strategic_intelligence_readout': 'strategic_intelligence_readout_prompt.txt',
             'priority_reading_list': 'priority_reading_list_prompt.txt',
-            'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'
+            'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'  # Add this line
         }
         
+        # Load prompts from files
         for key, filename in prompt_files.items():
             file_path = os.path.join(PROMPTS_DIR, filename)
             try:
@@ -87,7 +89,81 @@ class OnboardingGuideGenerator:
                 self.logger.error(f"Error loading prompt {key}: {e}")
                 raise
         
+        # Remove this entire section that hardcodes the FAQ prompt:
+        # prompts['knowledge_base_faq'] = """You are an expert Giani.ai AI Strategist..."""
+        
         return prompts
+
+
+    def _validate_response_completeness(self, response_text: str, expected_keys: List[str]) -> bool:
+        """Check if response appears complete before parsing."""
+        if not response_text or len(response_text.strip()) < 10:
+            return False
+        
+        # Check for common truncation patterns
+        truncation_patterns = [
+            r'^\s*"[^"]*"?\s*$',  # Just a key name
+            r'^\s*\{\s*"[^"]*"?\s*$',  # Incomplete object start
+            r'^\s*\[\s*$',  # Just opening bracket
+        ]
+        
+        for pattern in truncation_patterns:
+            if re.match(pattern, response_text.strip()):
+                return False
+        
+        return True
+
+    def _clean_json_response(self, response_text: str) -> str:
+        """Clean and prepare JSON response from LLM."""
+        # Remove leading/trailing whitespace and newlines
+        cleaned = response_text.strip()
+        
+        # Handle specific truncated response patterns
+        if cleaned == '"knowledgeFAQ"' or cleaned.startswith('\n  "knowledgeFAQ"') or cleaned == '"knowledgeFAQ"':
+            self.logger.warning("Detected truncated FAQ response, returning empty structure")
+            return '{"knowledgeFAQ": []}'
+        
+        # Remove markdown code blocks if present
+        if cleaned.startswith('```json'):
+            cleaned = cleaned.replace('```json', '').replace('```','')
+        elif cleaned.startswith('```'):
+            cleaned = cleaned.replace('```','').replace('```','')
+        
+        # Remove leading quotes if present and not part of JSON structure
+        if cleaned.startswith('"') and not cleaned.startswith('{"'):
+            cleaned = cleaned.strip('"')
+        
+        # Remove any leading newlines or whitespace again
+        cleaned = cleaned.strip()
+        
+        # Ensure proper JSON structure
+        if not cleaned.startswith('{') and not cleaned.startswith('['):
+            # Try to find JSON object in the response
+            json_match = re.search(r'(\{.*\}|$$.*$$)', cleaned, re.DOTALL)
+            if json_match:
+                cleaned = json_match.group(1)
+            else:
+                # If no JSON found, try to wrap it based on expected content
+                if 'knowledgeFAQ' in cleaned or 'FAQ' in cleaned:
+                    cleaned = '{"knowledgeFAQ": []}'
+                elif 'priorityReadingList' in cleaned:
+                    cleaned = '{"priorityReadingList": {"highPriority": [], "mediumPriority": []}}'
+                else:
+                    cleaned = '{}'
+        
+        return cleaned
+
+    def _safe_json_parse(self, response_text: str) -> Dict[str, Any]:
+        """Safely parse JSON response with fallback handling."""
+        try:
+            cleaned_response = self._clean_json_response(response_text)
+            self.logger.debug(f"Cleaned JSON response: {cleaned_response[:200]}...")
+            return json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            self.logger.error(f"JSON parsing failed: {e}")
+            self.logger.error(f"Raw response: {response_text[:500]}...")  # Log first 500 chars
+            self.logger.error(f"Cleaned response: {cleaned_response[:500]}...")
+            raise
 
     def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
         """
@@ -261,7 +337,6 @@ class OnboardingGuideGenerator:
             }
         }
 
-    # Keep all other existing methods unchanged
     def _get_project_context(self, project_id: int) -> Dict[str, Any]:
         """Retrieves project context from the database."""
         self.logger.info(f"Getting project context for project_id: {project_id}")
@@ -277,7 +352,6 @@ class OnboardingGuideGenerator:
         """Retrieves document summaries from the database in a single optimized query."""
         self.logger.info(f"Getting document summaries for project_id: {project_id}")
         try:
-
             self.logger.warning("Using fallback method for document summaries - consider implementing get_all_summaries_for_project")
             documents = self.db_manager.get_project_documents(project_id)
             summaries = []
@@ -364,16 +438,18 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
                 "keyProjectPhases": [],
                 "strategicApproach": [],
             }
-        
-        self.logger.info(f"Mission & Approach LLM Response: {response.text}")
 
         # Use loaded prompt with context substitution
         prompt = self.prompts['mission_and_approach'].format(lean_context=lean_context)
 
         try:
             response = self.model.generate_content(prompt)
+            # Move logging AFTER response is generated
             self.logger.info(f"Mission & Approach LLM Response: {response.text}")
-            result = json.loads(response.text)
+            
+            # Use safe JSON parsing
+            result = self._safe_json_parse(response.text)
+            
             # Validate the structure
             if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
                 raise ValueError("LLM response missing required keys")
@@ -384,7 +460,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             try:
                 response = self.fallback_model.generate_content(prompt)
                 self.logger.info(f"Mission & Approach Fallback LLM Response: {response.text}")
-                result = json.loads(response.text)
+                result = self._safe_json_parse(response.text)
                 if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
                     raise ValueError("Fallback LLM response missing required keys")
                 return result
@@ -404,7 +480,6 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         # Group summaries by source type
         summaries_by_source_type = {}
         for summary in document_summaries:
-            print(summary)
             source_type = summary.get("source", "Unknown")
             if source_type not in summaries_by_source_type:
                 summaries_by_source_type[source_type] = []
@@ -423,7 +498,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             try:
                 response = self.model.generate_content(prompt)
                 self.logger.info(f"Strategic Intelligence Readout LLM Response for {source_type}: {response.text}")
-                result = json.loads(response.text)
+                result = self._safe_json_parse(response.text)
                 # Validate structure
                 if not all(key in result for key in ['comprehensiveSummary', 'keyTakeaways', 'keyThemes']):
                     raise ValueError("LLM response missing required keys")
@@ -446,22 +521,22 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         document_context = ""
         for i, s in enumerate(document_summaries):
             doc_info = f"""
-Document {i+1}:
 - Document ID: {s.get("document_id", "Unknown")}
 - Filename: {s.get("document_filename", "Unknown")}
 - Source Type: {s.get("source", "Unknown")}
-- Summary: {(s.get("narrative_summary", [""])[0] if s.get("narrative_summary") else "")[:200]}
+- Summary: {(s.get("narrative_summary", [""]) if s.get("narrative_summary") else "")[:200]}
 - Key Themes: {", ".join(s.get("key_themes", [])[:5])}  # Limit to first 5 themes
 """
             document_context += doc_info
 
         # Use loaded prompt with context substitution
         prompt = self.prompts['priority_reading_list'].format(document_context=document_context)
+        self.logger.info(f"Priority Reading List prompt: {prompt}")
 
         try:
             response = self.model.generate_content(prompt)
             self.logger.info(f"Priority Reading List LLM Response: {response.text}")
-            result = json.loads(response.text)
+            result = self._safe_json_parse(response.text)
             # Validate structure
             if "priorityReadingList" not in result:
                 raise ValueError("LLM response missing priorityReadingList key")
@@ -482,48 +557,104 @@ Document {i+1}:
             self.logger.error(f"Error identifying 'Priority Reading List': {e}")
             return {"priorityReadingList": {"highPriority": [], "mediumPriority": []}}
 
-        def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
-            """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
-            self.logger.info("Generating 'Knowledge Base FAQ' section")
-
-            # Create curated insights with limited data to avoid context overflow
-            curated_insights = {
-                "narrative_summary": [s.get("narrative_summary", "") for s in document_summaries],
-                "key_themes": list(set(theme for s in document_summaries for theme in s.get("key_themes", []))),
-                "key_takeaways": list(set(takeaway for s in document_summaries for takeaway in s.get("key_takeaways", []))),
-                "extracted_keywords": list(set(keyword for s in document_summaries for keyword in s.get("extracted_keywords", []))),
-                "document_sentiment": [s.get("document_sentiment", "") for s in document_summaries],
-                "suggested_title": [s.get("suggested_title", "") for s in document_summaries],
-                "implied_audience": [s.get("implied_audience", "") for s in document_summaries],
-                "geographical_focus": [s.get("geographical_focus", "") for s in document_summaries],
-                "key_people_mentioned": list(set(person for s in document_summaries for person in s.get("key_people_mentioned", []))),
-                "key_organizations_mentioned": list(set(org for s in document_summaries for org in s.get("key_organizations_mentioned", []))),
-                "key_dates_mentioned": list(set(date for s in document_summaries for date in s.get("key_dates_mentioned", []))),
-                "document_ids": [s.get("document_id") for s in document_summaries]
-            }
-
-            # Use loaded prompt with context substitution
-            prompt = self.prompts['knowledge_base_faq'].format(
-                curated_insights=json.dumps(curated_insights, indent=2)
-            )
-
-            try:
-                response = self.model.generate_content(prompt)
-                self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
-                result = json.loads(response.text)
-                # Validate structure
-                if "knowledgeFAQ" not in result:
-                    raise ValueError("LLM response missing knowledgeFAQ key")
-                
-                # Ensure any document references in FAQ answers use UUID format
-                for faq_item in result.get("knowledgeFAQ", []):
-                    if 'relatedDocuments' in faq_item:
-                        faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
-                
-                return result
-            except Exception as e:
-                self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
-                return {"knowledgeFAQ": []}
+    def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
+        self.logger.info("Generating 'Knowledge Base FAQ' section")
+        
+        # Create curated insights using the denormalized fields from DocumentSummary
+        curated_insights = {
+            "narrativeSummaries": [
+                s.get("narrative_summary") for s in document_summaries 
+                if s.get("narrative_summary")
+            ][:10],
+            "keyThemes": list(set(
+                theme for s in document_summaries 
+                for theme in (s.get("key_themes") or [])
+            ))[:10],
+            "keyTakeaways": [
+                takeaway for s in document_summaries 
+                for takeaway in (s.get("key_takeaways") or [])
+            ][:15],
+            "extractedKeywords": list(set(
+                keyword for s in document_summaries 
+                for keyword in (s.get("extracted_keywords") or [])
+            ))[:20],
+            "documentCategories": list(set(
+                s.get("document_category") for s in document_summaries 
+                if s.get("document_category")
+            )),
+            "documentGroups": list(set(
+                s.get("document_group") for s in document_summaries 
+                if s.get("document_group")
+            )),
+            "suggestedTitles": [
+                s.get("suggested_title") for s in document_summaries 
+                if s.get("suggested_title")
+            ][:10],
+            "impliedAudiences": list(set(
+                s.get("implied_audience") for s in document_summaries 
+                if s.get("implied_audience")
+            )),
+            "geographicalFocus": list(set(
+                s.get("geographical_focus") for s in document_summaries 
+                if s.get("geographical_focus")
+            )),
+            "keyPeople": list(set(
+                person for s in document_summaries 
+                for person in (s.get("key_people_mentioned") or [])
+            ))[:15],
+            "keyOrganizations": list(set(
+                org for s in document_summaries 
+                for org in (s.get("key_organizations_mentioned") or [])
+            ))[:15],
+            "keyDates": list(set(
+                date for s in document_summaries 
+                for date in (s.get("key_dates_mentioned") or [])
+            ))[:10],
+            "documentSentiments": list(set(
+                s.get("document_sentiment") for s in document_summaries 
+                if s.get("document_sentiment")
+            )),
+            "userNotePurposes": [
+                s.get("user_note_purpose") for s in document_summaries 
+                if s.get("user_note_purpose")
+            ][:10],
+            "documentIds": [
+                s.get("document_id") for s in document_summaries 
+                if s.get("document_id")
+            ]  # Include document UUIDs for reference
+        }
+        
+        # Remove empty lists and None values to clean up the data
+        curated_insights = {
+            k: v for k, v in curated_insights.items() 
+            if v and (not isinstance(v, list) or len(v) > 0)
+        }
+        
+        # Use loaded prompt with context substitution
+        prompt = self.prompts['knowledge_base_faq'].format(
+            curated_insights=json.dumps(curated_insights, indent=2)
+        )
+        
+        try:
+            response = self.model.generate_content(prompt)
+            self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
+            result = json.loads(response.text)
+            
+            # Validate structure
+            if "knowledgeFAQ" not in result:
+                raise ValueError("LLM response missing knowledgeFAQ key")
+            
+            # Ensure any document references in FAQ answers use UUID format
+            for faq_item in result.get("knowledgeFAQ", []):
+                if 'relatedDocuments' in faq_item:
+                    faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
+            return {"knowledgeFAQ": []}
 
     def _get_distribution_by_source(self, document_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculates the distribution of documents by source type."""
