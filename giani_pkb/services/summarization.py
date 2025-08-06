@@ -118,10 +118,10 @@ class SummarizationService:
         # Extract content from code blocks
         if "```json" in cleaned:
             start = cleaned.find("```json") + 7
-            end = cleaned.find("```")
+            end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
         elif "```" in cleaned:
-            start = cleaned.find("```")
+            start = cleaned.find("```") + 3
             end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
         
