@@ -95,37 +95,12 @@ class AuthSessionMiddleware:
                 if not session:
                     return False
 
-                # Manual expiry check to handle timezone issues
-                current_time = datetime.now(timezone.utc)
-                
-                # Check if session has an expiry field
-                if hasattr(session, 'expires_at') and session.expires_at:
-                    expires_at = session.expires_at
-                    
-                    # Make expires_at timezone-aware if it's naive
-                    if expires_at.tzinfo is None:
-                        expires_at = expires_at.replace(tzinfo=timezone.utc)
-                    
-                    # Check if expired
-                    if current_time > expires_at:
-                        session.is_active = False
-                        session.ended_at = current_time
-                        session.end_reason = 'expired'
-                        db.flush()
-                        return False
-                else:
-                    # Fallback to original method if no expires_at field
-                    try:
-                        if session.is_expired():
-                            session.is_active = False
-                            session.ended_at = current_time
-                            session.end_reason = 'expired'
-                            db.flush()
-                            return False
-                    except Exception as tz_error:
-                        logger.warning(f"Timezone error in is_expired(): {tz_error}")
-                        # If timezone error, assume session is valid for now
-                        # You might want to handle this differently based on your security requirements
+                if session.is_expired():
+                    session.is_active = False
+                    session.ended_at = datetime.now(timezone.utc)
+                    session.end_reason = 'expired'
+                    db.flush()
+                    return False
 
                 return True
 
