@@ -1036,15 +1036,15 @@ class DocumentUploadService:
             file_size = temp_doc.get('file_size', 0)
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
-            ai_purpose =  temp_doc.get('ai_purpose', task['ai_purpose'])
-            source =  task['source']
+            ai_purpose = temp_doc.get('ai_purpose', task['ai_purpose'])
+            source = task['source']
 
             # Validate file exists
             if not temp_file_path or not os.path.exists(temp_file_path):
                 raise FileProcessingError(f"Temp file not found: {temp_file_path}")
 
             # Determine category folder based on AI classification
-            category_folder = temp_doc.get('ai_classification',task['ai_classification'])
+            category_folder = temp_doc.get('ai_classification', task['ai_classification'])
 
             # Prepare destination
             dest_dir = os.path.join(self.processed_folder, category_folder)
@@ -1095,7 +1095,7 @@ class DocumentUploadService:
                     finalizedAt=datetime.now().isoformat(),
                     storagePath=dest_path,
                     categoryFolder=category_folder,
-                    storedFilename=unique_filename,  # Store actual filename, not metadata filename
+                    storedFilename=unique_filename,
                     savedAt=datetime.now().isoformat()
                 )
 
@@ -1151,6 +1151,75 @@ class DocumentUploadService:
                     
                 raise FileProcessingError(f"Failed to save document metadata: {db_error}")
 
+            # ============= SINGLE DOCUMENT PROCESSING & CHUNKING =============
+            # Process document once and extract chunks for both chunking and summarization
+            parsed_blocks = None
+            chunks = None
+            
+            try:
+                logger.info(f"Starting document processing and chunking for: {original_filename}")
+                
+                # Process document once to get parsed blocks
+                parsed_blocks, _ = self.document_processor.process_single_file(
+                    file_path=dest_path,
+                    document_id=document_id,
+                    project_id=project_id
+                )
+                
+                if parsed_blocks:
+                    # Create chunks from parsed blocks
+                    chunks = chunk_document_adaptive(
+                        parsed_blocks=parsed_blocks,
+                        document_id=document_id,
+                        project_id=project_id,
+                        document_type=doc_meta.finalCategory,
+                        openai_api_key=config.OPENAI_API_KEY
+                    )
+                    
+                    if chunks:
+                        # Save chunks to database
+                        self.db_manager.save_chunks(
+                            document_id=document_id,
+                            chunks=chunks,
+                        )
+                        logger.info(f"Successfully chunked and saved {len(chunks)} chunks for document: {original_filename}")
+                    else:
+                        logger.warning(f"No chunks generated for document: {original_filename}")
+                else:
+                    logger.warning(f"No parsed blocks generated for document: {original_filename}")
+                    
+            except Exception as e:
+                logger.error(f"Error during document processing and chunking for {original_filename}: {e}")
+                # Don't fail the entire process, continue with summarization attempt
+
+            # ============= SUMMARIZATION USING EXISTING CHUNKS =============
+            try:
+                logger.info(f"Starting summarization for: {original_filename}")
+                
+                summarization_service = SummarizationService()
+                
+                # Use pre-processed chunks if available, otherwise fall back to file processing
+                if chunks:
+                    logger.info(f"Using pre-processed chunks ({len(chunks)}) for summarization")
+                    summary = summarization_service.summarize_from_chunks(doc_meta, chunks)
+                else:
+                    logger.warning(f"No chunks available, falling back to file-based summarization")
+                    summary = summarization_service.summarize_document(doc_meta)
+                    
+                if summary:
+                    # Save summary to database
+                    self.db_manager.save_summary(
+                        document_id=document_id,
+                        summary_data=summary,
+                    )
+                    logger.info(f"Successfully generated and saved summary for document: {original_filename}")
+                else:
+                    logger.warning(f"No summary generated for document: {original_filename}")
+                    
+            except Exception as e:
+                logger.error(f"Error during summarization for document {original_filename}: {e}")
+                # Don't fail the entire process for summarization errors
+
             # Clean up temp document and file (only after successful processing)
             try:
                 # Remove temp file
@@ -1165,46 +1234,6 @@ class DocumentUploadService:
             except Exception as cleanup_error:
                 logger.warning(f"Cleanup error for {temp_document_id}: {cleanup_error}")
                 # Don't fail the entire process for cleanup errors
-            
-            # Summarization
-            try:
-                summarization_service = SummarizationService()
-                summary = summarization_service.summarize_document(doc_meta)
-                if summary:
-                    # Save summary to database
-                    self.db_manager.save_summary(
-                        document_id=document_id,
-                        summary_data=summary,
-                    )
-                    logger.info(f"Successfully generated and saved summary for document: {original_filename}")
-            except Exception as e:
-                logger.error(f"Error during summarization for document {original_filename}: {e}")
-
-
-            # Chunking
-            try:
-                parsed_blocks, _ = self.document_processor.process_single_file(
-                    file_path=dest_path,
-                    document_id=document_id,
-                    project_id=project_id
-                )
-                chunks = chunk_document_adaptive(
-                    parsed_blocks=parsed_blocks,
-                    document_id=document_id,
-                    project_id=project_id,
-                    document_type=doc_meta.finalCategory,
-                    openai_api_key=config.OPENAI_API_KEY
-                )
-                if chunks:
-                    # Save chunks to database
-                    self.db_manager.save_chunks(
-                        document_id=document_id,
-                        chunks=chunks,
-                    )
-                    logger.info(f"Successfully chunked and saved document: {original_filename}")
-            except Exception as e:
-                logger.error(f"Error during chunking for document {original_filename}: {e}")
-
 
             logger.info(f"Document processing completed successfully: {original_filename}")
 
@@ -1221,6 +1250,7 @@ class DocumentUploadService:
                 
             # Re-raise the error to be handled by the calling function
             raise
+
 
     def _get_category_folder(self, ai_classification: str) -> str:
         """Get category folder based on AI classification with enhanced mapping and validation."""

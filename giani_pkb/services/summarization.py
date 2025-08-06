@@ -23,7 +23,6 @@ from giani_pkb.utils.gemini_client import initialize_gemini_client
 from giani_pkb.utils.api_tracker import APICallTracker
 from giani_pkb.utils.prompt_generators import get_appropriate_prompt
 
-
 class SummarizationService:
     """
     Service for summarizing documents using Gemini LLM based on document categories.
@@ -49,7 +48,6 @@ class SummarizationService:
 
         self.processor = DocumentProcessor(api_keys={'gemini': self.gemini_api_key})
         self.api_call_tracker = APICallTracker()
-        Path("data/summaries").mkdir(parents=True, exist_ok=True)
 
         # Gemini Generation Config with JSON schema
         self.generation_config = genai.types.GenerationConfig(
@@ -120,10 +118,10 @@ class SummarizationService:
         # Extract content from code blocks
         if "```json" in cleaned:
             start = cleaned.find("```json") + 7
-            end = cleaned.find("```", start)
+            end = cleaned.find("```")
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
         elif "```" in cleaned:
-            start = cleaned.find("```") + 3
+            start = cleaned.find("```")
             end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
         
@@ -236,9 +234,154 @@ class SummarizationService:
 
         raise APIError("LLM API failed after retries")
 
+    def _normalize_chunks(self, chunks: List[Any]) -> List[Dict[str, Any]]:
+        """
+        Normalize chunks to dictionary format regardless of input format.
+        
+        Args:
+            chunks: List of chunks in various formats (tuples, dicts, etc.)
+            
+        Returns:
+            List of normalized chunk dictionaries
+        """
+        processed_chunks = []
+        
+        for i, chunk in enumerate(chunks):
+            if isinstance(chunk, tuple):
+                # Handle tuple format (raw output from chunk_document_adaptive)
+                processed_chunk = {
+                    "text": chunk[0] if len(chunk) > 0 else "",
+                    "metadata": chunk[1] if len(chunk) > 1 else {},
+                    "chunk_id": str(uuid.uuid4()),
+                    "chunk_index": i,
+                    "vector_id": chunk[2] if len(chunk) > 2 else None,
+                    "embedding_checksum": chunk[3] if len(chunk) > 3 else None
+                }
+                processed_chunks.append(processed_chunk)
+                
+            elif isinstance(chunk, dict):
+                # Handle dictionary format - ensure required fields exist
+                normalized_chunk = {
+                    "text": chunk.get("text", ""),
+                    "metadata": chunk.get("metadata", {}),
+                    "chunk_id": chunk.get("chunk_id", str(uuid.uuid4())),
+                    "chunk_index": chunk.get("chunk_index", i),
+                    "vector_id": chunk.get("vector_id"),
+                    "embedding_checksum": chunk.get("embedding_checksum")
+                }
+                processed_chunks.append(normalized_chunk)
+                
+            elif isinstance(chunk, str):
+                # Handle plain text format
+                processed_chunk = {
+                    "text": chunk,
+                    "metadata": {},
+                    "chunk_id": str(uuid.uuid4()),
+                    "chunk_index": i,
+                    "vector_id": None,
+                    "embedding_checksum": None
+                }
+                processed_chunks.append(processed_chunk)
+                
+            else:
+                self.logger.warning(f"Unknown chunk format at index {i}: {type(chunk)}, skipping")
+                continue
+        
+        return processed_chunks
+
+
+    def summarize_from_chunks(self, document: DocumentMetadata, chunks: List[Any]) -> Optional[Dict[str, Any]]:
+        """
+        Summarize a document using pre-processed chunks.
+        This method avoids duplicate document processing by using existing chunks.
+        
+        Args:
+            document: DocumentMetadata object containing document information
+            chunks: Pre-processed chunks from the document (supports multiple formats)
+            
+        Returns:
+            Dictionary containing summarization results or None if failed
+        """
+        self.logger.info(f"Starting summarization from pre-processed chunks for: {document.originalFilename}")
+        
+        try:
+            if not chunks:
+                self.logger.warning("No chunks provided for summarization")
+                return None
+
+            # Normalize chunks to dictionary format
+            processed_chunks = self._normalize_chunks(chunks)
+            
+            if not processed_chunks:
+                self.logger.warning("No valid chunks found after normalization")
+                return None
+
+            self.logger.debug(f"Normalized {len(chunks)} input chunks to {len(processed_chunks)} processed chunks")
+
+            # Extract text from processed chunks
+            combined_text = "\n\n".join(
+                chunk.get("text", "") for chunk in processed_chunks if chunk.get("text", "").strip()
+            )
+            
+            self.logger.debug(f"Combined text from {len(processed_chunks)} chunks, length: {len(combined_text)} characters")
+
+            if not combined_text.strip():
+                self.logger.warning("No text found in provided chunks")
+                return None
+
+            try:
+                prompt = get_appropriate_prompt(
+                    document.finalCategory,
+                    document.originalFilename,
+                    document.finalCategory,
+                    document.finalPurpose,
+                    combined_text
+                )
+                self.logger.debug(f"Successfully generated prompt, length: {len(prompt)} characters")
+                
+            except Exception as prompt_error:
+                self.logger.error(f"Failed to generate prompt: {prompt_error}")
+                raise prompt_error
+
+            # Call LLM API for summarization
+            llm_response = self.call_llm_api(prompt)
+            
+            if not llm_response:
+                self.logger.error("No response from LLM API")
+                return None
+
+            self.logger.info("Received valid LLM response")
+
+            # Prepare final result (no file saving)
+            result = {
+                "document_id": document.id,
+                "document_filename": document.originalFilename,
+                "document_category": document.finalCategory,
+                "source": document.source,
+                "document_group": self.get_document_group(document.finalCategory).value,
+                "user_note_purpose": document.finalPurpose,
+                "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
+                "llm_analysis": llm_response,
+                "chunks_count": len(processed_chunks),
+                "processing_method": "from_pre_processed_chunks",
+                "original_chunks_count": len(chunks),
+                "chunks_normalized": len(chunks) - len(processed_chunks)  # Track any chunks that were skipped
+            }
+
+            self.logger.info(f"Successfully summarized document from chunks: {document.originalFilename}")
+            return result
+            
+        except Exception as exc:
+            self.logger.error(f"Failed to summarize document from chunks {document.originalFilename}: {exc}")
+            raise FileProcessingError(f"Failed to summarize document from chunks: {exc}", filepath=document.storagePath)
+
+
     def summarize_document(self, document: DocumentMetadata) -> Optional[Dict[str, Any]]:
-        """Summarize a single document."""
-        self.logger.info(f"Starting summarization for: {document.originalFilename}")
+        """
+        Summarize a single document by processing the file directly.
+        This method is kept for backward compatibility and standalone usage.
+        """
+        self.logger.info(f"Starting file-based summarization for: {document.originalFilename}")
         
         try:
             chunks = self.extract_document_chunks(document.storagePath)
@@ -285,19 +428,9 @@ class SummarizationService:
                 "user_note_purpose": document.finalPurpose,
                 "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
                 "llm_analysis": llm_response,
-                "chunks_count": len(chunks)
+                "chunks_count": len(chunks),
+                "processing_method": "from_file_processing"  # Indicator of method used
             }
-
-            summary_path = Path("data/summaries") / f"{document.id}_summary.json"
-            self.logger.debug(f"Saving summary to: {summary_path}")
-            
-            with open(summary_path, "w", encoding="utf-8") as f:
-                json.dump(result, f, indent=2, ensure_ascii=False)
-            result["summaryStoragePath"] = str(summary_path)
-
-            self.metadata_manager.update_document_metadata_entry(
-                document.id, {"summaryStoragePath": str(summary_path)}
-            )
 
             self.logger.info(f"Successfully summarized document: {document.originalFilename}")
             return result
@@ -327,31 +460,6 @@ class SummarizationService:
 
         self.logger.info(f"Completed processing {len(results)} documents successfully")
         return results
-
-    def save_summarization_results(self, results: List[Dict[str, Any]], output_report="data/all_summaries_report.json"):
-        """Save summarization results to report file."""
-        
-        try:
-            report_data = {
-                "report_metadata": {
-                    "total_documents_processed": len(results),
-                    "total_summaries_successfully_saved": sum(1 for r in results if r.get("summaryStoragePath")),
-                    "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                    "version": "1.1"
-                },
-                "individual_summary_paths": [r["summaryStoragePath"] for r in results if r.get("summaryStoragePath")],
-                "api_call_summary": self.get_api_call_summary()
-            }
-
-            Path(output_report).parent.mkdir(parents=True, exist_ok=True)
-            with open(output_report, "w", encoding="utf-8") as f:
-                json.dump(report_data, f, indent=2, ensure_ascii=False)
-            
-            self.logger.info(f"Summarization report saved to: {output_report}")
-            
-        except Exception as e:
-            self.logger.error(f"Error writing report file: {e}")
-            raise FileProcessingError(f"Error writing report file: {e}", filepath=output_report)
 
     def get_api_call_summary(self) -> Dict[str, Any]:
         return self.api_call_tracker.get_summary()
