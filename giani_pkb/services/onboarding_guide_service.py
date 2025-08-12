@@ -2,6 +2,7 @@
 Service for generating the Project Onboarding Guide.
 Improved version with parallel processing, better error handling, and optimized database queries.
 Updated to return document UUIDs instead of integer IDs.
+Updated to work with new DocumentSummary model structure.
 """
 
 import logging
@@ -72,7 +73,7 @@ class OnboardingGuideGenerator:
             'mission_and_approach': 'mission_and_approach_prompt.txt',
             'strategic_intelligence_readout': 'strategic_intelligence_readout_prompt.txt',
             'priority_reading_list': 'priority_reading_list_prompt.txt',
-            'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'  # Add this line
+            'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'
         }
         
         # Load prompts from files
@@ -89,11 +90,7 @@ class OnboardingGuideGenerator:
                 self.logger.error(f"Error loading prompt {key}: {e}")
                 raise
         
-        # Remove this entire section that hardcodes the FAQ prompt:
-        # prompts['knowledge_base_faq'] = """You are an expert Giani.ai AI Strategist..."""
-        
         return prompts
-
 
     def _validate_response_completeness(self, response_text: str, expected_keys: List[str]) -> bool:
         """Check if response appears complete before parsing."""
@@ -124,10 +121,10 @@ class OnboardingGuideGenerator:
             return '{"knowledgeFAQ": []}'
         
         # Remove markdown code blocks if present
-        if cleaned.startswith('```json'):
-            cleaned = cleaned.replace('```json', '').replace('```','')
+        if cleaned.startswith('```
+            cleaned = cleaned.replace('```json', '').replace('```
         elif cleaned.startswith('```'):
-            cleaned = cleaned.replace('```','').replace('```','')
+            cleaned = cleaned.replace('``````','')
         
         # Remove leading quotes if present and not part of JSON structure
         if cleaned.startswith('"') and not cleaned.startswith('{"'):
@@ -382,6 +379,25 @@ class OnboardingGuideGenerator:
             self.logger.error(f"Error getting document summaries: {e}")
             return []
 
+    def _get_metadata_field(self, summary: Dict[str, Any], field_path: str, default_value=None):
+        """Helper method to safely extract fields from metadata_analysis JSON."""
+        try:
+            metadata_analysis = summary.get('metadata_analysis', {})
+            if not metadata_analysis:
+                return default_value
+            
+            # Navigate nested path (e.g., "universal_metadata.stated_client_problem_summary")
+            parts = field_path.split('.')
+            current = metadata_analysis
+            for part in parts:
+                if isinstance(current, dict) and part in current:
+                    current = current[part]
+                else:
+                    return default_value
+            return current
+        except Exception:
+            return default_value
+
     def _create_lean_context_for_mission(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> str:
         """Creates a lean context string for mission and approach synthesis."""
         sow_and_proposal_summaries = [
@@ -396,15 +412,16 @@ class OnboardingGuideGenerator:
         context_parts.append(f"Project Context: {json.dumps(project_context, indent=2)}")
         
         for summary in sow_and_proposal_summaries:
+            # Use new denormalized fields and metadata_analysis for nested data
             doc_context = f"""
 Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
 Category: {summary.get('document_category', 'Unknown')}
-Problem Summary: {summary.get('extracted_metadata', {}).get('stated_client_problem_summary', 'N/A')}
-Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
-Timeline: {summary.get('extracted_metadata', {}).get('project_phases_timeline_summary', 'N/A')}
-Milestones: {summary.get('extracted_metadata', {}).get('key_milestones_or_deadlines_list', [])}
-Scope: {summary.get('extracted_metadata', {}).get('scope_in_list', [])}
-Deliverables: {summary.get('extracted_metadata', {}).get('key_deliverables_list', [])}
+Problem Summary: {self._get_metadata_field(summary, 'project_specific.stated_client_problem_summary', 'N/A')}
+Objectives: {self._get_metadata_field(summary, 'project_specific.project_objectives_stated_list', [])}
+Timeline: {self._get_metadata_field(summary, 'project_specific.project_phases_timeline_summary', 'N/A')}
+Milestones: {self._get_metadata_field(summary, 'project_specific.key_milestones_or_deadlines_list', [])}
+Scope: {self._get_metadata_field(summary, 'project_specific.scope_in_list', [])}
+Deliverables: {self._get_metadata_field(summary, 'project_specific.key_deliverables_list', [])}
 """
             context_parts.append(doc_context)
         
@@ -414,12 +431,13 @@ Deliverables: {summary.get('extracted_metadata', {}).get('key_deliverables_list'
         """Creates a lean context string for strategic intelligence readout."""
         context_parts = []
         for summary in summaries_for_type:
+            # Use denormalized fields from the new model
             doc_context = f"""
 Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
-Narrative: {summary.get('ai_high_level_narrative_summary', 'N/A')}
-Key Takeaways: {summary.get('ai_key_takeaways_bullets', [])}
-Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_stated_list', [])}
-Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements_or_pain_points_expressed_list', [])}
+Narrative: {summary.get('narrative_summary', 'N/A')}
+Key Takeaways: {summary.get('key_takeaways', [])}
+Objectives: {self._get_metadata_field(summary, 'project_specific.project_objectives_stated_list', [])}
+Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_requirements_or_pain_points_expressed_list', [])}
 """
             context_parts.append(doc_context)
         
@@ -520,12 +538,13 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         # Create lean document list for prompt with UUID document IDs
         document_context = ""
         for i, s in enumerate(document_summaries):
+            # Use denormalized fields
             doc_info = f"""
 - Document ID: {s.get("document_id", "Unknown")}
 - Filename: {s.get("document_filename", "Unknown")}
 - Source Type: {s.get("source", "Unknown")}
-- Summary: {(s.get("narrative_summary", [""]) if s.get("narrative_summary") else "")[:200]}
-- Key Themes: {", ".join(s.get("key_themes", [])[:5])}  # Limit to first 5 themes
+- Summary: {(s.get("narrative_summary", "") or "")[:200]}
+- Key Themes: {", ".join((s.get("key_themes", []) or [])[:5])}  # Limit to first 5 themes
 """
             document_context += doc_info
 
