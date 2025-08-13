@@ -250,7 +250,40 @@ class DocumentSummary(Base):
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="summaries")
+    summary_chunks: Mapped[List["SummaryChunk"]] = relationship("SummaryChunk", back_populates="summary")
 
+
+class SummaryChunk(Base):
+    """Model for storing specialized chunks derived from document summaries."""
+    __tablename__ = "summary_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chunk_id = Column(String(100), unique=True, index=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    summary_id = Column(Integer, ForeignKey("document_summaries.id"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
+
+    # Content and type
+    chunk_text = Column(Text, nullable=False)
+    chunk_type = Column(String(50), nullable=False, index=True)  # e.g., 'overall_summary', 'faq', 'entities'
+
+    # Metadata
+    metadata_ = Column(JSON, default=dict)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Vectorization info
+    vector_id = Column(String(100), nullable=True)
+    embedding_model = Column(String(100), default="openai-embeddings")
+    embedding_vector = Column(JSONEncodedList, nullable=True)
+
+    # Relationships
+    summary: Mapped["DocumentSummary"] = relationship("DocumentSummary", back_populates="summary_chunks")
+    document: Mapped["Document"] = relationship("Document")
+
+    __table_args__ = (
+        Index('idx_summary_chunk_summary_id_type', 'summary_id', 'chunk_type'),
+    )
 
 
 class APICallLog(Base):

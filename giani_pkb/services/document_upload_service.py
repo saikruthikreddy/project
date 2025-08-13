@@ -26,6 +26,8 @@ from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
 from giani_pkb.services.summarization import SummarizationService
+from giani_pkb.services.summarychunking import SummaryChunkingService
+from giani_pkb.services.rag.embed_chunks import embed_summary_chunks
 from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 
 logger = logging.getLogger(__name__)
@@ -1208,11 +1210,36 @@ class DocumentUploadService:
                     
                 if summary:
                     # Save summary to database
-                    self.db_manager.save_summary(
+                    summary_saved = self.db_manager.save_summary(
                         document_id=document_id,
                         summary_data=summary,
                     )
                     logger.info(f"Successfully generated and saved summary for document: {original_filename}")
+
+                    if summary_saved:
+                        try:
+                            # Get the saved summary to access its ID
+                            saved_summary = self.db_manager.get_document_summary(document_id=document_id)
+                            if saved_summary:
+                                summary_chunker = SummaryChunkingService()
+                                derived_chunks = summary_chunker.create_derived_chunks(
+                                    summary_json=summary.get("metadata_analysis", {}),
+                                    document_id=str(document_id),
+                                    project_id=str(project_id)
+                                )
+                                if derived_chunks:
+                                    # Generate embeddings for the derived chunks
+                                    derived_chunks_with_embeddings = embed_summary_chunks(derived_chunks)
+                                    
+                                    self.db_manager.save_summary_chunks(
+                                        summary_id=saved_summary['id'],
+                                        document_id=document_id,
+                                        chunks=derived_chunks_with_embeddings
+                                    )
+                                    logger.info(f"Successfully created, embedded, and saved {len(derived_chunks)} derived chunks for document: {original_filename}")
+                        except Exception as chunk_error:
+                            logger.error(f"Error during derived chunk creation for {original_filename}: {chunk_error}")
+
                 else:
                     logger.warning(f"No summary generated for document: {original_filename}")
                     

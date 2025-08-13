@@ -9,7 +9,6 @@ from datetime import datetime
 
 from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 
-
 class SummaryChunkingService:
     """
     Service for chunking AI-generated summary JSON into specialized text chunks

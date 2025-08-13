@@ -12,7 +12,7 @@ import os
 import re
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
+    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
@@ -2218,6 +2218,58 @@ class DatabaseManager:
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database with separate summarization and metadata analysis."""
+        
+        def safe_extract(data, key, default=None):
+            """Safely extract a value from nested data structures."""
+            if isinstance(data, dict):
+                value = data.get(key, default)
+                
+                # Handle cases where the value might be a dict with additional nesting
+                if isinstance(value, dict):
+                    # Priority order for extracting the actual value from nested dicts
+                    for extract_key in ['title', 'value', 'text', 'content']:
+                        if extract_key in value:
+                            extracted = value[extract_key]
+                            # Return the extracted value if it's not another complex dict
+                            if not isinstance(extracted, (dict, list)):
+                                return extracted
+                    
+                    # If no standard keys found, return the default
+                    return default
+                
+                return value
+            return default
+
+        def safe_extract_list(data, key, default=None):
+            """Safely extract a list value, ensuring it's actually a list."""
+            value = safe_extract(data, key, default or [])
+            return value if isinstance(value, list) else (default or [])
+
+        def validate_and_convert_for_db(value, expected_type='string'):
+            """Validate and convert values for database storage."""
+            if value is None:
+                return None
+            
+            if expected_type == 'string':
+                if isinstance(value, dict):
+                    # Try to extract a meaningful string representation
+                    if 'title' in value:
+                        return str(value['title'])
+                    elif 'value' in value:
+                        return str(value['value'])
+                    else:
+                        return str(value)  # Last resort
+                return str(value) if value is not None else None
+            
+            elif expected_type == 'list':
+                if isinstance(value, list):
+                    return value
+                elif isinstance(value, dict):
+                    return []  # Return empty list for dicts when list expected
+                return []
+            
+            return value
+
         try:
             # Convert string to UUID if necessary
             if isinstance(document_id, str):
@@ -2251,25 +2303,6 @@ class DatabaseManager:
             rag_specific = extracted_metadata.get("rag_specific_metadata", {})
             group_specific = extracted_metadata.get("group_specific", {})
 
-            # Helper function to safely extract values from nested structures
-            def safe_extract(data, key, default=None):
-                """Safely extract a value from nested data structures."""
-                if isinstance(data, dict):
-                    value = data.get(key, default)
-                    # Handle cases where the value might be a dict with additional nesting
-                    if isinstance(value, dict) and len(value) == 1:
-                        # Check if it looks like {"title": "actual_value"} pattern
-                        inner_keys = list(value.keys())
-                        if inner_keys[0] in ['title', 'value', 'text', 'content']:
-                            return value[inner_keys[0]]
-                    return value
-                return default
-
-            def safe_extract_list(data, key, default=None):
-                """Safely extract a list value, ensuring it's actually a list."""
-                value = safe_extract(data, key, default or [])
-                return value if isinstance(value, list) else (default or [])
-
             with self.get_session() as session:
                 summary = DocumentSummary(
                     document_id=document_uuid,
@@ -2298,13 +2331,22 @@ class DatabaseManager:
                     tldr_key_finding=summarization_analysis.get("ai_tldr_key_finding"),
                     main_topics=safe_extract_list(summarization_analysis, "ai_main_topics_with_summaries_list_of_objects"),
 
-                    # Extracted fields for easy querying (from metadata_analysis)
+                    # Extracted fields for easy querying (from metadata_analysis) - with validation
                     extracted_keywords=safe_extract_list(metadata_analysis, "extracted_keywords"),
                     
-                    # Extract from universal_metadata with safe handling
-                    suggested_title=safe_extract(universal_metadata, "suggested_document_title"),
-                    implied_audience=safe_extract(universal_metadata, "implied_audience"),
-                    geographical_focus=safe_extract(universal_metadata, "primary_geographical_focus"),
+                    # Extract from universal_metadata with safe handling and validation
+                    suggested_title=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "suggested_document_title"), 
+                        'string'
+                    ),
+                    implied_audience=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "implied_audience"), 
+                        'string'
+                    ),
+                    geographical_focus=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "primary_geographical_focus"), 
+                        'string'
+                    ),
 
                     # Intelligence layer data (from metadata_analysis)
                     strategy_objectives=safe_extract_list(intelligence_layer, "strategy_and_objectives"),
@@ -2344,6 +2386,7 @@ class DatabaseManager:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
+
 
     def _normalize_document_id(self, document_id: Union[str, uuid.UUID]) -> str:
         """Normalize document ID to string format for database storage."""
@@ -2651,6 +2694,38 @@ class DatabaseManager:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
 
+    def save_summary_chunks(self, summary_id: int, document_id: Union[str, uuid.UUID], chunks: List[Dict[str, Any]]) -> bool:
+        """Save specialized summary chunks to the database."""
+        try:
+            if not chunks:
+                logger.info("No summary chunks to save.")
+                return True
+
+            if isinstance(document_id, str):
+                document_id = uuid.UUID(document_id)
+
+            with self.get_session() as session:
+                for chunk_data in chunks:
+                    new_chunk = SummaryChunk(
+                        summary_id=summary_id,
+                        document_id=document_id,
+                        chunk_id=chunk_data.get("metadata", {}).get("chunk_id", str(uuid.uuid4())),
+                        chunk_text=chunk_data.get("text"),
+                        chunk_type=chunk_data.get("chunk_type"),
+                        metadata_=chunk_data.get("metadata", {}),
+                        embedding_vector=chunk_data.get("embedding_vector")
+                    )
+                    session.add(new_chunk)
+                
+                logger.info(f"Successfully saved {len(chunks)} summary chunks for summary ID: {summary_id}")
+                return True
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error saving summary chunks: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving summary chunks: {e}")
+            return False
 
     def query_project(self, project_id: int, user_question: str,
                  document_content_type: Optional[str] = None,
