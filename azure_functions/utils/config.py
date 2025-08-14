@@ -3,7 +3,7 @@ Configuration settings for the Giani AI Project Knowledge Base application.
 """
 import os
 from dotenv import load_dotenv
-from giani_pkb.utils.exceptions import ConfigurationError
+from utils.exceptions import ConfigurationError
 from typing import Set
 
 load_dotenv()
