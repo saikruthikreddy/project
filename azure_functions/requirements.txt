@@ -25,4 +25,4 @@ google-generativeai==0.3.2
 
 # Only include LlamaIndex if absolutely necessary
 # llama-index-core==0.10.0
-# llama-index-multi-modal-llms-openai==0.1.0
+llama-index-multi-modal-llms-openai==0.6.0

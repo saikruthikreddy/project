@@ -74,3 +74,4 @@ llama-index-llms-ollama>=0.1.0
 python-magic>=0.4.27
 regex>=2022.10.31
 python-dateutil>=2.8.2
+llama-index-multi-modal-llms-openai==0.6.0
