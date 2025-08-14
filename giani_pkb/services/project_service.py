@@ -9,7 +9,6 @@ import uuid
 
 from giani_pkb.services.metadata_manager import MetadataManagerService
 from giani_pkb.services.classification import ClassificationService
-from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.exceptions import ProjectError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -21,6 +20,8 @@ class ProjectService:
     """
 
     def __init__(self):
+        # Import DatabaseManager lazily to avoid circular imports
+        from giani_pkb.database.database_manager import DatabaseManager
         self.db_manager = DatabaseManager()
         self.metadata_manager = MetadataManagerService()
         self.classification_service = ClassificationService()
@@ -38,7 +39,7 @@ class ProjectService:
                 client_name=client_name,
                 client_industry=client_industry,
                 targetAudience=targetAudience,
-                stakeholders=stakeholders, 
+                stakeholders=stakeholders,
                 objectives=objectives
             )
 

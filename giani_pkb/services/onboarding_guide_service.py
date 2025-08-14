@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import time
 
-from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import GEMINI_API_KEY
 from giani_pkb.utils.gemini_client import initialize_gemini_client
 import google.generativeai as genai
@@ -30,7 +29,7 @@ class OnboardingGuideGenerator:
         self.logger = logging.getLogger(__name__)
         self.db_manager = db_manager
         self.gemini_api_key = gemini_api_key or GEMINI_API_KEY
-        
+
         # Load model configuration from config or use defaults
         self.model_config = model_config or {
             'primary_model': 'gemini-1.5-pro',
@@ -38,12 +37,12 @@ class OnboardingGuideGenerator:
             'max_retries': 3,
             'timeout': 30
         }
-        
+
         if not self.gemini_api_key:
             raise ValueError("Gemini API key must be provided.")
-        
+
         initialize_gemini_client(self.gemini_api_key)
-        
+
         # Configure generation config to force JSON output
         generation_config = genai.types.GenerationConfig(
             response_mime_type="application/json",
@@ -52,7 +51,7 @@ class OnboardingGuideGenerator:
             top_k=40,
             max_output_tokens=4096,
         )
-        
+
         self.model = genai.GenerativeModel(
             self.model_config['primary_model'],
             generation_config=generation_config
@@ -61,7 +60,7 @@ class OnboardingGuideGenerator:
             self.model_config['fallback_model'],
             generation_config=generation_config
         )
-        
+
         # Load prompts from files
         self.prompts = self._load_prompts()
 
@@ -74,7 +73,7 @@ class OnboardingGuideGenerator:
             'priority_reading_list': 'priority_reading_list_prompt.txt',
             'knowledge_base_faq': 'knowledge_base_faq_prompt.txt'  # Add this line
         }
-        
+
         # Load prompts from files
         for key, filename in prompt_files.items():
             file_path = os.path.join(PROMPTS_DIR, filename)
@@ -88,10 +87,10 @@ class OnboardingGuideGenerator:
             except Exception as e:
                 self.logger.error(f"Error loading prompt {key}: {e}")
                 raise
-        
+
         # Remove this entire section that hardcodes the FAQ prompt:
         # prompts['knowledge_base_faq'] = """You are an expert Giani.ai AI Strategist..."""
-        
+
         return prompts
 
 
@@ -99,43 +98,43 @@ class OnboardingGuideGenerator:
         """Check if response appears complete before parsing."""
         if not response_text or len(response_text.strip()) < 10:
             return False
-        
+
         # Check for common truncation patterns
         truncation_patterns = [
             r'^\s*"[^"]*"?\s*$',  # Just a key name
             r'^\s*\{\s*"[^"]*"?\s*$',  # Incomplete object start
             r'^\s*\[\s*$',  # Just opening bracket
         ]
-        
+
         for pattern in truncation_patterns:
             if re.match(pattern, response_text.strip()):
                 return False
-        
+
         return True
 
     def _clean_json_response(self, response_text: str) -> str:
         """Clean and prepare JSON response from LLM."""
         # Remove leading/trailing whitespace and newlines
         cleaned = response_text.strip()
-        
+
         # Handle specific truncated response patterns
         if cleaned == '"knowledgeFAQ"' or cleaned.startswith('\n  "knowledgeFAQ"') or cleaned == '"knowledgeFAQ"':
             self.logger.warning("Detected truncated FAQ response, returning empty structure")
             return '{"knowledgeFAQ": []}'
-        
+
         # Remove markdown code blocks if present
         if cleaned.startswith('```json'):
             cleaned = cleaned.replace('```json', '').replace('```','')
         elif cleaned.startswith('```'):
             cleaned = cleaned.replace('```','').replace('```','')
-        
+
         # Remove leading quotes if present and not part of JSON structure
         if cleaned.startswith('"') and not cleaned.startswith('{"'):
             cleaned = cleaned.strip('"')
-        
+
         # Remove any leading newlines or whitespace again
         cleaned = cleaned.strip()
-        
+
         # Ensure proper JSON structure
         if not cleaned.startswith('{') and not cleaned.startswith('['):
             # Try to find JSON object in the response
@@ -150,7 +149,7 @@ class OnboardingGuideGenerator:
                     cleaned = '{"priorityReadingList": {"highPriority": [], "mediumPriority": []}}'
                 else:
                     cleaned = '{}'
-        
+
         return cleaned
 
     def _safe_json_parse(self, response_text: str) -> Dict[str, Any]:
@@ -188,7 +187,7 @@ class OnboardingGuideGenerator:
             mission_and_approach = synthesis_results.get("mission_and_approach", {})
             priority_reading = synthesis_results.get("priority_reading_list", {})
             knowledge_faq = synthesis_results.get("knowledge_base_faq", {})
-            
+
             onboarding_guide = {
                 "projectName": project_context.get("name", "Unknown Project"),
                 "lastSynthesized": datetime.utcnow().isoformat() + "Z",
@@ -234,7 +233,7 @@ class OnboardingGuideGenerator:
         Safely executes a synthesis function with retry logic and error handling.
         """
         max_retries = self.model_config.get('max_retries', 3)
-        
+
         for attempt in range(max_retries):
             try:
                 result = func(*args)
@@ -250,11 +249,11 @@ class OnboardingGuideGenerator:
                 self.logger.warning(f"{task_name} failed on attempt {attempt + 1}: {e}")
                 if attempt == max_retries - 1:
                     return {"success": False, "error": f"Failed after {max_retries} attempts: {str(e)}"}
-            
+
             # Wait before retry
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)  # Exponential backoff
-        
+
         return {"success": False, "error": f"All {max_retries} attempts failed"}
 
     def _run_parallel_synthesis(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -262,7 +261,7 @@ class OnboardingGuideGenerator:
         Runs all synthesis tasks in parallel using ThreadPoolExecutor.
         """
         synthesis_results = {"errors": {}}
-        
+
         # Define synthesis tasks
         tasks = {
             "mission_and_approach": (self._synthesize_mission_and_approach, project_context, document_summaries),
@@ -359,7 +358,7 @@ class OnboardingGuideGenerator:
                 summary = self.db_manager.get_document_summary(doc.id)
                 if summary:
                     summaries.append(summary)
-            
+
             # Convert summaries to dict format and ensure document_id is UUID string
             formatted_summaries = []
             for summary in summaries:
@@ -367,16 +366,16 @@ class OnboardingGuideGenerator:
                     summary_dict = summary.to_dict()
                 else:
                     summary_dict = summary
-                
+
                 # Ensure document_id is the UUID, not integer id
                 if hasattr(summary, 'document_id'):
                     summary_dict['document_id'] = str(summary.document_id)
                 elif 'document_id' in summary_dict:
                     # Convert to string if it's a UUID object
                     summary_dict['document_id'] = str(summary_dict['document_id'])
-                
+
                 formatted_summaries.append(summary_dict)
-            
+
             return formatted_summaries
         except Exception as e:
             self.logger.error(f"Error getting document summaries: {e}")
@@ -388,13 +387,13 @@ class OnboardingGuideGenerator:
             s for s in document_summaries
             if s.get("source") in ["SoW / Proposal Document", "Project Plan"]
         ]
-        
+
         if not sow_and_proposal_summaries:
             return "No foundational documents available."
-        
+
         context_parts = []
         context_parts.append(f"Project Context: {json.dumps(project_context, indent=2)}")
-        
+
         for summary in sow_and_proposal_summaries:
             doc_context = f"""
 Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
@@ -407,7 +406,7 @@ Scope: {summary.get('extracted_metadata', {}).get('scope_in_list', [])}
 Deliverables: {summary.get('extracted_metadata', {}).get('key_deliverables_list', [])}
 """
             context_parts.append(doc_context)
-        
+
         return "\n".join(context_parts)
 
     def _create_lean_context_for_readout(self, summaries_for_type: List[Dict[str, Any]]) -> str:
@@ -422,7 +421,7 @@ Objectives: {summary.get('extracted_metadata', {}).get('project_objectives_state
 Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements_or_pain_points_expressed_list', [])}
 """
             context_parts.append(doc_context)
-        
+
         return "\n".join(context_parts)
 
     def _synthesize_mission_and_approach(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -430,7 +429,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         self.logger.info("Synthesizing 'Mission & Approach' section")
 
         lean_context = self._create_lean_context_for_mission(project_context, document_summaries)
-        
+
         if "No foundational documents available" in lean_context:
             self.logger.info(f"No foundational documents available")
             return {
@@ -446,10 +445,10 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             response = self.model.generate_content(prompt)
             # Move logging AFTER response is generated
             self.logger.info(f"Mission & Approach LLM Response: {response.text}")
-            
+
             # Use safe JSON parsing
             result = self._safe_json_parse(response.text)
-            
+
             # Validate the structure
             if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
                 raise ValueError("LLM response missing required keys")
@@ -488,7 +487,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         strategic_intelligence_readout = {}
         for source_type, summaries in summaries_by_source_type.items():
             lean_context = self._create_lean_context_for_readout(summaries)
-            
+
             # Use loaded prompt with context substitution
             prompt = self.prompts['strategic_intelligence_readout'].format(
                 source_type=source_type,
@@ -543,7 +542,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
             reading_list = result["priorityReadingList"]
             if not all(key in reading_list for key in ['highPriority', 'mediumPriority']):
                 raise ValueError("priorityReadingList missing required keys")
-            
+
             # Ensure document IDs in the reading list are UUIDs
             for priority_level in ['highPriority', 'mediumPriority']:
                 if priority_level in reading_list:
@@ -551,7 +550,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
                         if 'documentId' in doc:
                             # Ensure it's a string representation of UUID
                             doc['documentId'] = str(doc['documentId'])
-            
+
             return result
         except Exception as e:
             self.logger.error(f"Error identifying 'Priority Reading List': {e}")
@@ -560,98 +559,98 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
     def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
         self.logger.info("Generating 'Knowledge Base FAQ' section")
-        
+
         # Create curated insights using the denormalized fields from DocumentSummary
         curated_insights = {
             "narrativeSummaries": [
-                s.get("narrative_summary") for s in document_summaries 
+                s.get("narrative_summary") for s in document_summaries
                 if s.get("narrative_summary")
             ][:10],
             "keyThemes": list(set(
-                theme for s in document_summaries 
+                theme for s in document_summaries
                 for theme in (s.get("key_themes") or [])
             ))[:10],
             "keyTakeaways": [
-                takeaway for s in document_summaries 
+                takeaway for s in document_summaries
                 for takeaway in (s.get("key_takeaways") or [])
             ][:15],
             "extractedKeywords": list(set(
-                keyword for s in document_summaries 
+                keyword for s in document_summaries
                 for keyword in (s.get("extracted_keywords") or [])
             ))[:20],
             "documentCategories": list(set(
-                s.get("document_category") for s in document_summaries 
+                s.get("document_category") for s in document_summaries
                 if s.get("document_category")
             )),
             "documentGroups": list(set(
-                s.get("document_group") for s in document_summaries 
+                s.get("document_group") for s in document_summaries
                 if s.get("document_group")
             )),
             "suggestedTitles": [
-                s.get("suggested_title") for s in document_summaries 
+                s.get("suggested_title") for s in document_summaries
                 if s.get("suggested_title")
             ][:10],
             "impliedAudiences": list(set(
-                s.get("implied_audience") for s in document_summaries 
+                s.get("implied_audience") for s in document_summaries
                 if s.get("implied_audience")
             )),
             "geographicalFocus": list(set(
-                s.get("geographical_focus") for s in document_summaries 
+                s.get("geographical_focus") for s in document_summaries
                 if s.get("geographical_focus")
             )),
             "keyPeople": list(set(
-                person for s in document_summaries 
+                person for s in document_summaries
                 for person in (s.get("key_people_mentioned") or [])
             ))[:15],
             "keyOrganizations": list(set(
-                org for s in document_summaries 
+                org for s in document_summaries
                 for org in (s.get("key_organizations_mentioned") or [])
             ))[:15],
             "keyDates": list(set(
-                date for s in document_summaries 
+                date for s in document_summaries
                 for date in (s.get("key_dates_mentioned") or [])
             ))[:10],
             "documentSentiments": list(set(
-                s.get("document_sentiment") for s in document_summaries 
+                s.get("document_sentiment") for s in document_summaries
                 if s.get("document_sentiment")
             )),
             "userNotePurposes": [
-                s.get("user_note_purpose") for s in document_summaries 
+                s.get("user_note_purpose") for s in document_summaries
                 if s.get("user_note_purpose")
             ][:10],
             "documentIds": [
-                s.get("document_id") for s in document_summaries 
+                s.get("document_id") for s in document_summaries
                 if s.get("document_id")
             ]  # Include document UUIDs for reference
         }
-        
+
         # Remove empty lists and None values to clean up the data
         curated_insights = {
-            k: v for k, v in curated_insights.items() 
+            k: v for k, v in curated_insights.items()
             if v and (not isinstance(v, list) or len(v) > 0)
         }
-        
+
         # Use loaded prompt with context substitution
         prompt = self.prompts['knowledge_base_faq'].format(
             curated_insights=json.dumps(curated_insights, indent=2)
         )
-        
+
         try:
             response = self.model.generate_content(prompt)
             self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
             result = json.loads(response.text)
-            
+
             # Validate structure
             if "knowledgeFAQ" not in result:
                 raise ValueError("LLM response missing knowledgeFAQ key")
-            
+
             # Ensure any document references in FAQ answers use UUID format
             for faq_item in result.get("knowledgeFAQ", []):
                 if 'relatedDocuments' in faq_item:
                     faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
-            
+
             return result
-            
+
         except Exception as e:
             self.logger.error(f"Error generating 'Knowledge Base FAQ': {e}")
             return {"knowledgeFAQ": []}
@@ -666,7 +665,7 @@ Client Concerns: {summary.get('extracted_metadata', {}).get('client_requirements
         total_documents = len(document_summaries)
         if total_documents == 0:
             return []
-            
+
         distribution = [
             {
                 "sourceType": source_type,

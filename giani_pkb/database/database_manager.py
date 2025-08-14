@@ -10,7 +10,6 @@ from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
 import re
-from giani_pkb.services.storage_factory import storage_service
 from giani_pkb.utils import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
@@ -35,6 +34,7 @@ class DatabaseManager:
 
     def __init__(self):
         self.engine = engine
+        from giani_pkb.services.storage_factory import storage_service
         self.storage_service = storage_service
 
     @contextmanager

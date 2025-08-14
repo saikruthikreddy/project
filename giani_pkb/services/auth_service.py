@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Tuple
 import logging
 
-from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.models.database_models import RefreshToken, UserSession
 from giani_pkb.utils.auth_utils import AuthUtils
 
@@ -16,6 +15,7 @@ class AuthService:
     """Enhanced authentication service with session management and token rotation."""
 
     def __init__(self):
+        from giani_pkb.database.database_manager import DatabaseManager
         self.db_manager = DatabaseManager()
         self.auth_utils = AuthUtils()
 
