@@ -19,12 +19,25 @@ jobs:
     - name: 'Checkout GitHub Action'
       uses: actions/checkout@v4
 
+    - name: 'Login to Azure'
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
     - name: 'Login to Azure Container Registry'
       uses: docker/login-action@v3
       with:
         registry: gianidevacr.azurecr.io
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: 'Cache Docker layers'
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
 
     - name: 'Build and Push Docker Image'
       working-directory: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
@@ -38,18 +51,8 @@ jobs:
         docker push gianidevacr.azurecr.io/giani-functions:$IMAGE_TAG
         docker push gianidevacr.azurecr.io/giani-functions:latest
 
-    - name: 'Cache Docker layers'
-      uses: actions/cache@v3
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
-
-
     - name: 'Deploy to Azure Functions'
       uses: Azure/functions-container-action@v1
       with:
         app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
         image: gianidevacr.azurecr.io/giani-functions:latest
-        publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
