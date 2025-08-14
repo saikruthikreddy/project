@@ -10,6 +10,8 @@ from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
 import re
+from giani_pkb.services.storage_factory import storage_service
+from giani_pkb.utils import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
     User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
@@ -33,6 +35,7 @@ class DatabaseManager:
 
     def __init__(self):
         self.engine = engine
+        self.storage_service = storage_service
 
     @contextmanager
     def get_session(self):
@@ -714,14 +717,16 @@ class DatabaseManager:
                         return False
 
                 # Build query with optional user access control
-                query = session.query(TempDocument).filter(
-                    TempDocument.temp_document_id == temp_document_id.strip()
+                temp_document = (
+                    session.query(TempDocument)
+                    .filter(
+                        and_(
+                            TempDocument.temp_document_id == temp_document_id,
+                            TempDocument.user_id == user_id,
+                        )
+                    )
+                    .first()
                 )
-
-                if user_id:
-                    query = query.filter(TempDocument.user_id == user_id)
-
-                temp_document = query.first()
 
                 if not temp_document:
                     logger.warning(f"Temp document {temp_document_id} not found" +
@@ -731,62 +736,18 @@ class DatabaseManager:
                 # Store info for logging and file cleanup
                 filename = temp_document.original_filename or "unknown_file"
                 file_path = temp_document.file_path
+                blob_name = temp_document.blob_name
                 user_info = f"user {temp_document.user_id}" if temp_document.user_id else "unknown user"
                 project_info = f"project {temp_document.project_id}" if temp_document.project_id else "unknown project"
 
                 # Validate file path before attempting cleanup
                 file_cleanup_success = True
                 if cleanup_file and file_path:
-                    if os.path.exists(file_path):
-                        try:
-                            # Additional safety check - ensure file is within expected directories
-                            file_path_abs = os.path.abspath(file_path)
-
-                            # Check if file is in temp_uploads or other allowed directories
-                            allowed_dirs = [
-                                os.path.abspath("temp_uploads"),
-                                os.path.abspath("data/uploaded_documents")
-                            ]
-
-                            is_safe_path = any(file_path_abs.startswith(allowed_dir) for allowed_dir in allowed_dirs)
-
-                            if is_safe_path:
-                                # Get file info before deletion
-                                file_size = os.path.getsize(file_path)
-
-                                os.remove(file_path)
-                                logger.info(f"Deleted file: {file_path} ({file_size:,} bytes)")
-
-                                # Try to remove empty parent directories
-                                try:
-                                    parent_dir = os.path.dirname(file_path)
-                                    if os.path.exists(parent_dir) and not os.listdir(parent_dir):
-                                        os.rmdir(parent_dir)
-                                        logger.debug(f"Removed empty directory: {parent_dir}")
-
-                                        # Try to remove grandparent if also empty (project directory)
-                                        grandparent_dir = os.path.dirname(parent_dir)
-                                        if os.path.exists(grandparent_dir) and not os.listdir(grandparent_dir):
-                                            os.rmdir(grandparent_dir)
-                                            logger.debug(f"Removed empty directory: {grandparent_dir}")
-                                except OSError:
-                                    # Directory not empty or other issue - this is fine
-                                    pass
-
-                            else:
-                                logger.error(f"Refusing to delete file outside allowed directories: {file_path}")
-                                file_cleanup_success = False
-
-                        except OSError as e:
-                            logger.warning(f"Failed to delete file {file_path}: {e}")
-                            file_cleanup_success = False
-
-                        except Exception as e:
-                            logger.error(f"Unexpected error deleting file {file_path}: {e}")
-                            file_cleanup_success = False
-                    else:
-                        logger.warning(f"File not found for cleanup: {file_path}")
-                        # Don't consider this a failure if the file doesn't exist
+                    try:
+                        self.storage_service.delete_file("test-container", blob_name)
+                    except Exception as e:
+                        file_cleanup_success = False
+                        logger.info("Unable to delete the file from the storage")
 
                 # Delete the database record
                 session.delete(temp_document)
@@ -803,7 +764,9 @@ class DatabaseManager:
                     status_msg += " [file cleanup skipped]"
 
                 logger.info(status_msg)
-                return True
+                return {
+                    "original_filename": temp_document.original_filename
+                }
 
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting temp document {temp_document_id}: {e}")
@@ -813,7 +776,6 @@ class DatabaseManager:
             import traceback
             logger.debug(f"Full traceback: {traceback.format_exc()}")
             return False
-
 
     def update_batch_status(self, batch_id: str, status: str, **kwargs) -> bool:
         """Update processing batch status and related fields with enhanced validation."""
@@ -1295,7 +1257,6 @@ class DatabaseManager:
             logger.error(f"Unexpected error listing temp documents: {e}")
             return []
 
-
     def get_temp_documents_count(self, project_id: Union[int, str],
                                 user_id: Union[str, uuid.UUID],
                                 status_filter: Optional[str] = None) -> int:
@@ -1344,8 +1305,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error counting temp documents: {e}")
             return 0
-
-
 
     # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:
@@ -1644,7 +1603,6 @@ class DatabaseManager:
             logger.error(f"Database error creating document chunk: {e}")
             raise DatabaseError(f"Failed to create document chunk: {e}")
 
-
     def get_document_chunks(self, document_id: str) -> List[DocumentChunk]:
         """Get all chunks for a document with enhanced ordering."""
         try:
@@ -1687,7 +1645,6 @@ class DatabaseManager:
                     kwargs['document_id'] = document_id  # update the value
                 except ValueError:
                     raise ValidationError("Invalid UUID format for 'document_id'")
-
 
             with self.get_session() as session:
                 # Verify document exists
