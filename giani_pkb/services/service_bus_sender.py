@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 
 SERVICE_BUS_CONNECTION_STRING = os.getenv("SERVICE_BUS_CONNECTION_STRING")
-DEFAULT_QUEUE = "test-queue"
+DEFAULT_QUEUE = "document-processing-queue"
 
 class ServiceBusSender:
     def __init__(self, queue_name: str=DEFAULT_QUEUE):
