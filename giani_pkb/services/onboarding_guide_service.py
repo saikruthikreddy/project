@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import time
 
+from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import GEMINI_API_KEY
 from giani_pkb.utils.gemini_client import initialize_gemini_client
 import google.generativeai as genai
