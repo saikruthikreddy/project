@@ -19,7 +19,6 @@ from giani_pkb.preprocessing.document_processor import DocumentProcessor
 from giani_pkb.services.classification import ClassificationService
 from giani_pkb.services.metadata_manager import MetadataManagerService
 from giani_pkb.models.document import DocumentMetadata
-from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
@@ -59,6 +58,7 @@ class DocumentUploadService:
 
         # Initialize services with error handling
         try:
+            from giani_pkb.database.database_manager import DatabaseManager
             self.db_manager = DatabaseManager()
             self.metadata_manager = MetadataManagerService()
             self.classification_service = ClassificationService()
