@@ -19,12 +19,10 @@ projectknowledge/
 ├── main.py                    # Main application entry point
 ├── run.py                     # Development server runner
 ├── wsgi.py                    # Production WSGI entry point
-├── startup.py                 # Startup script for Azure App Service deployment
 ├── requirements.txt           # Python dependencies
 ├── requirements-2.txt         # Alternative requirements
 ├── requirements-azure.txt     # Azure-specific dependencies
 ├── .env                       # Environment configuration
-├── users.db                   # SQLite database (auto-generated)
 ├── test_database.py           # Database-related tests
 ├── API_ROUTES_ORGANIZATION.md # API routes documentation
 ├── README.md                  # Project documentation

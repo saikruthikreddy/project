@@ -1,0 +1,18 @@
+# Local development files
+.env
+local.settings.json
+__pycache__/
+*.pyc
+*.pyo
+.Python
+func_venv*/
+
+# Azure Functions
+.azure/
+.vscode/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+deploy.sh

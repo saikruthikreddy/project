@@ -3,8 +3,13 @@ Main application entry point for Giani AI Project Knowledge Base.
 Updated with Analytics Middleware integration.
 """
 
-from flask import Flask, request, jsonify
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+from flask import Flask
 from flask_cors import CORS
+
 from giani_pkb.api import (
     create_auth_routes,
     create_project_routes,
