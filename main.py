@@ -13,7 +13,6 @@ from flask_cors import CORS
 from giani_pkb.api import (
     create_auth_routes,
     create_project_routes,
-    create_document_routes,
     create_user_routes,
     create_health_routes,
     create_ppt_routes,
@@ -67,7 +66,6 @@ def create_app():
     # Register all route blueprints
     app.register_blueprint(create_auth_routes())
     app.register_blueprint(create_project_routes())
-    app.register_blueprint(create_document_routes())
     app.register_blueprint(create_user_routes())
     app.register_blueprint(create_health_routes())
     app.register_blueprint(create_ppt_routes())

@@ -36,7 +36,6 @@ projectknowledge/
 │   │   ├── __init__.py
 │   │   ├── auth_routes.py     # Authentication endpoints
 │   │   ├── project_routes.py  # Project management endpoints
-│   │   ├── document_routes.py # Document processing endpoints
 │   │   ├── user_routes.py     # User management endpoints
 │   │   ├── health_routes.py   # Health check endpoints
 │   │   └── ppt_addin_routes.py # PPT add-in endpoints
