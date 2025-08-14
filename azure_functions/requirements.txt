@@ -1,0 +1,28 @@
+# Azure Functions
+azure-functions==1.20.0
+azure-servicebus==7.11.0
+azure-storage-blob==12.19.0
+
+# Database
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# Core dependencies
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Document processing (only essential ones)
+python-docx==0.8.11
+openpyxl==3.1.2
+pandas==2.1.4
+Pillow==10.2.0
+pymupdf==1.23.26
+python-pptx==0.6.23
+
+# AI/ML (optimized versions)
+tiktoken==0.5.2
+google-generativeai==0.3.2
+
+# Only include LlamaIndex if absolutely necessary
+# llama-index-core==0.10.0
+# llama-index-multi-modal-llms-openai==0.1.0

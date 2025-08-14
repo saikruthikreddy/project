@@ -3,19 +3,17 @@ Unified database manager using SQLAlchemy ORM for all database operations.
 """
 import logging
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from contextlib import contextmanager
-from sqlalchemy import and_, or_, func, desc, asc, text
+from sqlalchemy import and_, or_, desc
 from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
-import re
-from giani_pkb.utils.database import SessionLocal, engine
-from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
+from utils.database import SessionLocal, engine
+from models.database_models import (
+    User, Project, Document, DocumentChunk, DocumentSummary
 )
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
-from giani_pkb.utils.auth_utils import hash_password, verify_password
+from utils.exceptions import DatabaseError, ValidationError, NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -48,533 +46,7 @@ class DatabaseManager:
         finally:
             session.close()
 
-    def _user_to_dict(self, user: User) -> Dict[str, Any]:
-        """Convert User object to dictionary with proper null handling."""
-        if not user:
-            return None
-
-        return {
-            'id': str(user.id) if user.id is not None else None,
-            'username': user.username,
-            'email': user.email,
-            'hashed_password': user.hashed_password,
-            'microsoft_id': user.microsoft_id,
-            'is_active': user.is_active,
-            'is_superuser': user.is_superuser,
-            'created_at': user.created_at.isoformat() if user.created_at is not None else None,
-            'updated_at': user.updated_at.isoformat() if user.updated_at is not None else None
-        }
-
-    def _validate_email(self, email: str) -> bool:
-        """Validate email format."""
-        pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        return re.match(pattern, email) is not None
-
-    def _validate_username(self, username: str) -> bool:
-        """Validate username format.
-        Accepts names with letters, spaces, hyphens, and underscores. Must be 3–50 characters long.
-        Examples of valid usernames: 'John', 'John Doe', 'Mary-Jane', 'A_B'
-        """
-        if not username or not (3 <= len(username) <= 50):
-            return False
-
-        return bool(re.fullmatch(r"[A-Za-z][A-Za-z _-]{2,49}", username.strip()))
-
-    def create_user(self, username: str, email: str, password: Optional[str],
-                is_superuser: bool = False, microsoft_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """
-            Create a new user with proper password hashing and enhanced validation.
-            Handles both password-based and SSO-based user creation.
-        """
-        try:
-            # Input validation
-            if not self._validate_email(email):
-                raise ValidationError("Invalid email format")
-
-            # Validate username only if microsoft_id is not provided i.e. username is provided by the user
-            if not microsoft_id and not self._validate_username(username):
-                raise ValidationError("Username must be 3-50 characters and contain only letters, numbers, hyphens, and underscores")
-
-            # Password is required only if microsoft_id is not provided
-            if not microsoft_id and (not password or len(password) < 8):
-                raise ValidationError("Password must be at least 8 characters long")
-
-            with self.get_session() as session:
-                # Check if user already exists
-                existing_user = session.query(User).filter(
-                    User.email == email.lower()
-                ).first()
-
-                if existing_user:
-                    if existing_user.email == email.lower():
-                        raise ValidationError(f"User with email {email} already exists")
-                    else:
-                        raise ValidationError(f"Username {username} already exists")
-
-                # Create new user
-                hashed_password = hash_password(password) if password else None
-                user = User(
-                    username=username,
-                    email=email.lower(),
-                    hashed_password=hashed_password,
-                    microsoft_id=microsoft_id,
-                    is_superuser=is_superuser,
-                    is_active=True,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
-
-                session.add(user)
-                session.flush()  # Get the user ID
-                logger.info(f"Created user: {username}")
-                return self._user_to_dict(user)
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error creating user: {e}")
-            raise DatabaseError(f"Failed to create user: {e}")
-
-    def get_user_by_id(self, user_id: Union[str, uuid.UUID]) -> Optional[User]:
-        """Get user by ID with optimized query and improved type handling."""
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format: {user_id}")
-                    return None
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if user:
-                    # Detach from session to prevent lazy loading issues
-                    session.expunge(user)
-
-                return user
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user by ID: {e}")
-            return None
-
-    def get_user_by_microsoft_id(self, microsoft_id: str) -> Optional[User]:
-        try:
-            if not microsoft_id:
-                return None
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.microsoft_id == microsoft_id, User.is_active == True)
-                ).first()
-
-                if user:
-                    session.expunge(user)
-                return user
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user by microsoft_id: {e}")
-            return None
-
-    def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email with optimized query and case-insensitive search."""
-        try:
-            if not email or not self._validate_email(email):
-                return None
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.email == email.lower(), User.is_active == True)
-                ).first()
-
-                if user:
-                    # Detach from session to prevent lazy loading issues
-                    session.expunge(user)
-
-                return user
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user by email: {e}")
-            return None
-
-    def get_user_by_username(self, username: str) -> Optional[User]:
-        """Get user by username with optimized query and case-insensitive search."""
-        try:
-            if not username:
-                return None
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.username == username.lower(), User.is_active == True)
-                ).first()
-
-                if user:
-                    # Detach from session to prevent lazy loading issues
-                    session.expunge(user)
-
-                return user
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user by username: {e}")
-            return None
-
-    def verify_user_credentials(self, email: str, password: str) -> Optional[User]:
-        """Verify user credentials and return user if valid. COMPLETED TODO."""
-        try:
-            if not email or not password:
-                return None
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.email == email.lower(), User.is_active == True)
-                ).first()
-
-                # COMPLETED: Fixed the incomplete verification logic
-                if user and verify_password(password, user.hashed_password):
-                    # Update last login timestamp
-                    user.updated_at = datetime.now(timezone.utc)
-                    session.flush()
-
-                    # Detach from session to prevent lazy loading issues
-                    session.expunge(user)
-                    logger.info(f"Successful login for user: {user.username}")
-                    return user
-
-                if user:
-                    logger.warning(f"Failed login attempt for user: {user.username}")
-                else:
-                    logger.warning(f"Login attempt for non-existent email: {email}")
-
-                return None
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error verifying credentials: {e}")
-            return None
-
-    # Alternative methods that return dictionaries (for APIs)
-    def get_user_dict_by_id(self, user_id: Union[str, uuid.UUID]) -> Optional[Dict[str, Any]]:
-        """Get user by ID as dictionary with improved type handling."""
-        user = self.get_user_by_id(user_id)
-        return self._user_to_dict(user) if user else None
-
-    def get_user_dict_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """Get user by email as dictionary."""
-        user = self.get_user_by_email(email)
-        return self._user_to_dict(user) if user else None
-
-    def verify_user_credentials_dict(self, email: str, password: str) -> Optional[Dict[str, Any]]:
-        """Verify user credentials and return user data as dict."""
-        user = self.verify_user_credentials(email, password)
-        return self._user_to_dict(user) if user else None
-
-    def update_user(self, user_id: Union[str, uuid.UUID], **kwargs) -> Optional[User]:
-        """Update user fields with enhanced validation."""
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format: {user_id}")
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    raise NotFoundError(f"User with ID {user_id} not found")
-
-                # Update allowed fields with validation
-                allowed_fields = {'username', 'email', 'is_active', 'is_superuser', 'microsoft_id'}
-                for key, value in kwargs.items():
-                    if key in allowed_fields and hasattr(user, key):
-                        if key == 'email' and value:
-                            if not self._validate_email(value):
-                                raise ValidationError("Invalid email format")
-                            value = value.lower()
-                        elif key == 'username' and value:
-                            if not self._validate_username(value):
-                                raise ValidationError("Invalid username format")
-
-                        setattr(user, key, value)
-
-                setattr(user, "updated_at", datetime.now(timezone.utc))
-                session.flush()
-
-                # Detach from session
-                session.expunge(user)
-
-                logger.info(f"Updated user: {user.username}")
-                return user
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error updating user: {e}")
-            raise DatabaseError(f"Failed to update user: {e}")
-
-    def delete_user(self, user_id: Union[str, uuid.UUID]) -> bool:
-        """Soft delete user by setting is_active to False with improved type handling."""
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format: {user_id}")
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    raise NotFoundError(f"User with ID {user_id} not found")
-
-                user.is_active = False
-                user.updated_at = datetime.now(timezone.utc)
-
-                logger.info(f"Deleted user: {user.username}")
-                return True
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error deleting user: {e}")
-            raise DatabaseError(f"Failed to delete user: {e}")
-
     # Project Operations
-    def create_project(self, name: str, owner_id: Union[str, uuid.UUID],
-                      description: str = None, client_name: str = None,
-                      client_industry: str = None, targetAudience: str = None,
-                      stakeholders: str = None, objectives: str = None) -> Project:
-        """Create a new project with enhanced validation."""
-        try:
-            # Input validation
-            if not name or len(name.strip()) < 3:
-                raise ValidationError("Project name must be at least 3 characters long")
-
-            # Convert string to UUID if needed
-            if isinstance(owner_id, str):
-                try:
-                    owner_id = uuid.UUID(owner_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format for owner_id: {owner_id}")
-
-            with self.get_session() as session:
-                # Verify owner exists
-                owner = session.query(User).filter(
-                    and_(User.id == owner_id, User.is_active == True)
-                ).first()
-                if not owner:
-                    raise ValidationError(f"User with ID {owner_id} not found")
-
-                # Check for duplicate project names for the same user
-                existing_project = session.query(Project).filter(
-                    and_(
-                        Project.name == name.strip(),
-                        Project.owner_id == owner_id,
-                        Project.is_active == True
-                    )
-                ).first()
-
-                if existing_project:
-                    raise ValidationError(f"Project with name '{name}' already exists for this user")
-
-                project = Project(
-                    name=name.strip(),
-                    description=description.strip() if description else None,
-                    owner_id=owner_id,
-                    client_name=client_name.strip() if client_name else None,
-                    client_industry=client_industry.strip() if client_industry else None,
-                    target_audience=targetAudience.strip() if targetAudience else None,
-                    key_client_stakeholders_profiles=stakeholders.strip() if stakeholders else None,
-                    objectives=objectives.strip() if objectives else None,
-                    is_active=True,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
-
-                session.add(project)
-                session.flush()
-
-                # Detach from session
-                session.expunge(project)
-
-                logger.info(f"Created project: {name} for user: {owner.username}")
-                return project
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error creating project: {e}")
-            raise DatabaseError(f"Failed to create project: {e}")
-
-    def get_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID] = None) -> Optional[Project]:
-        """Get project by ID with optional user access check and improved type handling."""
-        try:
-            # Convert project_id to int if needed
-            if isinstance(project_id, str):
-                try:
-                    project_id = int(project_id)
-                except ValueError:
-                    logger.error(f"Invalid project_id format: {project_id}")
-                    return None
-
-            # Convert user_id to UUID if needed
-            if user_id and isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return None
-
-            with self.get_session() as session:
-                query = session.query(Project).filter(
-                    and_(Project.id == project_id, Project.is_active == True)
-                )
-
-                if user_id:
-                    query = query.filter(Project.owner_id == user_id)
-
-                project = query.first()
-
-                if project:
-                    session.expunge(project)
-
-                return project
-
-        except Exception as e:
-            logger.error(f"Database error getting project: {e}")
-            return None
-
-    def get_user_projects(self, user_id: Union[str, uuid.UUID]) -> List[Project]:
-        """Get all projects for a user with optimized query and improved type handling."""
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format: {user_id}")
-                    return []
-
-            with self.get_session() as session:
-                projects = session.query(Project).filter(
-                    and_(Project.owner_id == user_id, Project.is_active == True)
-                ).order_by(desc(Project.updated_at)).all()
-
-                # Detach all projects from session
-                for project in projects:
-                    session.expunge(project)
-
-                return projects
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user projects: {e}")
-            return []
-
-    def update_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID], **kwargs) -> Optional[Project]:
-        """Update project fields with ownership verification and enhanced validation."""
-        try:
-            # Convert types if needed
-            if isinstance(project_id, str):
-                try:
-                    project_id = int(project_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid project_id format: {project_id}")
-
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
-
-            logger.info(f'Updating project {project_id} for user {user_id}')
-
-            with self.get_session() as session:
-                project = session.query(Project).filter(
-                    and_(
-                        Project.id == project_id,
-                        Project.owner_id == user_id,
-                        Project.is_active == True
-                    )
-                ).first()
-
-                if not project:
-                    raise NotFoundError(f"Project with ID {project_id} not found or access denied")
-
-                # Update allowed fields with validation
-                allowed_fields = {"client_industry","client_name","key_client_stakeholders_profiles",'objectives','description','name','target_audience'}
-
-                for key, value in kwargs.items():
-                    if key in allowed_fields and hasattr(project, key):
-                        if key == 'name' and value:
-                            if len(value.strip()) < 3:
-                                raise ValidationError("Project name must be at least 3 characters long")
-                            value = value.strip()
-                        elif value and isinstance(value, str):
-                            value = value.strip()
-
-                        setattr(project, key, value)
-
-                project.updated_at = datetime.now(timezone.utc)
-                session.flush()
-
-                # Detach from session
-                session.expunge(project)
-
-                logger.info(f"Updated project: {project.name}")
-                return project
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error updating project: {e}")
-            raise DatabaseError(f"Failed to update project: {e}")
-
-    def delete_project(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID]) -> bool:
-        """Soft delete project with ownership verification and improved type handling."""
-        try:
-            # Convert types if needed
-            if isinstance(project_id, str):
-                try:
-                    project_id = int(project_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid project_id format: {project_id}")
-
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format for user_id: {user_id}")
-
-            with self.get_session() as session:
-                project = session.query(Project).filter(
-                    and_(
-                        Project.id == project_id,
-                        Project.owner_id == user_id,
-                        Project.is_active == True
-                    )
-                ).first()
-
-                if not project:
-                    raise NotFoundError(f"Project with ID {project_id} not found or access denied")
-
-                project.is_active = False
-                project.updated_at = datetime.now(timezone.utc)
-
-                logger.info(f"Deleted project: {project.name}")
-                return True
-
-        except ValidationError:
-            raise  # Re-raise validation errors
-        except SQLAlchemyError as e:
-            logger.error(f"Database error deleting project: {e}")
-            raise DatabaseError(f"Failed to delete project: {e}")
-
     def create_processing_batch(self, batch_id: str, project_id: Union[int, str],
                           user_id: Union[str, uuid.UUID], total_documents: int) -> Optional[Dict[str, Any]]:
         """Create a new processing batch record with enhanced validation and error handling."""
@@ -587,7 +59,7 @@ class DatabaseManager:
                 raise ValidationError("Total documents cannot be negative")
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from models.database_models import ProcessingBatch
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -699,7 +171,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from models.database_models import TempDocument
 
                 # Convert user_id to UUID if provided and is string
                 if user_id:
@@ -814,7 +286,6 @@ class DatabaseManager:
             logger.debug(f"Full traceback: {traceback.format_exc()}")
             return False
 
-
     def update_batch_status(self, batch_id: str, status: str, **kwargs) -> bool:
         """Update processing batch status and related fields with enhanced validation."""
         try:
@@ -828,7 +299,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -873,7 +344,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -909,7 +380,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from models.database_models import ProcessingBatch
 
                 # Convert user_id to UUID if provided and is string
                 if user_id and isinstance(user_id, str):
@@ -982,7 +453,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -1025,7 +496,7 @@ class DatabaseManager:
                     raise ValidationError(f"Required field '{field}' is missing or empty")
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 user_id = kwargs.get('user_id')
@@ -1078,6 +549,7 @@ class DatabaseManager:
                     raise ValidationError(f"User {user_id} does not have access to project {project_id}")
 
                 # Set default values and clean up data
+                print('Kwargs in db manager is :',kwargs)
                 cleaned_kwargs = {}
                 for key, value in kwargs.items():
                     if key == 'original_filename' and value:
@@ -1139,7 +611,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1188,7 +660,6 @@ class DatabaseManager:
                 temp_doc = {
                     'id': temp_document.id,
                     'temp_document_id': temp_document.temp_document_id,
-                    'blob_name': temp_document.blob_name,
                     'original_filename': temp_document.original_filename,
                     'text_preview': temp_document.text_preview or 'No preview available',
                     'file_path': temp_document.file_path,
@@ -1219,7 +690,7 @@ class DatabaseManager:
         """List all temporary documents for a given project and user with optional filtering."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1272,7 +743,6 @@ class DatabaseManager:
                         'id': temp_document.id,
                         'temp_document_id': temp_document.temp_document_id,
                         'original_filename': temp_document.original_filename,
-                        'blob_name': temp_document.blob_name,
                         'text_preview': temp_document.text_preview or 'No preview available',
                         'file_path': temp_document.file_path,
                         'file_size': temp_document.file_size or 0,
@@ -1302,7 +772,7 @@ class DatabaseManager:
         """Get count of temporary documents for a given project and user."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1644,32 +1114,6 @@ class DatabaseManager:
             logger.error(f"Database error creating document chunk: {e}")
             raise DatabaseError(f"Failed to create document chunk: {e}")
 
-
-    def get_document_chunks(self, document_id: str) -> List[DocumentChunk]:
-        """Get all chunks for a document with enhanced ordering."""
-        try:
-            if isinstance(document_id, str):
-                try:
-                    document_id = uuid.UUID(document_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for document_id: {document_id}")
-                    return False
-
-            with self.get_session() as session:
-                chunks = session.query(DocumentChunk).filter(
-                    DocumentChunk.document_id == document_id
-                ).order_by(asc(DocumentChunk.chunk_index), asc(DocumentChunk.id)).all()
-
-                # Detach all chunks from session
-                for chunk in chunks:
-                    session.expunge(chunk)
-
-                return chunks
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting document chunks: {e}")
-            return []
-
     # Document Summary Operations (Enhanced)
     def create_document_summary(self, **kwargs) -> DocumentSummary:
         """Create a new document summary with enhanced validation."""
@@ -1760,463 +1204,7 @@ class DatabaseManager:
             logger.error(f"Database error getting document summaries: {e}")
             return []
 
-    # API Call Logging (Enhanced)
-    def log_api_call(self, **kwargs) -> APICallLog:
-        """Log an API call for monitoring and debugging with enhanced validation."""
-        try:
-            # Input validation
-            required_fields = ['endpoint', 'method']
-            for field in required_fields:
-                if not kwargs.get(field):
-                    logger.warning(f"API call log missing required field: {field}")
-
-            with self.get_session() as session:
-                # Get next call number safely
-                try:
-                    last_call = session.query(APICallLog).order_by(desc(APICallLog.call_number)).first()
-                    call_number = (last_call.call_number + 1) if last_call else 1
-                except:
-                    call_number = 1
-
-                # Set timestamp if not provided
-                if 'timestamp' not in kwargs:
-                    kwargs['timestamp'] = datetime.now(timezone.utc)
-
-                api_log = APICallLog(call_number=call_number, **kwargs)
-                session.add(api_log)
-                session.flush()
-
-                # Detach from session
-                session.expunge(api_log)
-
-                return api_log
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error logging API call: {e}")
-            raise DatabaseError(f"Failed to log API call: {e}")
-
-    def get_api_call_logs(self, limit: int = 100) -> List[APICallLog]:
-        """Get recent API call logs with enhanced validation."""
-        try:
-            # Validate limit
-            if not isinstance(limit, int) or limit <= 0:
-                limit = 100
-            elif limit > 1000:  # Prevent excessive memory usage
-                limit = 1000
-
-            with self.get_session() as session:
-                logs = session.query(APICallLog).order_by(
-                    desc(APICallLog.timestamp)
-                ).limit(limit).all()
-
-                # Detach all logs from session
-                for log in logs:
-                    session.expunge(log)
-
-                return logs
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting API call logs: {e}")
-            return []
-
     # Statistics and Analytics (Enhanced)
-    def get_database_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive database statistics with enhanced error handling."""
-        try:
-            with self.get_session() as session:
-                stats = {}
-
-                # Basic counts with error handling
-                try:
-                    stats['users'] = session.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
-                except:
-                    stats['users'] = 0
-
-                try:
-                    stats['projects'] = session.query(func.count(Project.id)).filter(Project.is_active == True).scalar() or 0
-                except:
-                    stats['projects'] = 0
-
-                try:
-                    stats['documents'] = session.query(func.count(Document.id)).scalar() or 0
-                except:
-                    stats['documents'] = 0
-
-                try:
-                    stats['document_chunks'] = session.query(func.count(DocumentChunk.id)).scalar() or 0
-                except:
-                    stats['document_chunks'] = 0
-
-                try:
-                    stats['document_summaries'] = session.query(func.count(DocumentSummary.id)).scalar() or 0
-                except:
-                    stats['document_summaries'] = 0
-
-                try:
-                    stats['api_call_logs'] = session.query(func.count(APICallLog.id)).scalar() or 0
-                except:
-                    stats['api_call_logs'] = 0
-
-                # Get recent activity
-                try:
-                    today = datetime.now(timezone.utc).date()
-                    recent_documents = session.query(func.count(Document.id)).filter(
-                        func.date(Document.date_added_to_giani) == today
-                    ).scalar() or 0
-                    stats['documents_today'] = recent_documents
-                except:
-                    stats['documents_today'] = 0
-
-                # Add processing batch statistics
-                try:
-                    from giani_pkb.models.database_models import ProcessingBatch
-                    stats['processing_batches'] = session.query(func.count(ProcessingBatch.id)).scalar() or 0
-                    stats['active_batches'] = session.query(func.count(ProcessingBatch.id)).filter(
-                        ProcessingBatch.status.in_(['QUEUED', 'PROCESSING'])
-                    ).scalar() or 0
-                except:
-                    stats['processing_batches'] = 0
-                    stats['active_batches'] = 0
-
-                return stats
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting statistics: {e}")
-            return {}
-
-    def add_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
-        """Add a project to user's projects relationship with enhanced validation."""
-        try:
-            # Input validation
-            if not project_name or not project_name.strip():
-                logger.error("Project name cannot be empty")
-                return False
-
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return False
-
-            project_name = project_name.strip()
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return False
-
-                # Check if project with that name exists
-                existing_project = session.query(Project).filter(
-                    and_(
-                        Project.name == project_name,
-                        Project.owner_id == user_id,
-                        Project.is_active == True
-                    )
-                ).first()
-
-                if existing_project:
-                    if hasattr(user, 'projects') and existing_project not in user.projects:
-                        user.projects.append(existing_project)
-                        user.updated_at = datetime.now(timezone.utc)
-                        session.flush()
-                        logger.info(f"Added existing project '{project_name}' to user {user.username}")
-                    else:
-                        logger.info(f"Project '{project_name}' already exists for user {user.username}")
-                    return True
-                else:
-                    # Create and add new project
-                    new_project = Project(
-                        name=project_name,
-                        owner_id=user_id,
-                        is_active=True,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc)
-                    )
-                    session.add(new_project)
-
-                    if hasattr(user, 'projects'):
-                        user.projects.append(new_project)
-
-                    user.updated_at = datetime.now(timezone.utc)
-                    session.flush()
-                    logger.info(f"Created and added new project '{project_name}' for user {user.username}")
-                    return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error adding project to user: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error adding project to user: {e}")
-            return False
-
-    def remove_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
-        """Remove a project from user's projects relationship with enhanced validation."""
-        try:
-            # Input validation
-            if not project_name or not project_name.strip():
-                logger.error("Project name cannot be empty")
-                return False
-
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return False
-
-            project_name = project_name.strip()
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return False
-
-                if hasattr(user, 'projects'):
-                    project_to_remove = next((p for p in user.projects if p.name == project_name), None)
-
-                    if project_to_remove:
-                        user.projects.remove(project_to_remove)
-                        user.updated_at = datetime.now(timezone.utc)
-                        session.flush()
-                        logger.info(f"Removed project '{project_name}' from user {user.username}")
-                        return True
-                    else:
-                        logger.info(f"Project '{project_name}' not found for user {user.username}")
-                        return True
-                else:
-                    logger.info(f"User {user.username} has no projects relationship")
-                    return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error removing project from user: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error removing project from user: {e}")
-            return False
-
-    def get_user_projects_list(self, user_id: Union[str, uuid.UUID]) -> List[str]:
-        """Get the project names from user's relationship with enhanced validation."""
-        try:
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return []
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return []
-
-                if hasattr(user, 'projects') and user.projects:
-                    return [p.name for p in user.projects if p.is_active]
-                else:
-                    return []
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user projects list: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error getting user projects list: {e}")
-            return []
-
-    def verify_database_integrity(self) -> bool:
-        """Verify database integrity and relationships with comprehensive checks."""
-        try:
-            with self.get_session() as session:
-                integrity_issues = []
-
-                # Check for orphaned documents
-                orphaned_documents = session.query(Document).filter(
-                    ~Document.user_id.in_(session.query(User.id))
-                ).count()
-
-                if orphaned_documents > 0:
-                    integrity_issues.append(f"Found {orphaned_documents} orphaned documents")
-
-                # Check for orphaned projects
-                orphaned_projects = session.query(Project).filter(
-                    ~Project.owner_id.in_(session.query(User.id))
-                ).count()
-
-                if orphaned_projects > 0:
-                    integrity_issues.append(f"Found {orphaned_projects} orphaned projects")
-
-                # Check for orphaned document chunks
-                try:
-                    orphaned_chunks = session.query(DocumentChunk).filter(
-                        ~DocumentChunk.document_id.in_(session.query(Document.id))
-                    ).count()
-
-                    if orphaned_chunks > 0:
-                        integrity_issues.append(f"Found {orphaned_chunks} orphaned document chunks")
-                except:
-                    pass  # Table might not exist
-
-                # Check for orphaned document summaries
-                try:
-                    orphaned_summaries = session.query(DocumentSummary).filter(
-                        ~DocumentSummary.document_id.in_(session.query(Document.id))
-                    ).count()
-
-                    if orphaned_summaries > 0:
-                        integrity_issues.append(f"Found {orphaned_summaries} orphaned document summaries")
-                except:
-                    pass  # Table might not exist
-
-                # Check for orphaned processing batches
-                try:
-                    from giani_pkb.models.database_models import ProcessingBatch
-                    orphaned_batches = session.query(ProcessingBatch).filter(
-                        ~ProcessingBatch.user_id.in_(session.query(User.id))
-                    ).count()
-
-                    if orphaned_batches > 0:
-                        integrity_issues.append(f"Found {orphaned_batches} orphaned processing batches")
-                except:
-                    pass  # Table might not exist
-
-                if integrity_issues:
-                    logger.warning(f"Database integrity issues found: {'; '.join(integrity_issues)}")
-                    return False
-
-                logger.info("Database integrity check passed")
-                return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database integrity check failed: {e}")
-            return False
-
-    def cleanup_orphaned_records(self) -> Dict[str, int]:
-        """Clean up orphaned records and return counts of cleaned records."""
-        try:
-            cleanup_counts = {}
-
-            with self.get_session() as session:
-                # Clean up orphaned document chunks
-                try:
-                    orphaned_chunks = session.query(DocumentChunk).filter(
-                        ~DocumentChunk.document_id.in_(session.query(Document.id))
-                    ).delete(synchronize_session=False)
-                    cleanup_counts['document_chunks'] = orphaned_chunks
-                except Exception as e:
-                    logger.warning(f"Could not clean orphaned chunks: {e}")
-                    cleanup_counts['document_chunks'] = 0
-
-                # Clean up orphaned document summaries
-                try:
-                    orphaned_summaries = session.query(DocumentSummary).filter(
-                        ~DocumentSummary.document_id.in_(session.query(Document.id))
-                    ).delete(synchronize_session=False)
-                    cleanup_counts['document_summaries'] = orphaned_summaries
-                except Exception as e:
-                    logger.warning(f"Could not clean orphaned summaries: {e}")
-                    cleanup_counts['document_summaries'] = 0
-
-                # Note: We don't automatically clean orphaned documents/projects
-                # as this could be destructive
-
-                session.flush()
-
-                logger.info(f"Cleanup completed: {cleanup_counts}")
-                return cleanup_counts
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database cleanup failed: {e}")
-            return {}
-
-    def get_user_statistics(self, user_id: Union[str, uuid.UUID]) -> Dict[str, Any]:
-        """Get statistics for a specific user."""
-        try:
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return {}
-
-            with self.get_session() as session:
-                stats = {}
-
-                # User's projects
-                stats['projects'] = session.query(func.count(Project.id)).filter(
-                    and_(Project.owner_id == user_id, Project.is_active == True)
-                ).scalar() or 0
-
-                # User's documents
-                stats['documents'] = session.query(func.count(Document.id)).filter(
-                    Document.user_id == user_id
-                ).scalar() or 0
-
-                # Recent activity (last 30 days)
-                thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                stats['recent_documents'] = session.query(func.count(Document.id)).filter(
-                    and_(
-                        Document.user_id == user_id,
-                        Document.date_added_to_giani >= thirty_days_ago
-                    )
-                ).scalar() or 0
-
-                return stats
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user statistics: {e}")
-            return {}
-
-    def update_user_microsoft_id(self, user_id: Union[str, uuid.UUID], microsoft_id: str) -> Optional[User]:
-        "Update microsoft id for the user"
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format: {user_id}")
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-                if not user:
-                    raise NotFoundError(f"User with id {user_id} not found")
-
-                setattr(user, "microsoft_id", microsoft_id)
-
-            setattr(user, "updated_at", datetime.now(timezone.utc))
-
-            session.flush()
-            session.expunge(user)
-            logger.info(f"Updated user: {user.username}")
-
-            return user
-
-        except ValidationError:
-            raise
-        except SQLAlchemyError as e:
-            logger.error(f"Database error updating user: {e}")
-            raise DatabaseError(f"Failed to update user: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error updating the microsoft id for the user: {e}")
-            raise DatabaseError(f"Unexpected error updating the microsoft id for the user: {e}")
-
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database."""
         try:
@@ -2477,204 +1465,3 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error saving chunks: {e}")
             return False
-
-    def get_document_summary(self, document_id: Union[str, uuid.UUID], summary_id: int = None) -> Dict[str, Any]:
-        """
-        Get document summary from the database.
-
-        Args:
-            document_id: UUID string of the document
-            summary_id: Optional specific summary ID. If None, returns the most recent summary.
-
-        Returns:
-            Dictionary containing summary data or None if not found
-        """
-        try:
-            # Convert string to UUID if necessary
-            if isinstance(document_id, str):
-                try:
-                    document_uuid = uuid.UUID(document_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for document_id: {document_id}")
-                    return None
-            else:
-                document_uuid = document_id
-
-            # Verify the document exists
-            if not self._verify_document_exists(document_uuid):
-                logger.error(f"Document {document_id} does not exist")
-                return None
-
-            with self.get_session() as session:
-                query = session.query(DocumentSummary).filter(
-                    DocumentSummary.document_id == document_uuid
-                )
-
-                # If specific summary_id is provided, filter by it
-                if summary_id is not None:
-                    query = query.filter(DocumentSummary.id == summary_id)
-                    summary = query.first()
-                else:
-                    # Get the most recent summary
-                    summary = query.order_by(DocumentSummary.processing_timestamp.desc()).first()
-
-                if not summary:
-                    logger.info(f"No summary found for document {document_id}")
-                    return None
-
-                # Convert summary to dictionary
-                summary_data = {
-                    'id': summary.id,
-                    'document_id': str(summary.document_id),
-                    'document_filename': summary.document_filename,
-                    'document_category': summary.document_category,
-                    'document_group': summary.document_group,
-                    'user_note_purpose': summary.user_note_purpose,
-                    'source': summary.source,
-                    'processing_timestamp': summary.processing_timestamp.isoformat() if summary.processing_timestamp else None,
-                    'llm_model_used': summary.llm_model_used,
-                    'summary_storage_path': summary.summary_storage_path,
-                    'processing_duration_seconds': summary.processing_duration_seconds,
-
-                    # Core analysis fields
-                    'narrative_summary': summary.narrative_summary,
-                    'key_themes': summary.key_themes,
-                    'key_takeaways': summary.key_takeaways,
-                    'extracted_keywords': summary.extracted_keywords,
-
-                    # Metadata for search and filtering
-                    'document_sentiment': summary.document_sentiment,
-                    'suggested_title': summary.suggested_title,
-                    'implied_audience': summary.implied_audience,
-                    'geographical_focus': summary.geographical_focus,
-
-                    # Key entities
-                    'key_people_mentioned': summary.key_people_mentioned,
-                    'key_organizations_mentioned': summary.key_organizations_mentioned,
-                    'key_dates_mentioned': summary.key_dates_mentioned,
-
-                    # Computed properties from the model
-                    'main_topics': summary.main_topics,
-                    'key_data_points': summary.key_data_points,
-                    'key_recommendations': summary.key_recommendations,
-
-                    # Full LLM analysis
-                    'llm_analysis': summary.llm_analysis
-                }
-
-                logger.info(f"Successfully retrieved summary for document {document_id}")
-                return summary_data
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error retrieving summary for document {document_id}: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
-            return None
-
-    def query_project(self, project_id: int, user_question: str,
-                 document_content_type: Optional[str] = None,
-                 top_k: int = 10,
-                 similarity_threshold: float = 0.7):
-        """Query a project using RAG pipeline."""
-
-        logger.info(f"Starting RAG query for project {project_id}")
-
-        try:
-            # Import here to avoid circular imports if needed
-            from giani_pkb.services.rag.query_executor import run_query
-
-            # Make sure we're passing the actual session, not a context manager
-            session = self.get_session()
-            logger.debug(f'Session type in db_manager: {type(session)}')
-
-            # If get_session() returns a context manager, we need to use it properly
-            if hasattr(session, '__enter__'):
-                # It's a context manager
-                with session as db:
-                    return run_query(
-                        db=db,
-                        project_id=project_id,
-                        user_question=user_question,
-                        document_content_type=document_content_type,
-                        top_k=top_k,
-                        similarity_threshold=similarity_threshold
-                    )
-            else:
-                # It's already a session
-                try:
-                    return run_query(
-                        db=session,
-                        project_id=project_id,
-                        user_question=user_question,
-                        document_content_type=document_content_type,
-                        top_k=top_k,
-                        similarity_threshold=similarity_threshold
-                    )
-                finally:
-                    # Close the session if it's not a context manager
-                    session.close()
-
-        except Exception as e:
-            logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
-            raise
-
-    def run_migrations(self, target_revision: str = "head") -> bool:
-        """Run database migrations to target revision."""
-        try:
-            import subprocess
-            result = subprocess.run([
-                'alembic', 'upgrade', target_revision
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            if result.returncode == 0:
-                logger.info(f"Migrations applied successfully to {target_revision}")
-                return True
-            else:
-                logger.error(f"Migration failed: {result.stderr}")
-                return False
-        except Exception as e:
-            logger.error(f"Error running migrations: {e}")
-            return False
-
-    def create_migration(self, message: str) -> bool:
-        """Create a new migration."""
-        try:
-            import subprocess
-            result = subprocess.run([
-                'alembic', 'revision', '--autogenerate', '-m', message
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            if result.returncode == 0:
-                logger.info(f"Migration created: {message}")
-                return True
-            else:
-                logger.error(f"Migration creation failed: {result.stderr}")
-                return False
-        except Exception as e:
-            logger.error(f"Error creating migration: {e}")
-            return False
-
-    def get_migration_status(self) -> Dict[str, Any]:
-        """Get current migration status."""
-        try:
-            import subprocess
-
-            # Get current revision
-            current_result = subprocess.run([
-                'alembic', 'current'
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            # Get migration history
-            history_result = subprocess.run([
-                'alembic', 'history'
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            return {
-                'current_revision': current_result.stdout.strip(),
-                'history': history_result.stdout.strip(),
-                'status': 'success' if current_result.returncode == 0 else 'error'
-            }
-        except Exception as e:
-            logger.error(f"Error getting migration status: {e}")
-            return {'status': 'error', 'error': str(e)}
