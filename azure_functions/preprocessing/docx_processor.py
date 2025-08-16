@@ -80,7 +80,7 @@ class DocxProcessor:
     def _get_image_processor(self):
         """Get image processor if available."""
         try:
-            from giani_pkb.preprocessing.image_processor import ImageProcessor
+            from preprocessing.image_processor import ImageProcessor
             return ImageProcessor()
         except ImportError:
             logger.warning("Image processor not available. Image extraction will be skipped.")
