@@ -181,7 +181,7 @@ class DocumentProcessor:
         Raises:
             FileProcessingError: If file processing fails
         """
-        file_info = blob_storage_service.get_blob_info({"blob_name": file_path, "container_name": "raw-documents" })
+        file_info = blob_storage_service.get_blob_info({"blob_name": file_path, "container_name": config.TEMP_DOCUMENTS_CONTAINER })
 
         if not file_info:
             raise FileProcessingError(f"File not found: {file_path}", filepath=str(file_path))
@@ -190,19 +190,22 @@ class DocumentProcessor:
             logger.info(f"Processing file: {file_path} for doc_id: {document_id}")
 
             # Get file extension and processor
-            file_ext = file_info.file_extension
+            file_ext = file_info["file_extension"]
+            blob_name = file_info["blob_name"]
+            container = config.TEMP_DOCUMENTS_CONTAINER
             processor = self._get_file_processor(file_ext)
 
             # Process file based on type
             parsed_blocks = None
 
+
             if file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif']:
                 # Handle image processing
-                result = processor.process_file(file_path)
+                result = processor.process_file(container, blob_name)
                 parsed_blocks = self._create_image_block(result['combined_text'])
             else:
                 # Handle other file types
-                parsed_blocks = processor.process_file(file_path)
+                parsed_blocks = processor.process_file(container, blob_name)
 
             if not parsed_blocks:
                 logger.warning(f"No content blocks extracted from {file_path} for doc_id: {document_id}")

@@ -106,7 +106,7 @@ class DatabaseUtils:
         """Update batch processing status."""
         try:
             # TODO: Implement batch status update in DatabaseManager
-            success = self.db_manager.update_processing_batch(
+            success = self.db_manager.update_batch_status(
                 batch_id, status=status, processed_documents=processed_documents
             )
 
@@ -120,13 +120,9 @@ class DatabaseUtils:
     def get_batch_status(self, batch_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Get batch processing status."""
         try:
-            # TODO: Implement batch status retrieval in DatabaseManager
             batch_info = self.db_manager.get_processing_batch(batch_id)
             return batch_info
 
-            # For now, return None as placeholder
-            logger.warning("get_batch_status not yet implemented in DatabaseManager")
-            return None
         except Exception as e:
             logger.error(f"Error getting batch status: {e}")
             return None

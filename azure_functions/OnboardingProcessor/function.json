@@ -5,7 +5,7 @@
       "name": "msg",
       "type": "serviceBusTrigger",
       "direction": "in",
-      "queueName": "project-onboarding-queue",
+      "queueName": "%ONBOARDING_PROCESSING_QUEUE%",
       "connection": "SERVICE_BUS_CONNECTION_STRING"
     }
   ]

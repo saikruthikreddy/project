@@ -87,3 +87,6 @@ yarn-error.log*
 .deployment
 deploy.cmd
 .azure-pipelines/
+
+# Azure functions
+local.settings.json

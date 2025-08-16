@@ -463,6 +463,9 @@ class DatabaseManager:
                     logger.warning(f"Processing batch {batch_id} not found")
                     return False
 
+                if not batch.started_at:
+                    batch.started_at = datetime.now(timezone.utc)
+
                 # Increment counters atomically
                 if success:
                     batch.processed_documents = (batch.processed_documents or 0) + 1
@@ -663,6 +666,7 @@ class DatabaseManager:
                     'original_filename': temp_document.original_filename,
                     'text_preview': temp_document.text_preview or 'No preview available',
                     'file_path': temp_document.file_path,
+                    'blob_name': temp_document.blob_name,
                     'source': temp_document.source,
                     'file_size': temp_document.file_size or 0,
                     'mime_type': temp_document.mime_type,

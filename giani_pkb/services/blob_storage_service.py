@@ -30,6 +30,10 @@ class BlobStorageService(StorageServiceBase):
             self.blob_service_client = BlobServiceClient.from_connection_string(
                 config.STORAGE_CONNECTION_STRING
             )
+            self.containers = getattr(config, "BLOB_CONTAINERS", [])
+            if not self.containers:
+                raise ValueError("Blob containers are not defined in the env variable.")
+
             self.containers_created = set()  # Track created containers
             logger.info("BlobStorageService initialized successfully.")
         except Exception as e:
@@ -243,8 +247,8 @@ class BlobStorageService(StorageServiceBase):
                 elif "blob_name" in blob_reference:
                     # Search in common containers if container not specified
                     blob_name = blob_reference["blob_name"]
-                    containers_to_check = ["test-container", "raw-documents"]
-                    for container in containers_to_check:
+
+                    for container in self.containers:
                         temp_client = self.blob_service_client.get_blob_client(
                             container=container, blob=blob_name
                         )
@@ -258,7 +262,7 @@ class BlobStorageService(StorageServiceBase):
                             "exists": False,
                             "error": f"Blob not found in any checked containers: {blob_name}",
                             "blob_name": blob_name,
-                            "containers_checked": containers_to_check,
+                            "containers_checked": self.containers,
                         }
                 else:
                     return {
@@ -384,8 +388,8 @@ class BlobStorageService(StorageServiceBase):
         self,
         source_path: str,
         dest_path: str,
-        source_container: str = "test-container",
-        dest_container: str = "raw-documents",
+        source_container: str,
+        dest_container: str,
     ) -> dict:
         """
         Move a file from one container to another.
@@ -393,8 +397,8 @@ class BlobStorageService(StorageServiceBase):
         Args:
             source_path (str): Source file path
             dest_path (str): Destination file path
-            source_container (str): Source container name (default: test-container)
-            dest_container (str): Destination container name (default: raw-documents)
+            source_container (str): Source container name
+            dest_container (str): Destination container name
 
         Returns:
             dict: Result with success status, URLs, and any error info
@@ -541,9 +545,8 @@ class BlobStorageService(StorageServiceBase):
                 elif "blob_name" in file_reference:
                     # Blob name provided, need to determine container
                     blob_path = file_reference["blob_name"]
-                    # Check both test-container and raw-documents
-                    containers_to_check = ["test-container", "raw-documents"]
-                    for container in containers_to_check:
+
+                    for container in self.containers:
                         temp_client = self.blob_service_client.get_blob_client(
                             container=container, blob=blob_path
                         )
@@ -557,7 +560,7 @@ class BlobStorageService(StorageServiceBase):
                             "exists": False,
                             "error": f"File not found in any checked containers: {blob_path}",
                             "blob_path": blob_path,
-                            "containers_checked": containers_to_check,
+                            "containers_checked": self.containers,
                         }
                 else:
                     return {

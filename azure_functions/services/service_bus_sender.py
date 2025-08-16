@@ -5,11 +5,11 @@ import uuid
 import logging
 from datetime import datetime
 
-from giani_pkb.utils.config import config
+from utils.config import config
+
 
 logger = logging.getLogger(__name__)
 SERVICE_BUS_CONNECTION_STRING = getattr(config, "SERVICE_BUS_CONNECTION_STRING", "")
-
 
 class ServiceBusSender:
     def __init__(self, queue_name: str):
@@ -72,7 +72,7 @@ class ServiceBusSender:
                         try:
                             prepared_payload = self._prepare_payload(payload)
                             message_id = str(
-                                payload.get("batch_id") or uuid.uuid4()
+                                payload.get("temp_document_id") or uuid.uuid4()
                             )
                             msg = ServiceBusMessage(
                                 body=json.dumps(prepared_payload),
