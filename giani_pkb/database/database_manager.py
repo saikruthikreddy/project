@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
 import re
-from giani_pkb.utils import config
+from giani_pkb.utils.config import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
     User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
@@ -744,7 +744,7 @@ class DatabaseManager:
                 file_cleanup_success = True
                 if cleanup_file and file_path:
                     try:
-                        self.storage_service.delete_file("test-container", blob_name)
+                        self.storage_service.delete_file(config.TEMP_DOCUMENTS_CONTAINER, blob_name)
                     except Exception as e:
                         file_cleanup_success = False
                         logger.info("Unable to delete the file from the storage")

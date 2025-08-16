@@ -23,7 +23,7 @@ from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
 from giani_pkb.services.summarization import SummarizationService
-from giani_pkb.services.service_bus_sender import ServiceBusSender
+from giani_pkb.services.service_bus_sender import document_service_bus
 from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 from giani_pkb.services.storage_factory import storage_service
 
@@ -37,7 +37,6 @@ class DocumentUploadService:
     """
 
     def __init__(self):
-        # self.upload_folder = "temp_uploads"
         self.upload_folder = config.UPLOAD_FOLDER
         self.processed_folder = "data/uploaded_documents"
         self.max_file_size = 50 * 1024 * 1024  # 50MB
@@ -55,6 +54,7 @@ class DocumentUploadService:
 
         self.storage_service = storage_service
         logger.info(f"Using storage service: {type(self.storage_service).__name__}")
+        self.document_service_bus = document_service_bus
 
         # Initialize services with error handling
         try:
@@ -62,7 +62,6 @@ class DocumentUploadService:
             self.db_manager = DatabaseManager()
             self.metadata_manager = MetadataManagerService()
             self.classification_service = ClassificationService()
-            self.document_service_bus = ServiceBusSender()
 
             # Get API keys from config with validation
             api_keys = {
@@ -494,7 +493,7 @@ class DocumentUploadService:
 
                 # Upload to storage service
                 storage_result = self.storage_service.upload_file(
-                    container_name="test-container",
+                    container_name=config.TEMP_DOCUMENTS_CONTAINER,
                     blob_name=blob_name,
                     data=file_data
                 )
@@ -806,7 +805,6 @@ class DocumentUploadService:
                 }
                 tasks.append(task)
 
-            # self.document_service_bus.send_document_task(task)
             logger.info(f"Sending batch task to queue: {tasks}")
             self.document_service_bus.send_batch(tasks)
             return batch_id

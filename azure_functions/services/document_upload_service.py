@@ -104,31 +104,19 @@ class DocumentUploadService:
                 "ai_classification", task["ai_classification"]
             )
 
-            # TODO: Prepare destination
-            # dest_dir = os.path.join(self.processed_folder, category_folder)
-            # os.makedirs(dest_dir, exist_ok=True)
-
             # Create unique destination filename to prevent conflicts
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             base_name = Path(original_filename).stem
             extension = Path(original_filename).suffix
             unique_filename = f"{timestamp}_{base_name}{extension}"
-            # dest_path = os.path.join(dest_dir, unique_filename)
 
             source_path = f"{user_id}/{project_id}/{original_filename}"
             dest_path = f"{category_folder}/{user_id}/{project_id}/{original_filename}"
 
-            try:
-                # blob_storage_service.move_file(user_id, project_id, original_filename, category_folder)
-                blob_storage_service.move_file(source_path, dest_path)
-            except Exception as e:
-                logger.error("Unable to move file from test-container to raw-documents")
-                raise
-
             # Create document metadata
             document_id = uuid.uuid4()
             metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
-            metadata_path = os.path.join(dest_dir, metadata_filename)
+            metadata_path = os.path.join(temp_doc['blob_name'], metadata_filename)
 
             try:
                 # Create DocumentMetadata object
@@ -230,7 +218,7 @@ class DocumentUploadService:
 
                 # Process document once to get parsed blocks
                 parsed_blocks, chunks_with_metadata = self.document_processor.process_single_file(
-                    file_path=dest_path, document_id=document_id, project_id=project_id
+                    file_path=source_path, document_id=document_id, project_id=project_id
                 )
 
                 if parsed_blocks:
@@ -293,6 +281,7 @@ class DocumentUploadService:
                         document_id=document_id,
                         summary_data=summary,
                     )
+
                     logger.info(
                         f"Successfully generated and saved summary for document: {original_filename}"
                     )
@@ -310,7 +299,13 @@ class DocumentUploadService:
             # Clean up temp document and file (only after successful processing)
             try:
                 # Remove temp file
-                blob_storage_service.delete_file("test-container", source_path)
+                try:
+                    blob_storage_service.move_file(source_path, dest_path, source_container=config.TEMP_DOCUMENTS_CONTAINER, dest_container=config.DOCUMENTS_CONTAINER)
+                    # blob_storage_service.delete_file(config.TEMP_DOCUMENTS_CONTAINER, source_path)
+                except Exception as e:
+                    logger.error("Unable to move file.")
+                    raise
+
 
                 # Remove temp document from database
                 self.db_manager.delete_temp_document(

@@ -29,7 +29,50 @@ projectknowledge/
 ├── .gitignore                 # Git ignore rules
 ├── .gitpod.yml                # Gitpod configuration
 │
-├── giani_pkb/                 # Main application package
+├── azure_functions/
+│   ├── __init__.py
+│   │
+│   ├── services/                                 # Business logic services
+│   │   ├── document_upload_service.py            # Document upload handling
+│   │   ├── summarization.py                      # Summarization logic
+│   │   ├── metadata_manager.py                   # Metadata management
+│   │   ├── blob_storage_service.py               # Azure Blob Service
+│   │   ├── service_bus_sender.py                 # Azure Service Bus
+│   │   ├── storage_service_base.py               # Common Storage Service
+│   │   ├── onboarding_guide_service.py           # Project Onboarding Guide Genearator Service
+│   │   └── classification.py                     # AI classification logic
+│   │
+│   ├── utils/                 # Utilities and helpers
+│   │   ├── config.py             # Configuration management
+│   │   ├── exceptions.py         # Custom exception classes
+│   │   ├── database.py           # Database connection utilities
+│   │   ├── constants.py          # Project constants
+│   │   ├── prompt_generators.py  # Prompt generation helpers
+│   │   ├── prompt_loader.py      # Prompt loading utilities
+│   │   ├── gemini_client.py      # Gemini AI client
+│   │   ├── api_tracker.py        # API usage tracking
+│   │   └── classification.py     # Classification helpers
+│   │
+│   ├── prompts/               # Prompt templates
+│   │   ├── __init__.py
+│   │   ├── summarization_group_a_prompt.txt
+│   │   ├── summarization_group_b_prompt.txt
+│   │   ├── summarization_group_c_prompt.txt
+│   │   ├── summarization_group_d_prompt.txt
+│   │   ├── csv_analysis_prompt.txt
+│   │   ├── file_classification_prompt.txt
+│   │   └── ppt_addin_prompts/
+│   │       ├── title_generation_prompt.txt
+│   │       ├── title_refine_prompt.txt
+│   │       ├── title_regeneration_prompt.txt
+│   │       ├── Parallelize_content_prompt.txt
+│   │       ├── Slide_structure_regenerate_prompt.txt
+│   │       ├── improveSelectedText_prompt.txt
+│   │       ├── slide_review_prompt.txt
+│   │       └── slide_structure_prompt.txt
+│
+│
+├── giani_pkb/                    # Main application package
 │   ├── __init__.py
 │   │
 │   ├── api/                   # API layer
@@ -150,6 +193,7 @@ projectknowledge/
 ### System Dependencies
 
 **macOS:**
+
 ```bash
 # Install Tesseract OCR
 brew install tesseract
@@ -159,6 +203,7 @@ brew install postgresql
 ```
 
 **Ubuntu/Debian:**
+
 ```bash
 # Install Tesseract OCR
 sudo apt-get install tesseract-ocr
@@ -168,6 +213,7 @@ sudo apt-get install postgresql postgresql-contrib
 ```
 
 **Windows:**
+
 - Download Tesseract from: https://github.com/UB-Mannheim/tesseract/wiki
 - Download PostgreSQL from: https://www.postgresql.org/download/windows/
 
@@ -217,6 +263,7 @@ LOG_LEVEL=INFO
 ```
 
 **Get a Gemini API Key:**
+
 1. Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
 2. Create a new API key
 3. Add it to your `.env` file
@@ -232,11 +279,13 @@ python -c "from giani_pkb.database.database_initialize import DatabaseInitialize
 ### 6. Run the Application
 
 **Development:**
+
 ```bash
 python run.py
 ```
 
 **Production:**
+
 ```bash
 # Using WSGI
 python wsgi.py
@@ -246,6 +295,7 @@ gunicorn wsgi:app
 ```
 
 The application will be available at:
+
 - **Local**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/api/v1
 - **Health Check**: http://localhost:8000/api/v1/health/status
@@ -253,12 +303,15 @@ The application will be available at:
 ## 📚 API Documentation
 
 ### Base URL
+
 ```
 http://localhost:8000
 ```
 
 ### Authentication
+
 Most endpoints require JWT authentication. Include the token in the Authorization header:
+
 ```
 Authorization: Bearer <your_jwt_token>
 ```
@@ -266,17 +319,20 @@ Authorization: Bearer <your_jwt_token>
 ### Key Endpoints
 
 #### Health Checks
+
 - `GET /api/v1/health/status` - Basic health check
 - `GET /api/v1/health/detailed` - Detailed system health
 - `GET /api/v1/health/database` - Database health
 - `GET /api/v1/health/system` - System resources
 
 #### Authentication
+
 - `POST /auth/register` - User registration
 - `POST /auth/login` - User login
 - `POST /auth/logout` - User logout
 
 #### Projects
+
 - `GET /api/v1/projects/` - Get user projects
 - `POST /api/v1/projects/` - Create new project
 - `GET /api/v1/projects/{id}` - Get project details
@@ -284,6 +340,7 @@ Authorization: Bearer <your_jwt_token>
 - `DELETE /api/v1/projects/{id}` - Delete project
 
 #### Documents
+
 - `POST /api/v1/documents/upload` - Upload document
 - `GET /api/v1/documents/` - Get project documents
 - `POST /api/v1/documents/search` - Search documents
@@ -295,25 +352,26 @@ All API responses follow a standardized format:
 
 ```json
 {
-  "success": true,
-  "message": "Operation completed successfully",
-  "data": {
-    // Response data here
-  },
-  "error": null
+	"success": true,
+	"message": "Operation completed successfully",
+	"data": {
+		// Response data here
+	},
+	"error": null
 }
 ```
 
 Error responses:
+
 ```json
 {
-  "success": false,
-  "message": "Error description",
-  "data": null,
-  "error": {
-    "code": "ERROR_CODE",
-    "details": "Additional error details"
-  }
+	"success": false,
+	"message": "Error description",
+	"data": null,
+	"error": {
+		"code": "ERROR_CODE",
+		"details": "Additional error details"
+	}
 }
 ```
 
@@ -335,6 +393,7 @@ pytest tests/test_auth.py
 ### Code Style
 
 The project uses:
+
 - **Black** for code formatting
 - **Flake8** for linting
 - **Type hints** for better code documentation
@@ -350,11 +409,13 @@ flake8 giani_pkb/
 ### Adding New Features
 
 1. **Create feature branch:**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
 2. **Follow the project structure:**
+
    - API routes go in `giani_pkb/api/`
    - Business logic goes in `giani_pkb/services/`
    - Models go in `giani_pkb/models/`
@@ -376,6 +437,7 @@ When modifying database models:
 
 ### Environment Variables
 
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `FLASK_ENV` | Flask environment | `development` |
@@ -384,22 +446,23 @@ When modifying database models:
 | `DATABASE_URL` | Database connection string | `sqlite:///./giani_ai.db` |
 | `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000,https://localhost:3000` |
 | `LOG_LEVEL` | Logging level | `INFO` |
-
 ## 🚀 Deployment
-
 ### Production Setup
 
 1. **Use PostgreSQL:**
+
    ```env
    DATABASE_URL=postgresql://user:password@localhost/giani_ai
    ```
 
 2. **Set secure JWT secret:**
+
    ```env
    JWT_SECRET=your_very_secure_random_secret
    ```
 
 3. **Configure CORS for production domains:**
+
    ```env
    CORS_ORIGINS=https://yourdomain.com,https://api.yourdomain.com
    ```
@@ -451,6 +514,7 @@ CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "wsgi:app"]
 ## 🆘 Support
 
 For issues and questions:
+
 1. Check the [Issues](https://github.com/your-repo/issues) page
 2. Create a new issue with detailed information
 3. Include error logs and steps to reproduce
@@ -458,6 +522,7 @@ For issues and questions:
 ## 🔄 Changelog
 
 ### Version 1.0.0
+
 - Initial release
 - Document processing and classification
 - User authentication and project management

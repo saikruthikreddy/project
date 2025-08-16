@@ -26,6 +26,7 @@ except ImportError:
     LLAMAINDEX_AVAILABLE = False
     logger.warning("LlamaIndex not available. Enhanced parsing features will be disabled.")
 
+from services.blob_storage_service import blob_storage_service
 from utils.exceptions import ParsingError, FileProcessingError
 
 class DocxProcessor:
@@ -79,7 +80,7 @@ class DocxProcessor:
     def _get_image_processor(self):
         """Get image processor if available."""
         try:
-            from preprocessing.image_processor import ImageProcessor
+            from giani_pkb.preprocessing.image_processor import ImageProcessor
             return ImageProcessor()
         except ImportError:
             logger.warning("Image processor not available. Image extraction will be skipped.")
@@ -218,12 +219,11 @@ class DocxProcessor:
 
         return image_info
 
-    def _extract_images_from_docx(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
+    def _extract_images_from_docx(self, container: str, blob_name) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Extract images from DOCX file and process them.
 
         Args:
-            file_path: Path to DOCX file
 
         Returns:
             List of (image_text, metadata) tuples
@@ -234,14 +234,9 @@ class DocxProcessor:
         image_blocks: List[Tuple[str, Dict[str, Any]]] = []
 
         try:
-            with zipfile.ZipFile(file_path, 'r') as docx_zip:
-                # Get list of media files
-                media_files = [
-                    item for item in docx_zip.infolist()
-                    if item.filename.startswith('word/media/')
-                ]
+            media_files = blob_storage_service.list_docx_media_files(container, blob_name)
 
-                for media_file in media_files:
+            for media_file in media_files:
                     try:
                         image_bytes = docx_zip.read(media_file.filename)
                         image_text = self.image_processor.process_image_bytes(image_bytes)
@@ -260,21 +255,22 @@ class DocxProcessor:
                         logger.error(f"Error processing image {media_file.filename}: {e}")
 
         except Exception as e:
-            logger.error(f"Error extracting images from DOCX {file_path}: {e}")
+            logger.error(f"Error extracting images from DOCX {blob_name}: {e}")
 
         return image_blocks
 
-    def _parse_docx_to_blocks_enhanced(self, file_path: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _parse_docx_to_blocks_enhanced(self, container: str, blob_name: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Parse DOCX to blocks using the enhanced LlamaIndex logic.
 
         Args:
-            file_path: Path to DOCX file
+            container: Name of the blob container
+            blob_name: Blob name
 
         Returns:
             Tuple of (blocks, image_info)
         """
-        doc = docx.Document(file_path)
+        doc = blob_storage_service.get_docx_document(container, blob_name)
         blocks = []
 
         # Extract image information
@@ -480,20 +476,18 @@ class DocxProcessor:
 
         return normalized_blocks
 
-    def generate_metadata_with_llamaindex(self, file_path: str, blocks: Any,
+    def generate_metadata_with_llamaindex(self, container: str, blob_name: str, blocks: Any,
                                         nodes: List[Any] = None) -> Dict[str, Any]:
         """
         Generate comprehensive metadata using LlamaIndex integration.
 
         Args:
-            file_path: Path to the file
             blocks: Parsed blocks (can be various formats)
             nodes: Optional LlamaIndex nodes
 
         Returns:
             Comprehensive metadata dictionary
         """
-        file_path = Path(file_path)
         document_id = str(uuid.uuid4())
         now_iso = datetime.now().isoformat()
 
@@ -559,30 +553,31 @@ class DocxProcessor:
                 full_text = "Content available - text generation failed"
 
         # File information
-        file_size = file_path.stat().st_size if file_path.exists() else 0
-        mime_type, _ = mimetypes.guess_type(str(file_path))
+        file_info = blob_storage_service.get_blob_info({container, blob_name})
+        file_size = file_info["size_human"]
+        mime_type = "" # TODO
 
         metadata = {
             "document_id": document_id,
             "dateAddedToGiani": now_iso,
-            "originalFilename": file_path.name,
-            "storagePath": f"data/uploaded_documents/Client-Provided Material/{file_path.name}",
+            "originalFilename": file_info["file_name"],
+            "storagePath": file_info["blob_name"],
             "fileSize": file_size,
             "fileMimeType": mime_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "userID": "user_001",
             "projectID": "project_001",
             "categoryFolder": "Client-Provided Material",
             "finalCategory": "2. Operational Report/Review Deck",
-            "finalPurpose": f"\"{file_path.name}\" likely contains operational insights or structured data, including tables and embedded images, meant for review or reporting.",
+            "finalPurpose": f"\"{blob_name}\" likely contains operational insights or structured data, including tables and embedded images, meant for review or reporting.",
             "priority": "Medium",
             "geminiPrompt": (
                 "You are an AI assistant helping classify documents for a management consulting project.\n\n"
                 f"This is the document source \"<user_input>preview</user_input>\".\n\n"
-                f"Based on the filename \"<user_input>{file_path.name}</user_input>\" and this text preview:\n"
+                f"Based on the filename \"<user_input>{blob_name}</user_input>\" and this text preview:\n"
                 f"\"<user_input>{preview_str}</user_input>\"\n\nPlease classify this document..."
             ),
             "textPreview": preview_str,
-            "storedFilename": f"data/uploaded_documents/Client-Provided Material/{file_path.name}",
+            "storedFilename": f"data/uploaded_documents/Client-Provided Material/{blob_name}",
             "finalizedAt": now_iso,
             "savedAt": now_iso,
             "fullText": full_text,
@@ -593,12 +588,11 @@ class DocxProcessor:
 
         return metadata
 
-    def process_file(self, file_path: str, use_enhanced_parsing: bool = None) -> List[Tuple[str, Dict[str, Any]]]:
+    def process_file(self, container: str, blob_name: str, use_enhanced_parsing: bool = None) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Process a DOCX file and extract structured content.
 
         Args:
-            file_path: Path to DOCX file
             use_enhanced_parsing: Override for using enhanced parsing
 
         Returns:
@@ -608,35 +602,24 @@ class DocxProcessor:
             ParsingError: If file format is not supported
             FileProcessingError: If processing fails
         """
-        file_path = Path(file_path)
-
-        if not file_path.exists():
-            raise FileProcessingError(f"File not found: {file_path}", filepath=str(file_path))
-
-        if file_path.suffix.lower() not in self.supported_extensions:
-            raise ParsingError(
-                f"Unsupported file format: {file_path.suffix}. Supported: {', '.join(self.supported_extensions)}",
-                filename=str(file_path)
-            )
 
         # Determine parsing method
         enhanced_parsing = use_enhanced_parsing if use_enhanced_parsing is not None else self.use_llamaindex
 
         try:
             if enhanced_parsing:
-                return self._process_file_enhanced(str(file_path))
+                return self._process_file_enhanced(container, blob_name)
             else:
-                return self._process_file_legacy(str(file_path))
+                return self._process_file_legacy(container, blob_name)
         except Exception as e:
-            logger.error(f"Error processing DOCX file {file_path}: {e}")
-            raise FileProcessingError(f"Error processing DOCX file {file_path}: {e}", filepath=str(file_path))
+            logger.error(f"Error processing DOCX file {blob_name}: {e}")
+            raise FileProcessingError(f"Error processing DOCX file {blob_name}: {e}", filepath=str(blob_name))
 
-    def _process_file_enhanced(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
+    def _process_file_enhanced(self, container: str, blob_name) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Process file using enhanced LlamaIndex logic.
 
         Args:
-            file_path: Path to DOCX file
 
         Returns:
             List of (text_block, metadata) tuples
@@ -644,7 +627,7 @@ class DocxProcessor:
         processed_blocks: List[Tuple[str, Dict[str, Any]]] = []
 
         # Parse using enhanced logic
-        blocks, image_info = self._parse_docx_to_blocks_enhanced(file_path)
+        blocks, image_info = self._parse_docx_to_blocks_enhanced(container, blob_name)
 
         # Convert blocks to the expected format
         for block in blocks:
@@ -677,23 +660,22 @@ class DocxProcessor:
 
         # Process actual images if image processor is available
         if self.image_processor:
-            image_blocks = self._extract_images_from_docx(file_path)
+            image_blocks = self._extract_images_from_docx(container, blob_name)
             for i, (img_text, img_metadata) in enumerate(image_blocks):
                 img_metadata["doc_element_order"] = len(processed_blocks) + 1 + i
                 processed_blocks.append((img_text, img_metadata))
 
         if not processed_blocks:
-            logger.warning(f"No content blocks extracted from {file_path}")
+            logger.warning(f"No content blocks extracted from {blob_name}")
 
-        logger.info(f"Successfully processed {file_path} (enhanced): {len(processed_blocks)} blocks extracted")
+        logger.info(f"Successfully processed {blob_name} (enhanced): {len(processed_blocks)} blocks extracted")
         return processed_blocks
 
-    def _process_file_legacy(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
+    def _process_file_legacy(self, container: str, blob_name: str) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Process file using legacy logic.
 
         Args:
-            file_path: Path to DOCX file
 
         Returns:
             List of (text_block, metadata) tuples
@@ -702,7 +684,7 @@ class DocxProcessor:
         element_order = 0
 
         # Load document
-        document = docx.Document(file_path)
+        document = blob_storage_service.get_docx_document(container, blob_name)
 
         # Process document elements in order
         for element in document.element.body:
@@ -723,35 +705,32 @@ class DocxProcessor:
                     processed_blocks.append(result)
 
         # Extract and process images
-        image_blocks = self._extract_images_from_docx(file_path)
+        image_blocks = self._extract_images_from_docx(container, blob_name)
         for i, (img_text, img_metadata) in enumerate(image_blocks):
             img_metadata["doc_element_order"] = element_order + 1 + i
             processed_blocks.append((img_text, img_metadata))
 
         if not processed_blocks:
-            logger.warning(f"No content blocks extracted from {file_path}")
+            logger.warning(f"No content blocks extracted from {blob_name}")
 
-        logger.info(f"Successfully processed {file_path} (legacy): {len(processed_blocks)} blocks extracted")
+        logger.info(f"Successfully processed {blob_name} (legacy): {len(processed_blocks)} blocks extracted")
         return processed_blocks
 
-    def save_metadata_and_blocks(self, file_path: str, output_dir: str,
+    def save_metadata_and_blocks(self, container: str, blob_name: str, output_dir: str,
                                 blocks_input: Any = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Process file and save metadata and blocks (similar to new code functionality).
 
         Args:
-            file_path: Path to DOCX file
             output_dir: Output directory for saved files
             blocks_input: Optional pre-parsed blocks (can handle various formats)
 
         Returns:
             Tuple of (blocks, metadata)
         """
-        os.makedirs(output_dir, exist_ok=True)
-
         # Parse using enhanced logic if blocks not provided
         if blocks_input is None:
-            blocks, image_info = self._parse_docx_to_blocks_enhanced(file_path)
+            blocks, image_info = self._parse_docx_to_blocks_enhanced(container, blob_name)
         else:
             # Use provided blocks and normalize them
             blocks = self._normalize_blocks_input(blocks_input)
@@ -761,32 +740,23 @@ class DocxProcessor:
         nodes = self.create_llamaindex_nodes(blocks) if self.use_llamaindex else []
 
         # Generate comprehensive metadata
-        metadata = self.generate_metadata_with_llamaindex(file_path, blocks, nodes)
+        metadata = self.generate_metadata_with_llamaindex(container, blob_name, blocks, nodes)
 
         # Save metadata JSON
-        file_stem = Path(file_path).stem
-        metadata_path = os.path.join(output_dir, f"{file_stem}_metadata.json")
-        with open(metadata_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
+        # blob_storage_service.upload_file(container, f"{blob_name}/metadata.json", metadata) # TODO: Do we need to save the metadata to blob storage
 
         # Save parsed blocks JSON
-        blocks_path = os.path.join(output_dir, f"{file_stem}_parsed_blocks.json")
-        with open(blocks_path, "w", encoding="utf-8") as f:
-            json.dump(blocks, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"Metadata saved to: {metadata_path}")
-        logger.info(f"Parsed blocks saved to: {blocks_path}")
+        # blob_storage_service.upload_file(container, f"{blob_name}/parsed_blocks.json", blocks) # TODO: Do we need to save parsed JOSN blocks to blob storage
 
         return blocks, metadata
 
-    def process_docx(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
+    def process_docx(self, container: str, blob_name: str) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Legacy method for backward compatibility.
 
         Args:
-            file_path: Path to DOCX file
 
         Returns:
             List of (text_block, metadata) tuples
         """
-        return self.process_file(file_path)
+        return self.process_file(container, blob_name)

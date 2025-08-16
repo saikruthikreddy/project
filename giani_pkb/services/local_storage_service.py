@@ -153,8 +153,8 @@ class LocalStorageService(StorageServiceBase):
             return {'exists': False, 'error': f"Failed to get file info: {str(e)}"}
 
     def move_file(self, source_path: str, dest_path: str,
-                 source_container: str = "test-container",
-                 dest_container: str = "raw-documents") -> dict:
+                 source_container: str,
+                 dest_container: str) -> dict:
         """
         Move a file from one location to another in local storage.
         """

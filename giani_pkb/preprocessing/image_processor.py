@@ -14,9 +14,9 @@ logger = logging.getLogger(__name__)
 
 # Optional dependencies
 try:
-    import torch
-    from transformers import BlipProcessor, BlipForConditionalGeneration
-    TRANSFORMERS_AVAILABLE = True
+    # import torch
+    # from transformers import BlipProcessor, BlipForConditionalGeneration
+    TRANSFORMERS_AVAILABLE = False
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
     BlipProcessor = None

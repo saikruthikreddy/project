@@ -1,70 +1,100 @@
 """
 Configuration settings for the Giani AI Project Knowledge Base application.
 """
+
 import os
 from dotenv import load_dotenv
 from giani_pkb.utils.exceptions import ConfigurationError
 from typing import Set
+import logging
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 class Config:
     """Application configuration class."""
 
     # Database configuration
-    DATABASE_PATH = os.getenv('DATABASE_PATH', 'users.db')
+    DATABASE_PATH = os.getenv("DATABASE_PATH", "users.db")
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./giani_ai.db")
 
-    # Blob Storage Configuration
-    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')
-    STORAGE_ACCOUNT_URL = os.getenv('STORAGE_ACCOUNT_URL', '')
-    STORAGE_CONNECTION_STRING = os.getenv('STORAGE_CONNECTION_STRING', '')
-
     # JWT configuration
-    JWT_SECRET = os.getenv('JWT_SECRET', 'GIANIAI')  # Move to environment variable in production
-    JWT_ALGORITHM = 'HS256'
+    JWT_SECRET = os.getenv(
+        "JWT_SECRET", "GIANIAI"
+    )  # Move to environment variable in production
+    JWT_ALGORITHM = "HS256"
+
+    # Blob Storage Configuration
+    STORAGE_ACCOUNT_URL = os.getenv("STORAGE_ACCOUNT_URL", "")
+    STORAGE_CONNECTION_STRING = os.getenv("STORAGE_CONNECTION_STRING", "")
+    TEMP_DOCUMENTS_CONTAINER = os.getenv("TEMP_DOCUMENTS_CONTAINER", "")
+    DOCUMENTS_CONTAINER = os.getenv("DOCUMENTS_CONTAINER", "")
+    ONBOARDINGS_CONTAINER = os.getenv("ONBOARDINGS_CONTAINER", "")
+    USE_BLOB_STORAGE = os.getenv("USE_BLOB_STORAGE", False)
+    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "temp_uploads")
+    MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 50 * 1024 * 1024))  # 50MB default
+
+    BLOB_CONTAINERS = [
+        TEMP_DOCUMENTS_CONTAINER,
+        DOCUMENTS_CONTAINER,
+        ONBOARDINGS_CONTAINER,
+    ]
 
     # Service Bus Config
-    SERVICE_BUS_CONNECTION_STRING = os.getenv('SERVICE_BUS_CONNECTION_STRING', '')
+    SERVICE_BUS_CONNECTION_STRING = os.getenv("SERVICE_BUS_CONNECTION_STRING", "")
+    DOCUMENT_PROCESSING_QUEUE = os.getenv("DOCUMENT_PROCESSING_QUEUE", "")
+    ONBOARDING_PROCESSING_QUEUE = os.getenv("ONBOARDING_PROCESSING_QUEUE", "")
+
+    if not SERVICE_BUS_CONNECTION_STRING:
+        logger.error("SERVICE_BUS_CONNECTION_STRING cannot be empty. Set it in env variables.")
+    if not DOCUMENT_PROCESSING_QUEUE:
+        logger.error("DOCUMENT_PROCESSING_QUEUE cannot be empty. Set it in env variables.")
+    if not ONBOARDING_PROCESSING_QUEUE:
+        logger.error("ONBOARDING_PROCESSING_QUEUE cannot be empty. Set it in env variables.")
 
     # File upload configuration
-    USE_BLOB_STORAGE = os.getenv('USE_BLOB_STORAGE', False)
-    UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'temp_uploads')
-    PROCESSED_FOLDER = os.getenv('PROCESSED_FOLDER', 'data/uploaded_documents')
-    MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', 50 * 1024 * 1024))  # 50MB default
+    PROCESSED_FOLDER = os.getenv("PROCESSED_FOLDER", "data/uploaded_documents")
 
     # Allowed file extensions
     ALLOWED_EXTENSIONS: Set[str] = {
-        'pdf', 'docx', 'doc', 'txt', 'csv', 'xlsx', 'xls', 'pptx', 'ppt'
+        "pdf",
+        "docx",
+        "doc",
+        "txt",
+        "csv",
+        "xlsx",
+        "xls",
+        "pptx",
+        "ppt",
     }
 
     # Document types for folder structure
     DOCUMENT_TYPES = [
-        'requirements_specifications',
-        'technical_documentation',
-        'business_strategic',
-        'legal_compliance',
-        'research_analysis',
-        'marketing_communication',
-        'project_management',
-        'other'
+        "requirements_specifications",
+        "technical_documentation",
+        "business_strategic",
+        "legal_compliance",
+        "research_analysis",
+        "marketing_communication",
+        "project_management",
+        "other",
     ]
 
     # Role/Purpose Categories
     ROLE_PURPOSE_CATEGORIES = [
-        'Requirements & Specifications',
-        'Technical Documentation',
-        'Business & Strategic',
-        'Legal & Compliance',
-        'Research & Analysis',
-        'Marketing & Communication',
-        'Project Management',
-        'Other'
+        "Requirements & Specifications",
+        "Technical Documentation",
+        "Business & Strategic",
+        "Legal & Compliance",
+        "Research & Analysis",
+        "Marketing & Communication",
+        "Project Management",
+        "Other",
     ]
 
     # API configuration
-    API_BASE_URL = os.getenv('API_BASE_URL', 'http://localhost:5000')
-    API_VERSION = 'v1'
+    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:5000")
+    API_VERSION = "v1"
 
     # CORS configuration
     # read the comma-separated string (or default to empty)
@@ -73,18 +103,18 @@ class Config:
     CORS_ORIGINS = [origin.strip() for origin in _cors.split(",") if origin.strip()]
 
     # Logging configuration
-    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
     # AI Service configuration
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
-    DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
     # Microsoft OAuth configuration
-    MICROSOFT_CLIENT_ID = os.getenv('MICROSOFT_CLIENT_ID')
-    MICROSOFT_CLIENT_SECRET = os.getenv('MICROSOFT_CLIENT_SECRET')
-    MICROSOFT_TENANT_ID = os.getenv('MICROSOFT_TENANT_ID')
+    MICROSOFT_CLIENT_ID = os.getenv("MICROSOFT_CLIENT_ID")
+    MICROSOFT_CLIENT_SECRET = os.getenv("MICROSOFT_CLIENT_SECRET")
+    MICROSOFT_TENANT_ID = os.getenv("MICROSOFT_TENANT_ID")
 
     @classmethod
     def ensure_directories_exist(cls):
@@ -100,21 +130,24 @@ class Config:
     @classmethod
     def allowed_file(cls, filename: str) -> bool:
         """Check if file extension is allowed."""
-        return '.' in filename and filename.rsplit('.', 1)[1].lower() in cls.ALLOWED_EXTENSIONS
+        return (
+            "." in filename
+            and filename.rsplit(".", 1)[1].lower() in cls.ALLOWED_EXTENSIONS
+        )
 
     @classmethod
     def get_category_folder(cls, category: str) -> str:
         """Get folder name for a category."""
-        return category.lower().replace(' & ', '_').replace(' ', '_')
+        return category.lower().replace(" & ", "_").replace(" ", "_")
 
     @classmethod
     def validate_config(cls) -> bool:
         """Validate that all required configuration is present."""
         required_vars = [
-            'GEMINI_API_KEY',
-            'MICROSOFT_CLIENT_ID',
-            'MICROSOFT_CLIENT_SECRET',
-            'MICROSOFT_TENANT_ID'
+            "GEMINI_API_KEY",
+            "MICROSOFT_CLIENT_ID",
+            "MICROSOFT_CLIENT_SECRET",
+            "MICROSOFT_TENANT_ID",
         ]
 
         missing_vars = []
@@ -129,11 +162,14 @@ class Config:
 
         return True
 
+
 # Global config instance
 config = Config()
 
 if not config.GEMINI_API_KEY:
-    raise ConfigurationError("GEMINI_API_KEY environment variable not found or not set. Please ensure it is defined in your .env file or environment.")
+    raise ConfigurationError(
+        "GEMINI_API_KEY environment variable not found or not set. Please ensure it is defined in your .env file or environment."
+    )
 
 GEMINI_PRO_MODEL = "gemini-1.5-pro"
 GEMINI_FLASH_MODEL = "gemini-1.5-flash"
@@ -143,13 +179,16 @@ GEMINI_FLASH_ALIAS = "gemini-2.0-flash"
 # Module-level exports for backward compatibility
 GEMINI_API_KEY = config.GEMINI_API_KEY
 
+
 def get_api_key():
     """Returns the configured Gemini API key."""
     return config.GEMINI_API_KEY
 
+
 def get_default_model():
     """Returns the default Gemini model name."""
     return GEMINI_FLASH_MODEL
+
 
 def get_pro_model():
     """Returns the Gemini Pro model name."""

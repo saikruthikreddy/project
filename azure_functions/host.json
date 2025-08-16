@@ -12,10 +12,20 @@
 		}
 	},
 	"logging": {
+		"logLevel": {
+			"default": "Information",
+			"Host.Results": "Information",
+			"Function": "Information",
+			"Worker": "Information"
+		},
 		"applicationInsights": {
 			"samplingSettings": {
 				"isEnabled": true
 			}
-		}
+		},
+		"console": {
+			"isEnabled": true
+		},
+		"fileLoggingMode": "always"
 	}
 }

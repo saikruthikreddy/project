@@ -77,8 +77,8 @@ class StorageServiceBase(ABC):
         self,
         source_path: str,
         dest_path: str,
-        source_container: str = "test-container",
-        dest_container: str = "raw-documents",
+        source_container,
+        dest_container,
     ) -> dict:
         """
         Move a file from one location to another.
