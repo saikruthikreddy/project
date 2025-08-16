@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, and_, or_, case
-from giani_pkb.database.database_manager import DatabaseManager
 from giani_pkb.models.database_models import UserActivityLog, User
 import logging
 
@@ -18,6 +17,7 @@ class AnalyticsService:
     """Service for tracking and analyzing user activities."""
 
     def __init__(self):
+        from giani_pkb.database.database_manager import DatabaseManager
         self.db_manager = DatabaseManager()
 
     def log_activity(

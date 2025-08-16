@@ -37,7 +37,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
+.python_packages
 
 # Virtual environments
 venv/
@@ -47,7 +47,7 @@ env.bak/
 venv.bak/
 
 # IDE
-.vscode/
+
 .idea/
 *.swp
 *.swo
@@ -87,3 +87,6 @@ yarn-error.log*
 .deployment
 deploy.cmd
 .azure-pipelines/
+
+# Azure functions
+local.settings.json

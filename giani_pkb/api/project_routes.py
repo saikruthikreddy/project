@@ -352,79 +352,79 @@ def create_project_routes():
         """Update a processed document's metadata and properties."""
         try:
             user_id = g.user_id
-            
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Get JSON data from request
             data = request.get_json()
             if not data:
                 return api_validation_error('No data provided')
-            
+
             # Convert document_id to UUID if necessary
             try:
                 document_uuid = uuid.UUID(document_id)
             except ValueError:
                 return api_validation_error('Invalid document ID format')
-            
+
             # Verify document exists and user has access
             document = db_manager.get_document_by_id(document_uuid, user_id)
             if not document:
                 return api_not_found_error('Document not found or access denied')
-            
+
             # Verify document belongs to the specified project
             if document.project_id != int(project_id):
                 return api_authorization_error('Document does not belong to this project')
-            
+
             # Prepare updates dictionary with validation
             updates = {}
-            
+
             # Validate and process updatable fields
             if 'final_category' in data:
                 category = str(data['final_category']).strip()
                 if category:
                     updates['final_category'] = category
-            
+
             if 'final_purpose' in data:
                 purpose = str(data['final_purpose']).strip()
                 if purpose:
                     updates['final_purpose'] = purpose
-            
+
             if 'priority' in data:
                 priority = data['priority']
                 if isinstance(priority, int) and 1 <= priority <= 10:
                     updates['priority'] = priority
                 else:
                     return api_validation_error('Priority must be an integer between 1 and 10')
-            
+
             if 'processed_content' in data:
                 updates['processed_content'] = str(data['processed_content']).strip()
-            
+
             if 'text_preview' in data:
                 updates['text_preview'] = str(data['text_preview']).strip()
-            
+
             # Handle metadata updates (if applicable)
             if 'metadata' in data and isinstance(data['metadata'], dict):
                 updates['metadata'] = data['metadata']
-            
+
             # Check if there are any valid updates
             if not updates:
                 return api_validation_error('No valid updates provided')
-            
+
             # Update the document
             updated_document = db_manager.update_document(
                 document_id=document.id,
                 user_id=user_id,
                 **updates
             )
-            
+
             if not updated_document:
                 return api_database_error('Failed to update document')
-            
+
             # Log the update
             logger.info(f"User {user_id} updated document {document_id} in project {project_id}")
-            
+
             return api_success({
                 'document': updated_document.to_dict() if hasattr(updated_document, 'to_dict') else {
                     'id': str(updated_document.id),
@@ -435,7 +435,7 @@ def create_project_routes():
                     'updated_at': updated_document.updated_at.isoformat() if updated_document.updated_at else None
                 }
             }, 'Document updated successfully')
-            
+
         except ValidationError as e:
             logger.error(f"Validation error updating document {document_id}: {e}")
             return api_validation_error(str(e))
@@ -451,26 +451,26 @@ def create_project_routes():
         """Delete a processed document and its associated data."""
         try:
             user_id = g.user_id
-            
+
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
-            
+
             # Convert document_id to UUID if necessary
             try:
                 document_uuid = uuid.UUID(document_id)
             except ValueError:
                 return api_validation_error('Invalid document ID format')
-            
+
             # Verify document exists and user has access
             document = db_manager.get_document_by_id(document_uuid, user_id)
             if not document:
                 return api_not_found_error('Document not found or access denied')
-            
+
             # Verify document belongs to the specified project
             if document.project_id != int(project_id):
                 return api_authorization_error('Document does not belong to this project')
-            
+
             # Store document info for response and logging
             document_info = {
                 'id': str(document.id),
@@ -478,23 +478,23 @@ def create_project_routes():
                 'final_category': document.final_category,
                 'storage_path': document.storage_path
             }
-            
+
             # Optional: Check if force delete is requested
             force_delete = request.args.get('force', 'false').lower() == 'true'
-            
+
             # Delete the document from database (this also deletes chunks and summaries)
             success = db_manager.delete_document(
                 document_id=document.id,
                 user_id=user_id
             )
-            
+
             if not success:
                 return api_database_error('Failed to delete document from database')
-            
+
             # Optional: Delete physical file if requested and it exists
             cleanup_file = request.args.get('cleanup_file', 'false').lower() == 'true'
             file_deleted = False
-            
+
             if cleanup_file and document.storage_path:
                 try:
                     if os.path.exists(document.storage_path):
@@ -504,9 +504,9 @@ def create_project_routes():
                             os.path.abspath("data/uploaded_documents"),
                             os.path.abspath(upload_service.processed_folder)
                         ]
-                        
+
                         is_safe_path = any(file_path_abs.startswith(allowed_dir) for allowed_dir in allowed_dirs)
-                        
+
                         if is_safe_path:
                             os.remove(document.storage_path)
                             file_deleted = True
@@ -515,26 +515,26 @@ def create_project_routes():
                             logger.warning(f"Refusing to delete file outside allowed directories: {document.storage_path}")
                     else:
                         logger.info(f"Physical file not found (already deleted?): {document.storage_path}")
-                        
+
                 except Exception as file_error:
                     logger.warning(f"Failed to delete physical file {document.storage_path}: {file_error}")
                     # Don't fail the entire operation for file cleanup errors
-            
+
             # Log the deletion
             logger.info(f"User {user_id} deleted document {document_id} ({document_info['original_filename']}) from project {project_id}")
-            
+
             # Prepare response
             response_data = {
                 'deleted_document': document_info,
                 'file_deleted': file_deleted
             }
-            
+
             message = f'Document "{document_info["original_filename"]}" deleted successfully'
             if cleanup_file:
                 message += f' (physical file {"deleted" if file_deleted else "cleanup attempted"})'
-            
+
             return api_success(response_data, message)
-            
+
         except ValidationError as e:
             logger.error(f"Validation error deleting document {document_id}: {e}")
             return api_validation_error(str(e))
@@ -673,23 +673,13 @@ def create_project_routes():
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
-            # Get temporary document first to check if it exists
-            temp_document = db_manager.get_temp_document(
+            # Delete the temporary document
+            temp_document = db_manager.delete_temp_document(
                 temp_document_id=temp_document_id,
-                project_id=project_id,
                 user_id=user_id
             )
 
             if not temp_document:
-                return api_not_found_error('Temporary document not found')
-
-            # Delete the temporary document
-            success = db_manager.delete_temp_document(
-                temp_document_id=temp_document_id,
-                user_id=user_id
-            )
-
-            if not success:
                 return api_internal_server_error('Failed to delete temporary document')
 
             return api_success({

@@ -1,0 +1,16 @@
+.git
+.gitignore
+.funcignore
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+func_venv*
+.env
+local.settings.json
+.DS_Store
+node_modules

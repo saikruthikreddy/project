@@ -1,0 +1,35 @@
+# Azure Functions
+azure-functions==1.20.0
+azure-servicebus==7.14.2
+azure-storage-blob==12.19.1
+azure-identity==1.16.1
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Core dependencies
+python-dotenv>=1.0.0
+requests>=2.28.0
+
+# File processing
+python-docx>=0.8.11
+openpyxl>=3.1.0
+pandas>=2.0.0
+Pillow>=10.0.0
+pymupdf>=1.26.0
+python-pptx>=0.6.0
+pytesseract>=0.3.0
+
+# AI/ML (optimized versions)
+tiktoken>=0.9.0
+google-generativeai>=0.3.0
+spacy>=3.8.0  # NLP processing
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-experimental>=0.3.0
+langchain-openai>=0.3.0
+langchain-text-splitters>=0.3.0
+llama-index>=0.13.0
+llama-index-multi-modal-llms-openai

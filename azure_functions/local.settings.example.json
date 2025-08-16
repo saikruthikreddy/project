@@ -1,0 +1,29 @@
+{
+	"IsEncrypted": false,
+	"Values": {
+		"AzureWebJobsStorage": "<azure_blob_storage_connection_string>",
+		"FUNCTIONS_WORKER_RUNTIME": "python",
+
+		"GEMINI_API_KEY": "",
+		"OPENAI_API_KEY": "",
+
+		"DATABASE_URL": "<local_postgres_db_url>",
+
+		"STORAGE_CONNECTION_STRING": "<azure_blob_storage_connection_string>",
+		"USE_BLOB_STORAGE": true,
+		"STORAGE_ACCOUNT_URL": "https://gianidevstorage.blob.core.windows.net/",
+		"TEMP_DOCUMENTS_CONTAINER": "temp-documents-dev",
+		"DOCUMENTS_CONTAINER": "documents-dev",
+		"ONBOARDINGS_CONTAINER": "onboardings-dev",
+		"UPLOAD_FOLDER": "tmp/giani_uploads-dev",
+
+		"SERVICE_BUS_CONNECTION_STRING": "<azure_service_bus_connection_string>",
+		"DOCUMENT_PROCESSING_QUEUE": "document-processing-queue-dev",
+		"ONBOARDING_PROCESSING_QUEUE": "project-onboarding-queue-dev"
+	},
+	"Logging": {
+		"LogLevel": {
+			"Default": "Information"
+		}
+	}
+}
