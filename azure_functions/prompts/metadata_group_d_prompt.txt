@@ -20,21 +20,21 @@ JSON OUTPUT STRUCTURE:
 {{
   "extracted_metadata": {{
     "intelligence_layer": {{
-      "strategy_and_objectives": [ // Extract all statements related to goals, strategy, scope, mandate, or recommendations.
+      "strategy_and_objectives": [ // Extract any statements related to strategic decisions, goals, or client requirements discussed.
         {{"statement": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
       ],
-      "key_findings_and_data": [ // Extract all key data points, statistics, analytical findings, or market insights.
+      "key_findings_and_data": [ // Extract key pieces of information, feedback, or data shared during the interaction.
         {{"finding": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
       ],
-      "risks_and_mitigations": [ // Extract all explicit or inferred risks, challenges, dependencies, or mitigation plans.
+      "risks_and_mitigations": [ // Extract any mentioned concerns, unresolved issues, or potential roadblocks.
         {{"risk": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
       ],
-      "execution_and_actions": [ // Extract all deliverables, timelines, project phases, or next steps.
+      "execution_and_actions": [ // Extract all distinct decisions, action items, and next steps.
         {{"action": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
       ]
     }},
     "rag_specific_metadata": {{
-      "ai_generated_potential_questions_list": [ // **Based on your intelligence layer analysis**, generate 5-7 strategic questions this document can answer.
+      "ai_generated_potential_questions_list": [ // **Based on your intelligence layer analysis**, generate 5-7 specific questions this document can answer.
         {{"question": "...", "evidence": [...]}}
       ]
     }},
@@ -42,11 +42,9 @@ JSON OUTPUT STRUCTURE:
       "suggested_document_title": {{"title": "...", "evidence": [...]}}
     }},
     "group_specific": {{
-      "project_objectives_stated_list": [ // Extract any explicitly stated project objectives
-        {{"objective": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
-      ],
-      "key_recommendations_or_proposals_list": [ // Extract key recommendations or proposals
-        {{"recommendation": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
+      "interaction_date": {{"date": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}},
+      "key_attendees_or_participants_list": [ // Extract attendees or participants
+        {{"participant": "...", "evidence": [...], "grounding": "...", "confidence": 0.0}}
       ]
     }}
   }},

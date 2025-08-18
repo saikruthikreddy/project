@@ -120,10 +120,10 @@ class OnboardingGuideGenerator:
             return '{"knowledgeFAQ": []}'
         
         # Remove markdown code blocks if present
-        if cleaned.startswith('```
-            cleaned = cleaned.replace('```json', '').replace('```
+        if cleaned.startswith('```json'):
+            cleaned = cleaned.replace('```json', '').replace('```','')
         elif cleaned.startswith('```'):
-            cleaned = cleaned.replace('```
+            cleaned = cleaned.replace('```','')
         
         # Remove leading quotes if present and not part of JSON structure
         if cleaned.startswith('"') and not cleaned.startswith('{"'):
