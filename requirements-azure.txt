@@ -33,7 +33,7 @@ tiktoken>=0.9.0
 spacy>=3.8.0
 transformers>=4.53.0
 torch>=2.7.0
-llama-index>=0.12.50
+llama-index>=0.13.0
 
 # Production server
 gunicorn>=21.0.0
@@ -60,6 +60,7 @@ blinker>=1.6.0
 # azure
 azure-storage-blob==12.19.1
 azure-identity==1.16.1
+azure-servicebus==7.14.2
 
 msal==1.28.0
 alembic>=1.13.0  # Database migrations
@@ -73,3 +74,7 @@ llama-index-llms-ollama>=0.1.0
 python-magic>=0.4.27
 regex>=2022.10.31
 python-dateutil>=2.8.2
+# llama-index-multi-modal-llms-openai==0.6.0
+# llama-index-readers-file>=0.6.0
+llama-index-multi-modal-llms-openai
+llama-index-readers-file

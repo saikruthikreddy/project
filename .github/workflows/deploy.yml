@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'azure_functions/**'
 
 jobs:
   # Job 1: Check for dependency changes.

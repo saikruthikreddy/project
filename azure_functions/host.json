@@ -1,8 +1,31 @@
 {
-  "version": "2.0",
-  "isDefaultHostConfig": true,
-  "extensionBundle": {
-    "id": "Microsoft.Azure.Functions.ExtensionBundle",
-    "version": "[4.*, 5.0.0)"
-  }
+	"version": "2.0",
+	"extensionBundle": {
+		"id": "Microsoft.Azure.Functions.ExtensionBundle",
+		"version": "[4.0.0, 5.0.0)"
+	},
+	"extensions": {
+		"serviceBus": {
+			"maxConcurrentCalls": 16,
+			"autoCompleteMessages": true,
+			"autoRenewTimeout": "00:05:00"
+		}
+	},
+	"logging": {
+		"logLevel": {
+			"default": "Information",
+			"Host.Results": "Information",
+			"Function": "Information",
+			"Worker": "Information"
+		},
+		"applicationInsights": {
+			"samplingSettings": {
+				"isEnabled": true
+			}
+		},
+		"console": {
+			"isEnabled": true
+		},
+		"fileLoggingMode": "always"
+	}
 }

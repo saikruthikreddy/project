@@ -11,7 +11,6 @@ giani_pkb/api/
 ├── __init__.py              # Package initialization and exports
 ├── auth_routes.py           # Authentication routes (/auth/*)
 ├── project_routes.py        # Project management routes (/api/v1/projects/*)
-├── document_routes.py       # Document operations routes (/api/v1/documents/*)
 ├── user_routes.py          # User management routes (/api/v1/users/*)
 └── health_routes.py        # Health check routes (/api/v1/health/*)
 ```
@@ -49,19 +48,12 @@ giani_pkb/api/
 | `/projects/<project_id>/documents` | GET | List project documents |
 | `/batches/<batch_id>/status` | GET | Get batch processing status |
 | `/role-purpose-categories` | GET | Get classification categories |
-
-### 3. Document Routes (`document_routes.py`)
-**Base URL**: `/api/v1/documents`
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/search` | POST | Search documents by content |
-| `/<document_id>` | GET | Get document details |
-| `/<document_id>` | PUT | Update document metadata |
-| `/<document_id>` | DELETE | Delete document |
-| `/<document_id>/chunks` | GET | Get document chunks |
-| `/<document_id>/summaries` | GET | Get document summaries |
-| `/<document_id>/classify` | POST | Reclassify document with AI |
+| `/project_id/<document_id>` | GET | Get document details |
+| `/project_id/<document_id>` | PUT | Update document metadata |
+| `/project_id/<document_id>` | DELETE | Delete document |
+| `/project_id/<document_id>/chunks` | GET | Get document chunks |
+| `/project_id/<document_id>/summaries` | GET | Get document summaries |
+| `/project_id/<document_id>/classify` | POST | Reclassify document with AI |
 
 ### 4. User Routes (`user_routes.py`)
 **Base URL**: `/api/v1/users`
@@ -124,7 +116,6 @@ All routes are registered in `main.py` using Flask blueprints:
 # Register all route blueprints
 app.register_blueprint(create_auth_routes())
 app.register_blueprint(create_project_routes())
-app.register_blueprint(create_document_routes())
 app.register_blueprint(create_user_routes())
 app.register_blueprint(create_health_routes())
 ```

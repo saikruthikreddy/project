@@ -130,19 +130,19 @@ class DocxProcessor:
             rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
             if not rows:
                 return ""
-            
+
             header = rows[0]
             separator = ["---"] * len(header)
             body = rows[1:]
-            
+
             markdown = "| " + " | ".join(header) + " |\n"
             markdown += "| " + " | ".join(separator) + " |\n"
-            
+
             for row in body:
                 # Ensure row has same length as header
                 padded_row = row + [""] * (len(header) - len(row))
                 markdown += "| " + " | ".join(padded_row[:len(header)]) + " |\n"
-            
+
             return markdown.strip()
 
         except Exception as e:
@@ -199,7 +199,7 @@ class DocxProcessor:
                             img_description = f"[IMAGE {count}: {format_type} image, {width}x{height} pixels, {mode} mode]"
                         except Exception as e:
                             img_description = f"[IMAGE {count}: Unable to analyze image - {str(e)}]"
-                        
+
                         image_info.append({
                             "index": count,
                             "description": img_description,
@@ -215,7 +215,7 @@ class DocxProcessor:
                         })
         except Exception as e:
             logger.error(f"Error extracting image info: {e}")
-        
+
         return image_info
 
     def _extract_images_from_docx(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -279,7 +279,7 @@ class DocxProcessor:
 
         # Extract image information
         image_info_list = self._extract_image_info_enhanced(doc)
-        
+
         # Create element mappings
         table_elements = {tbl._element: tbl for tbl in doc.tables}
         para_elements = {p._element: p for p in doc.paragraphs}
@@ -289,7 +289,7 @@ class DocxProcessor:
 
         for element in doc.element.body:
             element_order += 1
-            
+
             if element in table_elements:
                 table = table_elements[element]
                 markdown_table = self._table_to_markdown(table)
@@ -301,7 +301,7 @@ class DocxProcessor:
                         "num_rows": len(table.rows),
                         "num_cols": len(table.columns) if table.rows else 0
                     })
-            
+
             elif element in para_elements:
                 para = para_elements[element]
                 text = para.text.strip()
@@ -313,7 +313,7 @@ class DocxProcessor:
                         "style_name": para.style.name,
                         "block_type": self._get_paragraph_style_type(para)
                     })
-            
+
             elif element.tag.endswith("drawing"):
                 if img_counter < len(image_info_list):
                     img_info = image_info_list[img_counter]
@@ -414,10 +414,10 @@ class DocxProcessor:
         try:
             # Convert blocks to LlamaIndex Documents
             documents = [LlamaDocument(text=block["text"]) for block in blocks]
-            
+
             # Parse documents into nodes
             nodes = self.node_parser.get_nodes_from_documents(documents)
-            
+
             return nodes
         except Exception as e:
             logger.error(f"Error creating LlamaIndex nodes: {e}")
@@ -426,18 +426,18 @@ class DocxProcessor:
     def _normalize_blocks_input(self, blocks_input: Any) -> List[Dict[str, Any]]:
         """
         Normalize different types of blocks input to standard format.
-        
+
         Args:
             blocks_input: Could be list of dicts, ProcessingResult, or other formats
-            
+
         Returns:
             List of standardized block dictionaries
         """
         normalized_blocks = []
-        
+
         if not blocks_input:
             return normalized_blocks
-            
+
         # Handle list input
         if isinstance(blocks_input, list):
             for item in blocks_input:
@@ -450,7 +450,7 @@ class DocxProcessor:
                         "text": str(item.text),
                         "type": getattr(item, 'type', 'text')
                     })
-        
+
         # Handle single object input
         elif hasattr(blocks_input, '__iter__') and not isinstance(blocks_input, (str, dict)):
             try:
@@ -464,7 +464,7 @@ class DocxProcessor:
                         })
             except Exception as e:
                 logger.warning(f"Error normalizing blocks input: {e}")
-        
+
         # Handle ProcessingResult or similar objects
         elif hasattr(blocks_input, 'chunks_preview'):
             try:
@@ -477,10 +477,10 @@ class DocxProcessor:
                         })
             except Exception as e:
                 logger.warning(f"Error extracting from ProcessingResult: {e}")
-        
+
         return normalized_blocks
 
-    def generate_metadata_with_llamaindex(self, file_path: str, blocks: Any, 
+    def generate_metadata_with_llamaindex(self, file_path: str, blocks: Any,
                                         nodes: List[Any] = None) -> Dict[str, Any]:
         """
         Generate comprehensive metadata using LlamaIndex integration.
@@ -496,13 +496,13 @@ class DocxProcessor:
         file_path = Path(file_path)
         document_id = str(uuid.uuid4())
         now_iso = datetime.now().isoformat()
-        
+
         # Normalize blocks input to standard format
         actual_blocks = self._normalize_blocks_input(blocks)
-        
+
         # Create preview from nodes or blocks
         preview_entries = []
-        
+
         # Generate preview from nodes first (preferred)
         if nodes and len(nodes) > 0:
             for i, node in enumerate(nodes[:2]):
@@ -511,13 +511,13 @@ class DocxProcessor:
                         snippet = str(node.text).replace('\n', ' ')[:100].strip()
                         node_id = getattr(node, 'node_id', str(uuid.uuid4()))
                         preview_entries.append({
-                            "snippet": snippet, 
-                            "node_id": node_id, 
+                            "snippet": snippet,
+                            "node_id": node_id,
                             "type": "prose"
                         })
                 except Exception as e:
                     logger.warning(f"Error processing node {i}: {e}")
-        
+
         # Fallback to blocks if no valid nodes
         if not preview_entries and actual_blocks:
             for i, block in enumerate(actual_blocks[:2]):
@@ -526,13 +526,13 @@ class DocxProcessor:
                     if text_content:
                         snippet = str(text_content).replace('\n', ' ')[:100].strip()
                         preview_entries.append({
-                            "snippet": snippet, 
-                            "node_id": str(uuid.uuid4()), 
+                            "snippet": snippet,
+                            "node_id": str(uuid.uuid4()),
                             "type": block.get("type", "prose")
                         })
                 except Exception as e:
                     logger.warning(f"Error processing block {i}: {e}")
-        
+
         # Final fallback - create a basic preview
         if not preview_entries:
             preview_entries = [{
@@ -540,9 +540,9 @@ class DocxProcessor:
                 "node_id": str(uuid.uuid4()),
                 "type": "prose"
             }]
-        
+
         preview_str = json.dumps(preview_entries, ensure_ascii=False, indent=2)
-        
+
         # Generate full text
         full_text = ""
         if nodes:
@@ -550,7 +550,7 @@ class DocxProcessor:
                 full_text = "\n\n".join(str(node.text) for node in nodes if hasattr(node, 'text'))
             except Exception as e:
                 logger.warning(f"Error generating full text from nodes: {e}")
-        
+
         if not full_text and actual_blocks:
             try:
                 full_text = "\n\n".join(block["text"] for block in actual_blocks if block.get("text"))
@@ -561,7 +561,7 @@ class DocxProcessor:
         # File information
         file_size = file_path.stat().st_size if file_path.exists() else 0
         mime_type, _ = mimetypes.guess_type(str(file_path))
-        
+
         metadata = {
             "document_id": document_id,
             "dateAddedToGiani": now_iso,
@@ -642,10 +642,10 @@ class DocxProcessor:
             List of (text_block, metadata) tuples
         """
         processed_blocks: List[Tuple[str, Dict[str, Any]]] = []
-        
+
         # Parse using enhanced logic
         blocks, image_info = self._parse_docx_to_blocks_enhanced(file_path)
-        
+
         # Convert blocks to the expected format
         for block in blocks:
             metadata = {
@@ -655,7 +655,7 @@ class DocxProcessor:
                 "doc_element_order": block.get("element_order", 0),
                 "file_type": "docx"
             }
-            
+
             # Add type-specific metadata
             if block["type"] == "table":
                 metadata.update({
@@ -672,7 +672,7 @@ class DocxProcessor:
                     "image_size": block.get("image_size"),
                     "image_index": block.get("image_index")
                 })
-            
+
             processed_blocks.append((block["text"], metadata))
 
         # Process actual images if image processor is available
@@ -734,7 +734,7 @@ class DocxProcessor:
         logger.info(f"Successfully processed {file_path} (legacy): {len(processed_blocks)} blocks extracted")
         return processed_blocks
 
-    def save_metadata_and_blocks(self, file_path: str, output_dir: str, 
+    def save_metadata_and_blocks(self, file_path: str, output_dir: str,
                                 blocks_input: Any = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Process file and save metadata and blocks (similar to new code functionality).
@@ -748,7 +748,7 @@ class DocxProcessor:
             Tuple of (blocks, metadata)
         """
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # Parse using enhanced logic if blocks not provided
         if blocks_input is None:
             blocks, image_info = self._parse_docx_to_blocks_enhanced(file_path)
@@ -756,13 +756,13 @@ class DocxProcessor:
             # Use provided blocks and normalize them
             blocks = self._normalize_blocks_input(blocks_input)
             image_info = []
-        
+
         # Create LlamaIndex nodes if available
         nodes = self.create_llamaindex_nodes(blocks) if self.use_llamaindex else []
-        
+
         # Generate comprehensive metadata
         metadata = self.generate_metadata_with_llamaindex(file_path, blocks, nodes)
-        
+
         # Save metadata JSON
         file_stem = Path(file_path).stem
         metadata_path = os.path.join(output_dir, f"{file_stem}_metadata.json")
@@ -776,7 +776,7 @@ class DocxProcessor:
 
         logger.info(f"Metadata saved to: {metadata_path}")
         logger.info(f"Parsed blocks saved to: {blocks_path}")
-        
+
         return blocks, metadata
 
     def process_docx(self, file_path: str) -> List[Tuple[str, Dict[str, Any]]]:
