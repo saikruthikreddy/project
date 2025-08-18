@@ -12,7 +12,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class AnalyticsService:
     """Service for tracking and analyzing user activities."""
 
