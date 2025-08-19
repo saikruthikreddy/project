@@ -141,7 +141,6 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
                 logger.info(
                     f"Batch {batch_id} is complete. Queuing project {project_id} for onboarding guide generation."
                 )
-
                 onboarding_message_payload = {
                     "project_id": project_id,
                     "triggered_by_batch_id": batch_id,
