@@ -1,19 +1,17 @@
 """
-Document upload service for handling file uploads and processing.
+Document upload service for handling file uploads and processing - Blob Storage Only.
 """
-import os
-import shutil
 import uuid
 import mimetypes
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from pathlib import Path
 import logging
-import sys
 import json
-from contextlib import contextmanager
+from urllib.parse import urlparse, quote
 import tempfile
+import os
 
+from azure_functions.services.blob_storage_service import BlobStorageService
 from azure_functions.preprocessing.document_processor import DocumentProcessor
 from azure_functions.services.classification import ClassificationService
 from azure_functions.services.metadata_manager import MetadataManagerService
@@ -27,14 +25,16 @@ from azure_functions.preprocessing.chunking.strategies import chunk_document_ada
 
 logger = logging.getLogger(__name__)
 
+
 class DocumentUploadService:
     """
-    Service for handling document uploads and processing.
+    Service for handling document uploads and processing using blob storage only.
     """
 
     def __init__(self):
-        self.upload_folder = 'temp_uploads'
-        self.processed_folder = 'data/uploaded_documents'
+        # Blob storage configuration
+        self.temp_container = 'temp-documents'
+        self.processed_container = 'documents'
         self.max_file_size = 50 * 1024 * 1024  # 50MB
         self.allowed_extensions = {'pdf', 'docx', 'doc', 'txt', 'csv', 'xlsx', 'xls', 'pptx', 'ppt'}
 
@@ -43,6 +43,7 @@ class DocumentUploadService:
             self.db_manager = DatabaseManager()
             self.metadata_manager = MetadataManagerService()
             self.classification_service = ClassificationService()
+            self.blob_storage_service = BlobStorageService()
 
             # Get API keys from config with validation
             api_keys = {
@@ -59,36 +60,6 @@ class DocumentUploadService:
         except Exception as e:
             logger.error(f"Error initializing services: {e}")
             raise
-
-        # Ensure directories exist
-        self._ensure_directories()
-
-    def _ensure_directories(self):
-        """Ensure all required directories exist with proper permissions."""
-        try:
-            # Create main directories
-            os.makedirs(self.upload_folder, exist_ok=True)
-            os.makedirs(self.processed_folder, exist_ok=True)
-            
-            # Create document type subdirectories
-            for doc_type in DOCUMENT_TYPES:
-                doc_dir = os.path.join(self.processed_folder, doc_type)
-                os.makedirs(doc_dir, exist_ok=True)
-                
-            # Set appropriate permissions (if on Unix-like system)
-            try:
-                os.chmod(self.upload_folder, 0o755)
-                os.chmod(self.processed_folder, 0o755)
-            except (OSError, AttributeError):
-                # Windows or permission issues
-                pass
-                
-            logger.info("Directory structure created successfully")
-            
-        except Exception as e:
-            logger.error(f"Error creating directories: {e}")
-            raise FileProcessingError(f"Failed to create required directories: {e}")
-
 
     def allowed_file(self, filename: str) -> bool:
         """Check if file extension is allowed with enhanced validation."""
@@ -114,12 +85,12 @@ class DocumentUploadService:
             logger.error(f"Error checking file extension for {filename}: {e}")
             return False
 
-    def validate_file(self, file_path: str, file_size: int) -> None:
+    def validate_file(self, filename: str, file_size: int, file_content: bytes = None) -> None:
         """Validate uploaded file with comprehensive checks."""
         try:
             # Validate inputs
-            if not file_path or not isinstance(file_path, str):
-                raise ValidationError("Invalid file path provided")
+            if not filename or not isinstance(filename, str):
+                raise ValidationError("Invalid filename provided")
                 
             if not isinstance(file_size, int) or file_size < 0:
                 raise ValidationError("Invalid file size provided")
@@ -136,44 +107,58 @@ class DocumentUploadService:
                 raise ValidationError("File is empty (0 bytes)")
                 
             # Check file extension
-            if not self.allowed_file(file_path):
+            if not self.allowed_file(filename):
                 allowed_exts = ', '.join(sorted(self.allowed_extensions))
                 raise ValidationError(
                     f"File type not allowed. Allowed extensions: {allowed_exts}"
                 )
                 
-            # Verify file exists if it's a full path
-            if os.path.isabs(file_path) and not os.path.exists(file_path):
-                raise ValidationError(f"File does not exist: {file_path}")
-                
-            logger.debug(f"File validation passed for: {file_path}")
+            # Validate file content if provided
+            if file_content is not None:
+                if len(file_content) != file_size:
+                    raise ValidationError(f"File content size mismatch: {len(file_content)} vs {file_size}")
+                    
+            logger.debug(f"File validation passed for: {filename}")
             
         except ValidationError:
             raise  # Re-raise validation errors
         except Exception as e:
-            logger.error(f"Error validating file {file_path}: {e}")
+            logger.error(f"Error validating file {filename}: {e}")
             raise ValidationError(f"File validation failed: {e}")
 
-    def extract_text_preview(self, file_path: str, max_chars: int = 5000) -> str:
-        """Extract text preview from file with enhanced error handling and safety."""
+    def extract_text_preview(self, blob_url: str, max_chars: int = 5000) -> str:
+        """Extract text preview from blob file with enhanced error handling and safety."""
+        temp_file_path = None
         try:
-            # Input validation
-            if not file_path or not os.path.exists(file_path):
-                logger.warning(f"File not found for text extraction: {file_path}")
-                return "File not found for text extraction"
+            if not blob_url:
+                logger.warning("No blob URL provided for text extraction")
+                return "No file available for text extraction"
                 
             if max_chars <= 0:
                 max_chars = 5000
-                
-            # Check file size before processing
-            file_size = os.path.getsize(file_path)
-            if file_size == 0:
-                return "Empty file"
-                
-            if file_size > self.max_file_size:
-                return f"File too large for preview extraction ({file_size:,} bytes)"
 
-            logger.info(f"Extracting text preview from: {file_path}")
+            logger.info(f"Extracting text preview from blob: {blob_url}")
+
+            # Parse blob URL to get container and blob name
+            parsed_url = urlparse(blob_url)
+            path_parts = parsed_url.path.lstrip('/').split('/', 1)
+            
+            if len(path_parts) < 2:
+                return "Invalid blob URL format"
+                
+            container_name = path_parts[0]
+            blob_name = path_parts
+
+            # Download blob content
+            file_bytes = self.blob_storage_service.download_file(container_name, blob_name)
+            
+            if not file_bytes:
+                return "Empty file content"
+
+            # Create temporary file for processing
+            with tempfile.NamedTemporaryFile(delete=False, suffix='_preview') as temp_file:
+                temp_file.write(file_bytes)
+                temp_file_path = temp_file.name
 
             # Generate temporary IDs for processing
             temp_doc_id = str(uuid.uuid4())
@@ -182,7 +167,7 @@ class DocumentUploadService:
             try:
                 # Use process_single_file with timeout protection
                 parsed_blocks, chunks = self.document_processor.process_single_file(
-                    file_path=file_path,
+                    file_path=temp_file_path,
                     document_id=temp_doc_id,
                     project_id=temp_proj_id
                 )
@@ -207,167 +192,68 @@ class DocumentUploadService:
                     return "No text content extracted"
                     
             except Exception as processing_error:
-                logger.error(f"Document processor error for {file_path}: {processing_error}")
-                
-                # Fallback: try basic text extraction for simple file types
-                return self._fallback_text_extraction(file_path, max_chars)
+                logger.error(f"Document processor error for blob {blob_url}: {processing_error}")
+                return self._fallback_text_extraction_from_bytes(file_bytes, max_chars)
             
         except Exception as e:
-            logger.error(f"Error extracting text preview from {file_path}: {e}")
-            raise FileProcessingError(
-                f"Error extracting preview from {os.path.basename(file_path)}: {str(e)}", 
-                filepath=file_path
-            )
+            logger.error(f"Error extracting text preview from blob {blob_url}: {e}")
+            return f"Text extraction failed: {str(e)}"
+        finally:
+            # Clean up temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
 
-    def _fallback_text_extraction(self, file_path: str, max_chars: int) -> str:
-        """Fallback text extraction for simple file types."""
+    def _fallback_text_extraction_from_bytes(self, file_bytes: bytes, max_chars: int) -> str:
+        """Fallback text extraction from file bytes."""
         try:
-            file_ext = os.path.splitext(file_path)[1].lower()
-            
-            # Simple text file extraction
-            if file_ext in ['.txt', '.csv']:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    content = f.read(max_chars)
-                    return content if content.strip() else "No readable content"
+            # Try to decode as UTF-8 text
+            try:
+                text_content = file_bytes.decode('utf-8', errors='ignore')[:max_chars]
+                return text_content if text_content.strip() else "No readable text content"
+            except:
+                pass
+                
+            # Try other common encodings
+            for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                try:
+                    text_content = file_bytes.decode(encoding, errors='ignore')[:max_chars]
+                    if text_content.strip():
+                        return text_content
+                except:
+                    continue
                     
-            return f"Text extraction not available for {file_ext} files"
+            return "Binary file - text extraction not supported"
             
         except Exception as e:
-            logger.error(f"Fallback text extraction failed for {file_path}: {e}")
+            logger.error(f"Fallback text extraction failed: {e}")
             return "Text extraction failed"
 
-    
-    def _get_document_path(self, temp_document_id: str) -> str:
-        """Get the file path for a temporary document. FIXED: Now searches by actual filename pattern."""
+    def _get_blob_url(self, container: str, blob_name: str) -> str:
+        """Generate blob URL for storage reference."""
         try:
-            if not temp_document_id:
-                raise ValueError("temp_document_id cannot be empty")
-                
-            # First, try to get the document info from database to get the actual file path
-            # This requires querying all temp documents to find the one with matching temp_document_id
-            try:
-                # Search through temp_uploads directory structure for the file
-                # Since files are saved as {original_filename}.pdf, we need to find the right file
-                
-                for root, dirs, files in os.walk(self.upload_folder):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        # Check if this file belongs to our temp_document_id
-                        # We'll need to check the database record to match filename to temp_document_id
-                        if os.path.isfile(file_path):
-                            # Check if this could be our file by examining the directory structure
-                            # temp_uploads/{user_id}/{project_id}/{original_filename}.pdf
-                            relative_path = os.path.relpath(file_path, self.upload_folder)
-                            path_parts = relative_path.split(os.sep)
-                            
-                            if len(path_parts) >= 3:  # user_id/project_id/filename
-                                user_id_dir = path_parts[0]
-                                project_id_dir = path_parts[1]
-                                filename = path_parts[2]
-                                
-                                # Try to get temp document from database to verify
-                                try:
-                                    temp_doc = self.db_manager.get_temp_document(
-                                        temp_document_id, project_id_dir, user_id_dir
-                                    )
-                                    if temp_doc and temp_doc.get('original_filename') == filename:
-                                        return file_path
-                                except:
-                                    continue  # Try next file
-                                    
-            except Exception as search_error:
-                logger.error(f"Error searching for document {temp_document_id}: {search_error}")
-                
-            logger.warning(f"Document path not found for {temp_document_id}")
-            return ""
-            
-        except Exception as e:
-            logger.error(f"Error getting document path for {temp_document_id}: {e}")
-            return ""
-
-    def _get_document_path_from_db(self, temp_document_id: str, project_id: str, user_id: str) -> str:
-        """Get document path using database information. More efficient alternative."""
-        try:
-            # Get temp document from database
-            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
-            
-            if not temp_doc:
-                logger.warning(f"Temp document {temp_document_id} not found in database")
-                return ""
-                
-            # Check if file_path is stored in database
-            if temp_doc.get('file_path') and os.path.exists(temp_doc['file_path']):
-                return temp_doc['file_path']
-                
-            # Fallback: construct path based on current naming convention
-            original_filename = temp_doc.get('original_filename')
-            if original_filename:
-                # Construct expected path: temp_uploads/{user_id}/{project_id}/{original_filename}
-                expected_path = os.path.join(self.upload_folder, user_id, project_id, original_filename)
-                
-                if os.path.exists(expected_path):
-                    return expected_path
-                else:
-                    logger.warning(f"Expected file not found: {expected_path}")
-                    
-            return ""
-            
-        except Exception as e:
-            logger.error(f"Error getting document path from database: {e}")
-            return ""
-
-    def _verify_document_exists(self, temp_document_id: str, project_id: str = None, user_id: str = None) -> bool:
-        """Verify document exists and is accessible. FIXED: Enhanced with better path resolution."""
-        try:
-            if not temp_document_id or not isinstance(temp_document_id, str):
-                logger.warning("Invalid temp_document_id provided for verification")
-                return False
-                
-            # If we have project_id and user_id, use more efficient database lookup
-            if project_id and user_id:
-                file_path = self._get_document_path_from_db(temp_document_id, project_id, user_id)
+            # Construct blob URL - this should match your blob storage URL format
+            base_url = getattr(config, 'AZURE_STORAGE_ACCOUNT_URL', '')
+            if base_url:
+                return f"{base_url.rstrip('/')}/{container}/{blob_name}"
             else:
-                # Fallback to searching filesystem
-                file_path = self._get_document_path(temp_document_id)
-            
-            if not file_path:
-                logger.warning(f"No file path found for document {temp_document_id}")
-                return False
-                
-            # Check if file exists and is readable
-            if not os.path.exists(file_path):
-                logger.warning(f"Document file does not exist: {file_path}")
-                return False
-                
-            if not os.path.isfile(file_path):
-                logger.warning(f"Document path is not a file: {file_path}")
-                return False
-                
-            # Check file is readable and not empty
-            try:
-                file_size = os.path.getsize(file_path)
-                if file_size == 0:
-                    logger.warning(f"Document file is empty: {file_path}")
-                    return False
-                    
-                with open(file_path, 'rb') as f:
-                    # Try to read first byte to verify readability
-                    f.read(1)
-                return True
-            except Exception as read_error:
-                logger.error(f"Cannot read document file {file_path}: {read_error}")
-                return False
-                
+                # Fallback format
+                return f"https://storage.blob.core.windows.net/{container}/{blob_name}"
         except Exception as e:
-            logger.error(f"Error verifying document {temp_document_id}: {e}")
-            return False
+            logger.error(f"Error generating blob URL: {e}")
+            return f"{container}/{blob_name}"  # Simple format as fallback
 
-    def save_temp_document(self, file_path: str, project_id: str, user_id: str, source:str) -> Dict[str, Any]:
-        """Save uploaded file to temporary location and create database entry. FIXED: Consistent file naming."""
+    def save_temp_document(self, file_content: bytes, filename: str, project_id: str, user_id: str, source: str) -> Dict[str, Any]:
+        """Save uploaded file to blob storage and create database entry."""
         try:
             # Input validation
-            if not file_path or not os.path.exists(file_path):
-                raise ValidationError(f"File not found: {file_path}")
+            if not file_content or not isinstance(file_content, bytes):
+                raise ValidationError("Invalid file content provided")
+                
+            if not filename or not isinstance(filename, str):
+                raise ValidationError("Invalid filename provided")
                 
             if not project_id or not isinstance(project_id, str):
                 raise ValidationError("Invalid project_id provided")
@@ -376,56 +262,48 @@ class DocumentUploadService:
                 raise ValidationError("Invalid user_id provided")
 
             # Get file information
-            original_filename = os.path.basename(file_path)
-            file_size = os.path.getsize(file_path)
-            mime_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+            file_size = len(file_content)
+            mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
             # Validate file
-            self.validate_file(original_filename, file_size)
+            self.validate_file(filename, file_size, file_content)
 
             # Generate temp document ID
             temp_document_id = str(uuid.uuid4())
 
-            logger.info(f"Saving temp document: {original_filename} ({file_size:,} bytes)")
+            logger.info(f"Saving temp document to blob storage: {filename} ({file_size:,} bytes)")
+
+            # Create blob name with proper structure: user_id/project_id/temp_document_id/filename
+            blob_name = f"{user_id}/{project_id}/{temp_document_id}/{filename}"
+            
+            # Upload to blob storage
+            blob_url = self.blob_storage_service.upload_file(
+                container_name=self.temp_container,
+                blob_name=blob_name,
+                file_content=file_content,
+                content_type=mime_type
+            )
+            
+            if not blob_url:
+                raise FileProcessingError("Failed to upload file to blob storage")
 
             # Extract text preview with error handling
             try:
-                text_preview = self.extract_text_preview(file_path)
+                text_preview = self.extract_text_preview(blob_url)
             except Exception as e:
-                logger.warning(f"Failed to extract text preview for {original_filename}: {e}")
+                logger.warning(f"Failed to extract text preview for {filename}: {e}")
                 text_preview = f"Text preview unavailable: {str(e)}"
-
-            # Create directory structure
-            temp_file_dir = os.path.join(self.upload_folder, user_id, project_id)
-            os.makedirs(temp_file_dir, exist_ok=True)
-            
-            # FIXED: Use original filename directly (no timestamp or temp_document_id prefix)
-            # This matches what the user described: files saved as {original_filename}.pdf
-            temp_file_path = os.path.join(temp_file_dir, original_filename)
-            
-            # Handle duplicate filenames by adding a counter if needed
-            counter = 1
-            base_name = Path(original_filename).stem
-            extension = Path(original_filename).suffix
-            
-            while os.path.exists(temp_file_path):
-                new_filename = f"{base_name}_{counter}{extension}"
-                temp_file_path = os.path.join(temp_file_dir, new_filename)
-                counter += 1
-                if counter > 1:  # Update original_filename if we had to modify it
-                    original_filename = new_filename
-            
-            # Copy file to temp location
-            shutil.copy2(file_path, temp_file_path)
 
             # Create temp document structure
             temp_doc = {
                 'temp_document_id': temp_document_id,
                 'project_id': project_id,
                 'user_id': user_id,
-                'original_filename': original_filename,
+                'original_filename': filename,
                 'source': source,
-                'file_path': temp_file_path,  # Store actual path where file is saved
+                'blob_url': blob_url,
+                'blob_container': self.temp_container,
+                'blob_name': blob_name,
                 'file_size': file_size,
                 'mime_type': mime_type,
                 'text_preview': text_preview,
@@ -437,25 +315,23 @@ class DocumentUploadService:
             db_result = self.db_manager.create_temp_document(**temp_doc)
             
             if not db_result:
-                # Cleanup temp file if database save failed
+                # Cleanup blob if database save failed
                 try:
-                    os.remove(temp_file_path)
-                except:
-                    pass
+                    self.blob_storage_service.delete_file(self.temp_container, blob_name)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup blob after database error: {cleanup_error}")
                 raise FileProcessingError("Failed to save document to database")
 
-            logger.info(f"Successfully saved temp document: {original_filename} at {temp_file_path}")
+            logger.info(f"Successfully saved temp document to blob: {blob_url}")
             return temp_doc
 
         except ValidationError:
             raise  # Re-raise validation errors
         except Exception as e:
-            logger.error(f"Error saving temp document {file_path}: {e}")
-            raise FileProcessingError(f"Failed to save temp document: {e}", filepath=file_path)
+            logger.error(f"Error saving temp document {filename}: {e}")
+            raise FileProcessingError(f"Failed to save temp document: {e}")
 
-
-
-    def get_ai_suggestions(self, temp_document_id: str,source: str, project_id: str, user_id: str) -> Dict[str, Any]:
+    def get_ai_suggestions(self, temp_document_id: str, source: str, project_id: str, user_id: str) -> Dict[str, Any]:
         """Get AI suggestions for document classification with enhanced error handling."""
         try:
             # Input validation
@@ -502,8 +378,8 @@ class DocumentUploadService:
                     'ai_classification': ai_classification,
                     'ai_purpose': ai_purpose,
                     'gemini_prompt': gemini_prompt or "No prompt available",
-                    'text_preview': text_preview[:1000] + ('...' if len(text_preview) > 1000 else ''),  # Limit preview size
-                    'confidence': 'medium',  # Could be enhanced with actual confidence scoring
+                    'text_preview': text_preview[:1000] + ('...' if len(text_preview) > 1000 else ''),
+                    'confidence': 'medium',
                     'processing_timestamp': datetime.utcnow().isoformat()
                 }
 
@@ -527,22 +403,19 @@ class DocumentUploadService:
                 }
 
         except ValidationError:
-            raise  # Re-raise validation errors
+            raise
         except Exception as e:
             logger.error(f"Error getting AI suggestions for {temp_document_id}: {e}")
             raise FileProcessingError(f"Failed to get AI suggestions: {e}")
 
-
-
     def _process_single_document(self, task: Dict[str, Any]):
-        """Process a single document with comprehensive error handling and cleanup."""
+        """Process a single document with blob storage only."""
         temp_document_id = task['temp_document_id']
         project_id = task['project_id']
         user_id = task['user_id']
         batch_id = task['batch_id']
 
         temp_file_path = None
-        dest_path = None
 
         try:
             logger.info(f"Processing single document: {temp_document_id}")
@@ -552,53 +425,66 @@ class DocumentUploadService:
 
             if not temp_doc:
                 raise FileProcessingError(f"Temp document {temp_document_id} not found in database")
-            
+
             # Extract document information
             original_filename = temp_doc['original_filename']
-            temp_file_path = temp_doc['file_path']
+            blob_url = temp_doc['blob_url']
+            blob_container = temp_doc['blob_container']
+            blob_name = temp_doc['blob_name']
             file_size = temp_doc.get('file_size', 0)
             mime_type = temp_doc.get('mime_type', 'application/octet-stream')
             text_preview = temp_doc.get('text_preview', '')
-            ai_purpose =  temp_doc.get('ai_purpose', task['ai_purpose'])
-            source =  task['source']
+            ai_purpose = temp_doc.get('ai_purpose', task['ai_purpose'])
+            source = task['source']
 
-            # Validate file exists
-            if not temp_file_path or not os.path.exists(temp_file_path):
-                raise FileProcessingError(f"Temp file not found: {temp_file_path}")
+            # Download blob content for processing
+            try:
+                logger.info(f"Downloading blob for processing: {blob_name}")
+                file_bytes = self.blob_storage_service.download_file(blob_container, blob_name)
+
+                # Create temporary file for document processing
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{original_filename}")
+                temp_file.write(file_bytes)
+                temp_file.close()
+                temp_file_path = temp_file.name
+
+                logger.info(f"Blob content written to temporary file for processing: {temp_file_path}")
+
+            except Exception as e:
+                raise FileProcessingError(f"Failed to download blob {blob_url}: {e}")
 
             # Determine category folder based on AI classification
-            category_folder = temp_doc.get('ai_classification',task['ai_classification'])
+            category_folder = temp_doc.get('ai_classification', task['ai_classification'])
+            category_path = self._get_category_folder(category_folder)
 
-            # Prepare destination
-            dest_dir = os.path.join(self.processed_folder, category_folder)
-            os.makedirs(dest_dir, exist_ok=True)
-
-            # Create unique destination filename to prevent conflicts
+            # Create unique destination blob name
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_name = Path(original_filename).stem
-            extension = Path(original_filename).suffix
+            base_name = os.path.splitext(original_filename)[0]
+            extension = os.path.splitext(original_filename)
             unique_filename = f"{timestamp}_{base_name}{extension}"
-            dest_path = os.path.join(dest_dir, unique_filename)
+            
+            # Processed blob name: category/user_id/project_id/unique_filename
+            processed_blob_name = f"{category_path}/{user_id}/{project_id}/{unique_filename}"
 
-            # Copy file to final location with verification
+            # Upload processed document to blob storage
             try:
-                shutil.copy2(temp_file_path, dest_path)
-                
-                # Verify copy was successful
-                if not os.path.exists(dest_path):
-                    raise FileProcessingError("File copy verification failed")
-                    
-                copied_size = os.path.getsize(dest_path)
-                if copied_size != file_size:
-                    logger.warning(f"File size mismatch after copy: {copied_size} vs {file_size}")
-                    
-            except Exception as copy_error:
-                raise FileProcessingError(f"Failed to copy file to destination: {copy_error}")
+                processed_blob_url = self.blob_storage_service.upload_file(
+                    container_name=self.processed_container,
+                    blob_name=processed_blob_name,
+                    file_content=file_bytes,
+                    content_type=mime_type
+                )
+
+                if not processed_blob_url:
+                    raise FileProcessingError("Failed to upload processed document to blob storage")
+
+                logger.info(f"Processed document uploaded to blob: {processed_blob_url}")
+
+            except Exception as upload_error:
+                raise FileProcessingError(f"Failed to upload processed document: {upload_error}")
 
             # Create document metadata
             document_id = uuid.uuid4()
-            metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
-            metadata_path = os.path.join(dest_dir, metadata_filename)
 
             try:
                 # Create DocumentMetadata object
@@ -616,22 +502,14 @@ class DocumentUploadService:
                     finalPurpose=ai_purpose,
                     priority=task.get('document_priority', 'Medium'),
                     finalizedAt=datetime.now().isoformat(),
-                    storagePath=dest_path,
-                    categoryFolder=category_folder,
-                    storedFilename=unique_filename,  # Store actual filename, not metadata filename
+                    storagePath=processed_blob_url,
+                    categoryFolder=category_path,
+                    storedFilename=unique_filename,
                     savedAt=datetime.now().isoformat()
                 )
 
-                # Convert user_id and project_id to proper types for database
-                try:
-                    user_uuid = uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-                except ValueError:
-                    raise FileProcessingError(f"Invalid user_id format: {user_id}")
-
-                try:
-                    project_int = int(project_id) if isinstance(project_id, str) else project_id
-                except (ValueError, TypeError):
-                    raise FileProcessingError(f"Invalid project_id format: {project_id}")
+                user_uuid = uuid.UUID(user_id)
+                project_int = int(project_id)
 
                 # Create document in database
                 document = self.db_manager.create_document(
@@ -640,8 +518,8 @@ class DocumentUploadService:
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
-                    storage_path=dest_path,
-                    category_folder=category_folder,
+                    storage_path=processed_blob_url,
+                    category_folder=category_path,
                     stored_filename=unique_filename,
                     final_category=task['ai_classification'],
                     final_purpose=task['ai_purpose'],
@@ -656,30 +534,23 @@ class DocumentUploadService:
                 if not document:
                     raise FileProcessingError("Failed to create document record in database")
 
-                # Update master metadata
                 self.metadata_manager.update_master_metadata(doc_meta)
-
                 logger.info(f"Successfully processed document: {original_filename}")
 
             except Exception as db_error:
                 logger.error(f"Database/metadata error for {original_filename}: {db_error}")
-                
-                # Cleanup destination file if database operation failed
+                # Cleanup processed blob on error
                 try:
-                    if dest_path and os.path.exists(dest_path):
-                        os.remove(dest_path)
-                        logger.info(f"Cleaned up destination file after database error: {dest_path}")
-                except:
-                    logger.warning(f"Failed to cleanup destination file: {dest_path}")
-                    
+                    self.blob_storage_service.delete_file(self.processed_container, processed_blob_name)
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup processed blob: {cleanup_error}")
                 raise FileProcessingError(f"Failed to save document metadata: {db_error}")
 
-            # Clean up temp document and file (only after successful processing)
+            # Clean up temp document and blob (only after successful processing)
             try:
-                # Remove temp file
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-                    logger.debug(f"Removed temp file: {temp_file_path}")
+                # Remove temp blob
+                self.blob_storage_service.delete_file(blob_container, blob_name)
+                logger.debug(f"Removed temp blob: {blob_name}")
 
                 # Remove temp document from database
                 self.db_manager.delete_temp_document(temp_document_id, user_id, cleanup_file=False)
@@ -687,93 +558,72 @@ class DocumentUploadService:
 
             except Exception as cleanup_error:
                 logger.warning(f"Cleanup error for {temp_document_id}: {cleanup_error}")
-                # Don't fail the entire process for cleanup errors
-            
-            # Summarization
+
+            # Summarization and Chunking
             try:
                 summarization_service = SummarizationService()
                 summary = summarization_service.summarize_document(doc_meta)
                 if summary:
-                    # Save summary to database
-                    self.db_manager.save_summary(
-                        document_id=document_id,
-                        summary_data=summary,
-                    )
+                    self.db_manager.save_summary(document_id=document_id, summary_data=summary)
                     logger.info(f"Successfully generated and saved summary for document: {original_filename}")
             except Exception as e:
                 logger.error(f"Error during summarization for document {original_filename}: {e}")
 
-
-            # Chunking
             try:
                 parsed_blocks, _ = self.document_processor.process_single_file(
-                    file_path=dest_path,
-                    document_id=document_id,
-                    project_id=project_id
-                )
+                    file_path=temp_file_path, document_id=document_id, project_id=project_id)
                 chunks = chunk_document_adaptive(
-                    parsed_blocks=parsed_blocks,
-                    document_id=document_id,
-                    project_id=project_id,
-                    document_type=doc_meta.finalCategory,
-                    openai_api_key=config.OPENAI_API_KEY
-                )
+                    parsed_blocks=parsed_blocks, document_id=document_id, project_id=project_id,
+                    document_type=doc_meta.finalCategory, openai_api_key=config.OPENAI_API_KEY)
                 if chunks:
-                    # Save chunks to database
-                    self.db_manager.save_chunks(
-                        document_id=document_id,
-                        chunks=chunks,
-                    )
+                    self.db_manager.save_chunks(document_id=document_id, chunks=chunks)
                     logger.info(f"Successfully chunked and saved document: {original_filename}")
             except Exception as e:
                 logger.error(f"Error during chunking for document {original_filename}: {e}")
 
-
             logger.info(f"Document processing completed successfully: {original_filename}")
 
         except Exception as e:
-            logger.error(f"Error processing document {temp_document_id}: {e}")
-            
-            # Cleanup on error
-            try:
-                if dest_path and os.path.exists(dest_path):
-                    os.remove(dest_path)
-                    logger.info(f"Cleaned up destination file after error: {dest_path}")
-            except:
-                pass
-                
-            # Re-raise the error to be handled by the calling function
+            logger.error(f"Error processing document {temp_document_id}: {e}", exc_info=True)
             raise
+        finally:
+            # Always clean up temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.remove(temp_file_path)
+                    logger.debug(f"Cleaned up temporary file: {temp_file_path}")
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}")
 
     def _get_category_folder(self, ai_classification: str) -> str:
         """Get category folder based on AI classification with enhanced mapping and validation."""
         try:
             if not ai_classification or not isinstance(ai_classification, str):
                 logger.warning(f"Invalid AI classification: {ai_classification}")
-                return "39. Generic Text Document"
+                return "39-generic-text-document"
 
             # Normalize classification for comparison
             classification_lower = ai_classification.lower().strip()
 
-            # Enhanced category mapping with more specific patterns
+            # Enhanced category mapping with blob-friendly names (no spaces, periods, or special chars)
             category_mappings = {
-                "strategy": "1. Strategy Document/Deck",
-                "financial": "2. Financial Document", 
-                "legal": "3. Legal Document",
-                "technical": "4. Technical Document",
-                "marketing": "5. Marketing Document",
-                "research": "6. Research Document",
-                "project management": "7. Project Management Document",
-                "business plan": "1. Strategy Document/Deck",
-                "contract": "3. Legal Document",
-                "agreement": "3. Legal Document",
-                "invoice": "2. Financial Document",
-                "budget": "2. Financial Document",
-                "proposal": "5. Marketing Document",
-                "specification": "4. Technical Document",
-                "manual": "4. Technical Document",
-                "report": "6. Research Document",
-                "analysis": "6. Research Document"
+                "strategy": "01-strategy-document",
+                "financial": "02-financial-document", 
+                "legal": "03-legal-document",
+                "technical": "04-technical-document",
+                "marketing": "05-marketing-document",
+                "research": "06-research-document",
+                "project management": "07-project-management-document",
+                "business plan": "01-strategy-document",
+                "contract": "03-legal-document",
+                "agreement": "03-legal-document",
+                "invoice": "02-financial-document",
+                "budget": "02-financial-document",
+                "proposal": "05-marketing-document",
+                "specification": "04-technical-document",
+                "manual": "04-technical-document",
+                "report": "06-research-document",
+                "analysis": "06-research-document"
             }
 
             # Find matching category
@@ -783,10 +633,10 @@ class DocumentUploadService:
                     return folder
 
             # Default category
-            default_category = "39. Generic Text Document"
+            default_category = "39-generic-text-document"
             logger.debug(f"Using default category for '{ai_classification}': {default_category}")
             return default_category
 
         except Exception as e:
             logger.error(f"Error determining category folder for '{ai_classification}': {e}")
-            return "39. Generic Text Document"
+            return "39-generic-text-document"
