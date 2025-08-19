@@ -65,7 +65,7 @@ class DocumentUploadService:
             logger.error(f"Error initializing services: {e}")
             raise
 
-    def _process_single_document(self, task: Dict[str, Any]):
+    def process_single_document(self, task: Dict[str, Any]):
         """Process a single document with comprehensive error handling and cleanup."""
         temp_document_id = task["temp_document_id"]
         project_id = task["project_id"]
