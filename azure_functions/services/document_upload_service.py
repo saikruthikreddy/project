@@ -287,8 +287,12 @@ class DocumentUploadService:
             try:
                 # Remove temp file
                 try:
-                    blob_storage_service.move_file(source_path, dest_path, source_container=config.TEMP_DOCUMENTS_CONTAINER, dest_container=config.DOCUMENTS_CONTAINER)
-                    # blob_storage_service.delete_file(config.TEMP_DOCUMENTS_CONTAINER, source_path)
+                    blob_storage_service.move_file(
+                        source_path=source_blob_name,
+                        dest_path=dest_blob_name,
+                        source_container=source_container,
+                        dest_container=dest_container
+                    )
                 except Exception as e:
                     logger.error("Unable to move file.")
                     raise
