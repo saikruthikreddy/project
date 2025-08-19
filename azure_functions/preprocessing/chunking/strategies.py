@@ -11,11 +11,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 
-from chunking.models import ChunkMetadata
-from chunking.token_counter import TokenCounter
-from chunking.nlp_processor import NLPProcessor
-from chunking.chunking_config import CHUNKING_PARAMETERS
-from chunking.validators import validate_blocks_for_chunking  
+from azure_functions.preprocessing.chunking.models import ChunkMetadata
+from azure_functions.preprocessing.chunking.token_counter import TokenCounter
+from azure_functions.preprocessing.chunking.nlp_processor import NLPProcessor
+from azure_functions.preprocessing.chunking.chunking_config import CHUNKING_PARAMETERS
+from azure_functions.preprocessing.chunking.validators import validate_blocks_for_chunking
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,10 @@ def set_token_model(model_name: str):
     token_counter.set_model(model_name)
 
 # Helper functions - deduplicated
-def _center(b): 
+def _center(b):
     return (b[0]+b[2]/2.0, b[1]+b[3]/2.0)
 
-def _dist(b1, b2): 
+def _dist(b1, b2):
     return math.hypot(_center(b1)[0]-_center(b2)[0], _center(b1)[1]-_center(b2)[1])
 
 def _normalized_bbox(meta):
@@ -148,7 +148,7 @@ def _create_chunk_metadata(
     current_heading_info: Optional[Dict[str, Any]] = None
 ) -> ChunkMetadata:
     """Helper to create ChunkMetadata, aggregating page/slide numbers and structural info."""
-    
+
     def extract_page_number(meta: Dict[str, Any]) -> Optional[int]:
         if not isinstance(meta, dict):
             return None
@@ -854,7 +854,7 @@ def chunk_presentation_document(
 
 def split_table_header_rows(table_text: str) -> Tuple[str, List[str]]:
     lines = [line.strip() for line in table_text.strip().split('\n') if line.strip()]
-    
+
     if not lines:
         return "", []
 
@@ -924,7 +924,7 @@ def chunk_document_adaptive(
         # Step 1: Peel off metric chunks
         metric_chunks, rest_blocks = pair_metrics_with_labels(parsed_blocks)
         chunks.extend(metric_chunks) # Add paired metrics to our final list
-        
+
         # The blocks that remain are passed to the next stage
         blocks_for_next_stage = rest_blocks
     else:

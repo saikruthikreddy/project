@@ -4,14 +4,12 @@ Fully migrated for Azure Blob Storage compatibility with all improvements correc
 """
 import pandas as pd
 import openpyxl
-import os
 import json
 import uuid
 import re
-import math
 import chardet
 from datetime import datetime
-from typing import List, Dict, Any, Tuple, Optional, Iterator, Union
+from typing import List, Dict, Any, Tuple, Optional, Iterator
 import logging
 from pathlib import Path
 
@@ -22,7 +20,7 @@ try:
     from llama_index.core.schema import BaseNode, TextNode
     from llama_index.core.storage.storage_context import StorageContext
     from llama_index.readers.file import PandasCSVReader, PandasExcelReader
-    
+
     try:
         from llama_index.embeddings.openai import OpenAIEmbedding
         from llama_index.llms.openai import OpenAI
@@ -33,7 +31,7 @@ try:
         except ImportError:
             OpenAIEmbedding = None
             OpenAI = None
-    
+
     try:
         from llama_index.vector_stores.chroma import ChromaVectorStore
         import chromadb
@@ -47,7 +45,7 @@ try:
             ChromaVectorStore = None
             chromadb = None
             CHROMA_AVAILABLE = False
-    
+
     LLAMAINDEX_AVAILABLE = True
 except ImportError as e:
     LLAMAINDEX_AVAILABLE = False
@@ -68,7 +66,7 @@ class CSVProcessor:
     Fully migrated with all improvements correctly implemented.
     """
 
-    def __init__(self, api_key: Optional[str] = None, use_row_by_row: bool = False, 
+    def __init__(self, api_key: Optional[str] = None, use_row_by_row: bool = False,
                  openai_api_key: Optional[str] = None, use_llamaindex: bool = True):
         """
         Initialize the CSV processor.
@@ -83,23 +81,23 @@ class CSVProcessor:
         self.use_row_by_row = use_row_by_row
         self.openai_api_key = openai_api_key
         self.use_llamaindex = use_llamaindex and LLAMAINDEX_AVAILABLE
-        
+
         self.image_processor = self._get_image_processor()
         self.default_rows_per_block = 120
         self.supported_csv_encodings = ['utf-8', 'ISO-8859-1', 'latin-1', 'cp1252']
         self.supported_csv_delimiters = [',', ';', '\t', '|', ':']
         self.supported_extensions = {'.csv', '.xlsx', '.xls'}
-        
+
         self.current_section_idx = 1
         self._blob_info_cache = {}  # Cache for blob info to improve performance
-        
+
         self.visual_patterns = [
             r'\b(?:chart|figure|graph|diagram|table|image|plot|visualization)\b',
             r'\b(?:see|refer|reference|shown|depicted|illustrated)\s+(?:above|below|in|to)\b',
             r'\b(?:as\s+shown|refer\s+to|see\s+table|see\s+figure|chart\s+shows)\b',
             r'\b(?:visualization|infographic|screenshot|dashboard)\b'
         ]
-        
+
         if self.use_llamaindex:
             self.node_parser = SimpleNodeParser.from_defaults()
             if self.openai_api_key and OpenAI and OpenAIEmbedding:
@@ -130,7 +128,7 @@ class CSVProcessor:
     def detect_encoding(self, container: str, blob_name: str) -> str:
         """Detect file encoding using chardet."""
         try:
-            blob_data = blob_storage_service.download_blob(container, blob_name)
+            blob_data = blob_storage_service.download_file(container, blob_name)
             result = chardet.detect(blob_data[:100000])
             encoding = result['encoding']
             confidence = result['confidence']
@@ -143,10 +141,10 @@ class CSVProcessor:
     def detect_csv_delimiter(self, container: str, blob_name: str, encoding: str) -> str:
         """Detect CSV delimiter by analyzing the first few lines."""
         try:
-            blob_data = blob_storage_service.download_blob(container, blob_name)
+            blob_data = blob_storage_service.download_file(container, blob_name)
             text_data = blob_data.decode(encoding)
             sample_lines = text_data.split('\n')[:5]
-            
+
             delimiter_counts = {}
             for delimiter in self.supported_csv_delimiters:
                 counts = [line.count(delimiter) for line in sample_lines if line.strip()]
@@ -155,7 +153,7 @@ class CSVProcessor:
                     consistency = all(abs(count - avg_count) <= 1 for count in counts)
                     if consistency:
                         delimiter_counts[delimiter] = avg_count
-            
+
             if delimiter_counts:
                 best_delimiter = max(delimiter_counts, key=delimiter_counts.get)
                 logger.info(f"Detected delimiter: '{best_delimiter}' (avg count: {delimiter_counts[best_delimiter]:.1f})")
@@ -163,7 +161,7 @@ class CSVProcessor:
             else:
                 logger.info("Using default delimiter: ','")
                 return ','
-                
+
         except Exception as e:
             logger.warning(f"Delimiter detection failed: {e}")
             return ','
@@ -192,9 +190,9 @@ class CSVProcessor:
             detected_encoding = self.detect_encoding(container, blob_name)
             encodings_to_try = [detected_encoding] + self.supported_csv_encodings
             encodings_to_try = list(dict.fromkeys(encodings_to_try))
-            
-            blob_data = blob_storage_service.download_blob(container, blob_name)
-            
+
+            blob_data = blob_storage_service.download_file(container, blob_name)
+
             for encoding in encodings_to_try:
                 for delimiter in self.supported_csv_delimiters:
                     try:
@@ -207,11 +205,11 @@ class CSVProcessor:
                             skipinitialspace=True,
                             on_bad_lines='skip'
                         )
-                        
+
                         if not df.empty and len(df.columns) > 1:
                             logger.info(f"Successfully parsed CSV with encoding='{encoding}', delimiter='{delimiter}'")
                             return df
-                        
+
                     except (UnicodeDecodeError, pd.errors.EmptyDataError):
                         continue
                     except Exception as e:
@@ -248,17 +246,17 @@ class CSVProcessor:
     def _load_excel_dataframe(self, container: str, blob_name: str, sheet_name: str = None) -> pd.DataFrame:
         """Load Excel file with enhanced error handling."""
         try:
-            blob_data = blob_storage_service.download_blob(container, blob_name)
+            blob_data = blob_storage_service.download_file(container, blob_name)
             from io import BytesIO
-            
+
             if sheet_name:
                 df = pd.read_excel(BytesIO(blob_data), sheet_name=sheet_name, header=0, na_values=['', 'nan', 'NaN'])
             else:
                 df = pd.read_excel(BytesIO(blob_data), header=0, na_values=['', 'nan', 'NaN'])
-            
+
             logger.info(f"Successfully loaded Excel sheet: {sheet_name or 'default'}")
             return df
-            
+
         except Exception as e:
             logger.error(f"Error loading Excel sheet {sheet_name}: {e}")
             raise
@@ -266,7 +264,7 @@ class CSVProcessor:
     def get_excel_sheet_names(self, container: str, blob_name: str) -> List[str]:
         """Get all sheet names from an Excel file."""
         try:
-            blob_data = blob_storage_service.download_blob(container, blob_name)
+            blob_data = blob_storage_service.download_file(container, blob_name)
             from io import BytesIO
             xl_file = pd.ExcelFile(BytesIO(blob_data))
             sheet_names = xl_file.sheet_names
@@ -284,7 +282,7 @@ class CSVProcessor:
         image_blocks: List[Tuple[str, Dict[str, Any]]] = []
 
         try:
-            blob_data = blob_storage_service.download_blob(container, blob_name)
+            blob_data = blob_storage_service.download_file(container, blob_name)
             from io import BytesIO
             workbook = openpyxl.load_workbook(BytesIO(blob_data), data_only=False)
             sheet = workbook[sheet_name]
@@ -317,27 +315,27 @@ class CSVProcessor:
 
         return image_blocks
 
-    def emit_sheet_tables(self, df: pd.DataFrame, sheet_name: str, blob_name: str, 
+    def emit_sheet_tables(self, df: pd.DataFrame, sheet_name: str, blob_name: str,
                          rows_per_block: int = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Create sheet-level table blocks with header carry-over."""
         if df.empty:
             return []
-        
+
         if rows_per_block is None:
             rows_per_block = self.default_rows_per_block
-            
+
         # Get clean filename without path operations
         blob_info = self._get_cached_blob_info(*blob_name.split('/', 1)) if '/' in blob_name else {"file_name": blob_name}
         base_name = blob_info.get("file_name", blob_name)
-            
+
         headers = list(map(str, df.columns))
         header_md = "| " + " | ".join(headers) + " |\n| " + " | ".join(["---"] * len(headers)) + " |\n"
-        
+
         blocks = []
-        
+
         for chunk_idx, i in enumerate(range(0, len(df), rows_per_block)):
             chunk = df.iloc[i:i+rows_per_block]
-            
+
             body_rows = []
             for _, row in chunk.iterrows():
                 cells = []
@@ -347,12 +345,12 @@ class CSVProcessor:
                     else:
                         cells.append(str(val).strip())
                 body_rows.append("| " + " | ".join(cells) + " |")
-            
+
             body = "\n".join(body_rows)
             text = header_md + body
-            
+
             synthetic_page = self.get_synthetic_page_number(sheet_name, chunk_idx)
-            
+
             metadata = {
                 "page_number": synthetic_page,
                 "block_type": "table",
@@ -371,30 +369,30 @@ class CSVProcessor:
                 "total_rows": len(df),
                 "file_type": "excel" if sheet_name != "Sheet1" else "csv"
             }
-            
+
             blocks.append((text, metadata))
-        
+
         return blocks
 
-    def _convert_to_row_blocks(self, df: pd.DataFrame, sheet_name: Optional[str] = None, 
+    def _convert_to_row_blocks(self, df: pd.DataFrame, sheet_name: Optional[str] = None,
                               container: str = None, blob_name: str = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Convert DataFrame to row-by-row blocks (legacy compatibility)."""
         blocks = []
-        
+
         # Get clean filename
         if container and blob_name:
             blob_info = self._get_cached_blob_info(container, blob_name)
             base_name = blob_info["file_name"]
         else:
             base_name = "unknown"
-        
+
         for idx, row in df.iterrows():
             row_text = " | ".join(str(cell) for cell in row.values if pd.notna(cell)).strip()
-            
+
             if row_text:
                 has_visual_ref = self.detect_visual_references(row_text)
                 block_type = "visual_reference" if has_visual_ref else "data_row"
-                
+
                 metadata = {
                     "page_number": self.get_synthetic_page_number(sheet_name or "Sheet1"),
                     "block_type": block_type,
@@ -410,11 +408,11 @@ class CSVProcessor:
                     "visual_reference": has_visual_ref
                 }
                 blocks.append((row_text, metadata))
-        
+
         return blocks
 
     def _parse_dataframe_to_blocks(self, df: pd.DataFrame, sheet_name: Optional[str] = None,
-                                 rows_per_block: int = None, container: str = None, 
+                                 rows_per_block: int = None, container: str = None,
                                  blob_name: str = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Convert a pandas DataFrame into structured text blocks."""
         if df.empty:
@@ -434,7 +432,7 @@ class CSVProcessor:
 
         return self.emit_sheet_tables(df, sheet_name or "Sheet1", base_name, rows_per_block)
 
-    def _enhanced_excel_parsing_iterative(self, container: str, blob_name: str, 
+    def _enhanced_excel_parsing_iterative(self, container: str, blob_name: str,
                                         rows_per_block: int = None) -> Iterator[Tuple[str, Dict[str, Any]]]:
         """Enhanced Excel parsing with memory-efficient processing."""
         if rows_per_block is None:
@@ -447,7 +445,7 @@ class CSVProcessor:
 
             for sheet_idx, sheet_name in enumerate(sheet_names):
                 self.current_section_idx = sheet_idx + 1
-                
+
                 try:
                     df_sheet = self._load_excel_dataframe(container, blob_name, sheet_name)
 
@@ -455,7 +453,7 @@ class CSVProcessor:
                         # Create sheet summary block
                         columns = list(df_sheet.columns)
                         column_info = f"Sheet: {sheet_name}\nFile: {base_name}\nColumns: {', '.join(str(col) for col in columns)}\nTotal rows: {len(df_sheet)}"
-                        
+
                         summary_metadata = {
                             "sheet_name": sheet_name,
                             "region_id": f"{sheet_name.replace(' ', '_')}_summary",
@@ -470,7 +468,7 @@ class CSVProcessor:
                             "column_names": columns,
                             "visual_reference": False
                         }
-                        
+
                         yield column_info, summary_metadata
 
                         # Generate table blocks
@@ -499,22 +497,22 @@ class CSVProcessor:
     def validate_blocks_before_chunking(self, blocks: List[Tuple[str, Dict[str, Any]]]) -> bool:
         """Centralize pre-chunk validation for all formats."""
         logger.info("Running pre-chunk validation...")
-        
+
         for i, (text, meta) in enumerate(blocks):
             try:
                 assert "block_type" in meta, f"Block {i}: parser must set block_type"
                 assert "page_number" in meta, f"Block {i}: missing page_number"
-                
+
                 if meta.get("block_type") == "table":
                     assert "column_names" in meta and meta.get("column_names"), f"Block {i}: table blocks must have column_names"
                     assert meta.get("source_type") == "tabular_data", f"Block {i}: table blocks must have source_type='tabular_data'"
-                
+
                 logger.debug(f"Block {i}: validation passed")
-                
+
             except AssertionError as e:
                 logger.error(f"Validation failed: {e}")
                 return False
-        
+
         logger.info(f"All {len(blocks)} blocks passed validation")
         return True
 
@@ -672,7 +670,7 @@ class CSVProcessor:
 
         return metadata
 
-    def process_file(self, container: str, blob_name: str, use_enhanced_parsing: bool = None, 
+    def process_file(self, container: str, blob_name: str, use_enhanced_parsing: bool = None,
                     rows_per_block: int = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Process a CSV or Excel file and extract structured content."""
         enhanced_parsing = use_enhanced_parsing if use_enhanced_parsing is not None else self.use_llamaindex
@@ -685,7 +683,7 @@ class CSVProcessor:
                 raise FileProcessingError(f"Blob not found: {container}/{blob_name}", filepath=f"{container}/{blob_name}")
 
             file_extension = Path(blob_info["file_name"]).suffix.lower()
-            
+
             if file_extension not in self.supported_extensions:
                 raise ParsingError(
                     f"Unsupported file format: {file_extension}. Supported: {', '.join(self.supported_extensions)}",
@@ -698,10 +696,10 @@ class CSVProcessor:
                 return self._process_file_legacy(container, blob_name, rows_per_block)
         except Exception as e:
             logger.error(f"Error processing CSV/Excel blob {container}/{blob_name}: {e}")
-            raise FileProcessingError(f"Error processing CSV/Excel blob {container}/{blob_name}: {e}", 
+            raise FileProcessingError(f"Error processing CSV/Excel blob {container}/{blob_name}: {e}",
                                     filepath=f"{container}/{blob_name}")
 
-    def _process_file_enhanced(self, container: str, blob_name: str, 
+    def _process_file_enhanced(self, container: str, blob_name: str,
                              rows_per_block: int = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Process file using enhanced logic."""
         processed_blocks: List[Tuple[str, Dict[str, Any]]] = []
@@ -714,7 +712,7 @@ class CSVProcessor:
             df = self._enhanced_csv_parsing(container, blob_name)
             if df is not None:
                 processed_blocks.extend(
-                    self._parse_dataframe_to_blocks(df, rows_per_block=rows_per_block, 
+                    self._parse_dataframe_to_blocks(df, rows_per_block=rows_per_block,
                                                   container=container, blob_name=blob_name)
                 )
 
@@ -730,7 +728,7 @@ class CSVProcessor:
         logger.info(f"Successfully processed {container}/{blob_name} (enhanced): {len(processed_blocks)} blocks extracted")
         return processed_blocks
 
-    def _process_file_legacy(self, container: str, blob_name: str, 
+    def _process_file_legacy(self, container: str, blob_name: str,
                            rows_per_block: int = None) -> List[Tuple[str, Dict[str, Any]]]:
         """Process file using legacy logic."""
         processed_blocks: List[Tuple[str, Dict[str, Any]]] = []
@@ -743,7 +741,7 @@ class CSVProcessor:
             df = self._enhanced_csv_parsing(container, blob_name)
             if df is not None:
                 processed_blocks.extend(
-                    self._parse_dataframe_to_blocks(df, rows_per_block=rows_per_block, 
+                    self._parse_dataframe_to_blocks(df, rows_per_block=rows_per_block,
                                                   container=container, blob_name=blob_name)
                 )
 
@@ -754,7 +752,7 @@ class CSVProcessor:
                 try:
                     df_sheet = self._load_excel_dataframe(container, blob_name, sheet_name)
                     if not df_sheet.empty:
-                        blocks = self._parse_dataframe_to_blocks(df_sheet, sheet_name, rows_per_block, 
+                        blocks = self._parse_dataframe_to_blocks(df_sheet, sheet_name, rows_per_block,
                                                                container, blob_name)
                         processed_blocks.extend(blocks)
                 except Exception as e:
@@ -806,12 +804,12 @@ class CSVProcessor:
             'encoding_info': {},
             'sheet_info': {}
         }
-        
+
         self.current_section_idx = 1
-        
+
         if ext in [".xlsx", ".xls"]:
             sheet_names = self.get_excel_sheet_names(container, blob_name)
-            
+
             for sheet_idx, sheet_name in enumerate(sheet_names):
                 try:
                     df = self._load_excel_dataframe(container, blob_name, sheet_name)
@@ -831,7 +829,7 @@ class CSVProcessor:
                     continue
         else:
             df = self._enhanced_csv_parsing(container, blob_name)
-            
+
             if df is not None:
                 dataframes["Sheet1"] = df
                 loading_metadata['encoding_info'] = {
@@ -848,27 +846,27 @@ class CSVProcessor:
                 logger.info(f"Loaded CSV DataFrame with shape {df.shape}")
             else:
                 logger.error("Failed to load CSV as DataFrame")
-        
+
         return dataframes, loading_metadata
 
-    def convert_to_enhanced_blocks(self, dataframes: Dict[str, pd.DataFrame], container: str, 
-                                 blob_name: str, document_id: str = None, 
+    def convert_to_enhanced_blocks(self, dataframes: Dict[str, pd.DataFrame], container: str,
+                                 blob_name: str, document_id: str = None,
                                  loading_metadata: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """Convert DataFrames to enhanced blocks format."""
         blob_info = self._get_cached_blob_info(container, blob_name)
         base_name = blob_info["file_name"]
         all_blocks = []
-        
+
         for sheet_idx, (sheet_name, df) in enumerate(dataframes.items()):
             self.current_section_idx = sheet_idx + 1
-            
+
             logger.info(f"Processing sheet '{sheet_name}' with {len(df)} rows (section {self.current_section_idx})")
             columns = list(df.columns)
-            
+
             column_info = f"Sheet: {sheet_name}\nFile: {base_name}\nColumns: {', '.join(str(col) for col in columns)}\nTotal rows: {len(df)}"
-            
+
             summary_page = self.get_synthetic_page_number(sheet_name, 0)
-            
+
             summary_block = {
                 "text": column_info,
                 "metadata": {
@@ -888,34 +886,34 @@ class CSVProcessor:
                 }
             }
             all_blocks.append(summary_block)
-            
+
             table_blocks = self.emit_sheet_tables(df, sheet_name, base_name, self.default_rows_per_block)
             for text, metadata in table_blocks:
                 all_blocks.append({"text": text, "metadata": metadata})
-        
+
         blocks_tuples = [(block["text"], block["metadata"]) for block in all_blocks]
         validation_passed = self.validate_blocks_before_chunking(blocks_tuples)
         if not validation_passed:
             raise ValueError("Block validation failed - blocks do not meet chunker requirements")
-        
+
         return all_blocks
 
     def create_vector_store_if_requested(self, blocks: List[Dict[str, Any]]) -> Optional[Any]:
         """Create LlamaIndex vector store from blocks with proper exception handling."""
         if not LLAMAINDEX_AVAILABLE:
             return None
-        
+
         try:
             documents = []
             non_summary_blocks = [block for block in blocks if block["metadata"]["block_type"] != "sheet_summary"]
-            
+
             for block in non_summary_blocks:
                 doc = Document(
                     text=block["text"],
                     metadata=block["metadata"]
                 )
                 documents.append(doc)
-            
+
             if documents:
                 index = VectorStoreIndex.from_documents(documents)
                 logger.info(f"Created vector store with {len(documents)} documents (skipped {len(blocks) - len(non_summary_blocks)} summary blocks)")
@@ -923,7 +921,7 @@ class CSVProcessor:
             else:
                 logger.warning("No documents to create vector store from")
                 return None
-            
+
         except Exception as e:
             logger.warning(f"Failed to create vector store: {e}")
             return None
@@ -935,7 +933,7 @@ def validate_blocks_for_chunking(blocks: List[Dict[str, Any]]) -> None:
         txt, meta = b.get("text", ""), b.get("metadata", {})
         assert "block_type" in meta, f"Block {i}: missing block_type"
         assert ("page_number" in meta or "slide_number" in meta), f"Block {i}: missing page or slide"
-        
+
         if meta.get("block_type") == "table":
             assert "column_names" in meta and meta["column_names"], f"Block {i}: table missing column_names"
             assert meta.get("source_type") == "tabular_data", f"Block {i}: table must have source_type='tabular_data'"

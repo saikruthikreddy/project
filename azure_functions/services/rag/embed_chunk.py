@@ -6,8 +6,8 @@ from typing import List, Tuple, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import OpenAI
 from sqlalchemy.orm import Session
-from giani_pkb.models.database_models import DocumentChunk, Document
-from giani_pkb.utils.config import config
+from models.database_models import DocumentChunk, Document
+from utils.config import config
 # Initialize OpenAI client and tokenizer
 openai = OpenAI(api_key=config.OPENAI_API_KEY)
 tokenizer = tiktoken.encoding_for_model("text-embedding-3-small")

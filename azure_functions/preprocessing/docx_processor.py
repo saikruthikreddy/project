@@ -70,7 +70,7 @@ class DocxProcessor:
         self.use_llamaindex = use_llamaindex and LLAMAINDEX_AVAILABLE
         self.image_processor = self._get_image_processor()
         self.supported_extensions = {'.docx'}
-        
+
         # Style mapping for better block classification
         self.style_mapping = {
             'heading 1': 'heading_1', 'heading 2': 'heading_2', 'heading 3': 'heading_3',
@@ -78,10 +78,10 @@ class DocxProcessor:
             'list paragraph': 'list_item', 'caption': 'caption', 'quote': 'quote',
             'title': 'title', 'subtitle': 'subtitle'
         }
-        
+
         # Setup advanced processing capabilities
         self._setup_advanced_processors()
-        
+
         # Initialize LlamaIndex parser if available
         if self.use_llamaindex:
             self.node_parser = SimpleNodeParser.from_defaults()
@@ -130,19 +130,19 @@ class DocxProcessor:
         try:
             page_breaks_before = 0
             current_element = element
-            
+
             while current_element.getprevious() is not None:
                 prev_element = current_element.getprevious()
-                
+
                 if hasattr(prev_element, 'tag') and 'sectPr' in prev_element.tag:
                     page_breaks_before += 1
                 elif hasattr(prev_element, 'xpath'):
-                    page_breaks = prev_element.xpath('.//w:br[@w:type="page"]', 
+                    page_breaks = prev_element.xpath('.//w:br[@w:type="page"]',
                                                    namespaces={'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'})
                     page_breaks_before += len(page_breaks)
-                
+
                 current_element = prev_element
-            
+
             estimated_page = max(1, page_breaks_before + 1)
             return [estimated_page]
         except Exception as e:
@@ -191,7 +191,7 @@ class DocxProcessor:
         """Preprocess image for better OCR results based on content type."""
         image = self.ensure_rgb_image(image)
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        
+
         # Content-specific preprocessing
         if content_type == 'chart':
             opencv_image = cv2.convertScaleAbs(opencv_image, alpha=1.5, beta=10)
@@ -199,62 +199,62 @@ class DocxProcessor:
         elif content_type == 'table':
             kernel = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
             opencv_image = cv2.filter2D(opencv_image, -1, kernel)
-        
+
         # Convert to grayscale and apply adaptive thresholding
         gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        
+
         # Clean up with morphological operations
         kernel = np.ones((1, 1), np.uint8)
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        
+
         return Image.fromarray(cv2.cvtColor(cleaned, cv2.COLOR_GRAY2RGB))
 
     def detect_tables_with_transformer(self, image: Image.Image) -> List[Dict]:
         """Detect tables using TableTransformer or fallback to OCR."""
         if not self.table_transformer_available:
             return self.detect_tables_fallback(image)
-        
+
         try:
             image = self.ensure_rgb_image(image)
-            
+
             # Resize image if too large
             max_size = 1024
             if max(image.size) > max_size:
                 ratio = max_size / max(image.size)
                 new_size = tuple(int(dim * ratio) for dim in image.size)
                 image = image.resize(new_size, Image.Resampling.LANCZOS)
-            
+
             # Process with TableTransformer
             encoding = self.table_processor(image, return_tensors="pt")
-            
+
             with torch.no_grad():
                 outputs = self.table_detection_model(**encoding)
-            
+
             target_sizes = torch.tensor([image.size[::-1]])
             results = self.table_processor.post_process_object_detection(
                 outputs, threshold=0.7, target_sizes=target_sizes
             )[0]
-            
+
             # Extract table data
             tables = []
             for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
                 if score > 0.7:
                     box = [round(i, 2) for i in box.tolist()]
                     x1, y1, x2, y2 = box
-                    
+
                     table_crop = image.crop((x1, y1, x2, y2))
                     table_data = self.extract_table_structure(table_crop)
-                    
+
                     tables.append({
                         "bbox": box,
                         "confidence": score.item(),
                         "table_data": table_data,
                         "image_crop": table_crop
                     })
-            
+
             return tables
-            
+
         except Exception as e:
             logger.warning(f"TableTransformer detection failed: {e}, falling back to OCR")
             return self.detect_tables_fallback(image)
@@ -263,24 +263,24 @@ class DocxProcessor:
         """Fallback table detection using OCR and text analysis."""
         try:
             processed_img = self.preprocess_image_for_ocr(image, 'table')
-            
+
             ocr_data = pytesseract.image_to_data(
-                processed_img, 
+                processed_img,
                 config=self.ocr_configs['table'],
                 output_type=pytesseract.Output.DICT
             )
-            
+
             # Extract text elements with positions
             text_lines = []
             words = ocr_data['text']
             confidences = ocr_data['conf']
             tops = ocr_data['top']
             lefts = ocr_data['left']
-            
+
             for i, (word, conf, top, left) in enumerate(zip(words, confidences, tops, lefts)):
                 if conf > 30 and word.strip():
                     text_lines.append({'text': word.strip(), 'top': top, 'left': left, 'confidence': conf})
-            
+
             # Group by rows based on Y position
             rows = {}
             for item in text_lines:
@@ -288,7 +288,7 @@ class DocxProcessor:
                 if row_key not in rows:
                     rows[row_key] = []
                 rows[row_key].append(item)
-            
+
             # Check if this looks like a table (multiple rows with multiple columns)
             if len(rows) >= 2:
                 avg_cols_per_row = sum(len(row) for row in rows.values()) / len(rows)
@@ -305,9 +305,9 @@ class DocxProcessor:
                         },
                         "image_crop": image
                     }]
-            
+
             return []
-            
+
         except Exception as e:
             logger.error(f"Fallback table detection failed: {e}")
             return []
@@ -326,40 +326,40 @@ class DocxProcessor:
         try:
             table_image = self.ensure_rgb_image(table_image)
             processed_img = self.preprocess_image_for_ocr(table_image, 'table')
-            
+
             structure_detected = False
             cell_count = 0
-            
+
             # Try structure recognition with TableTransformer
             if self.table_transformer_available:
                 try:
                     encoding = self.table_processor(processed_img, return_tensors="pt")
-                    
+
                     with torch.no_grad():
                         outputs = self.table_structure_model(**encoding)
-                    
+
                     target_sizes = torch.tensor([processed_img.size[::-1]])
                     results = self.table_processor.post_process_object_detection(
                         outputs, threshold=0.5, target_sizes=target_sizes
                     )[0]
-                    
+
                     structure_detected = len(results["boxes"]) > 0
                     cell_count = len(results["boxes"])
-                    
+
                 except Exception as e:
                     logger.warning(f"Structure recognition failed: {e}")
-            
+
             # Extract text regardless of structure detection
             table_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs['table'])
             rows = self.parse_table_text(table_text)
-            
+
             return {
                 "structure_detected": structure_detected,
                 "raw_text": table_text,
                 "parsed_rows": rows,
                 "cell_count": cell_count if cell_count > 0 else len(rows) * (len(rows[0]) if rows else 0)
             }
-            
+
         except Exception as e:
             logger.error(f"Table structure extraction failed: {e}")
             try:
@@ -373,13 +373,13 @@ class DocxProcessor:
         """Parse table text into structured rows and columns."""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         rows = []
-        
+
         for line in lines:
             # Split on multiple spaces or tabs to identify columns
             cells = re.split(r' {2,}|\t+', line)
             if len(cells) > 1:
                 rows.append([cell.strip() for cell in cells])
-        
+
         return rows
 
     def extract_chart_data_advanced(self, image: Image.Image) -> Dict[str, Any]:
@@ -387,30 +387,30 @@ class DocxProcessor:
         try:
             image = self.ensure_rgb_image(image)
             processed_img = self.preprocess_image_for_ocr(image, 'chart')
-            
+
             # Get OCR data with position information
             ocr_data = pytesseract.image_to_data(
-                processed_img, 
+                processed_img,
                 config=self.ocr_configs['chart'],
                 output_type=pytesseract.Output.DICT
             )
-            
+
             # Parse chart elements
             chart_elements = self.parse_chart_elements(ocr_data)
-            
+
             # Get general text
             general_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs['general'])
-            
+
             # Detect chart type
             chart_type = self.detect_chart_type(general_text)
-            
+
             return {
                 "chart_type": chart_type,
                 "structured_data": chart_elements,
                 "raw_text": general_text,
                 "confidence_score": self.calculate_chart_confidence(chart_elements, general_text)
             }
-            
+
         except Exception as e:
             logger.error(f"Chart data extraction failed: {e}")
             return {"chart_type": "unknown", "structured_data": [], "raw_text": "", "confidence_score": 0.0}
@@ -421,37 +421,37 @@ class DocxProcessor:
         words = ocr_data['text']
         confidences = ocr_data['conf']
         boxes = list(zip(ocr_data['left'], ocr_data['top'], ocr_data['width'], ocr_data['height']))
-        
+
         for word, conf, box in zip(words, confidences, boxes):
             if conf < 30 or not word.strip():
                 continue
-                
+
             word = word.strip()
-            
+
             # Identify numeric values and percentages
             if re.match(r'^\d+(?:\.\d+)?%?$', word):
                 elements.append({
-                    "type": "value", 
-                    "text": word, 
-                    "confidence": conf, 
-                    "bbox": box, 
+                    "type": "value",
+                    "text": word,
+                    "confidence": conf,
+                    "bbox": box,
                     "is_percentage": '%' in word
                 })
             # Identify labels
             elif len(word) > 2 and not word.isdigit():
                 elements.append({
-                    "type": "label", 
-                    "text": word, 
-                    "confidence": conf, 
+                    "type": "label",
+                    "text": word,
+                    "confidence": conf,
                     "bbox": box
                 })
-        
+
         return elements
 
     def detect_chart_type(self, text: str) -> str:
         """Detect chart type based on text content."""
         text_lower = text.lower()
-        
+
         if any(keyword in text_lower for keyword in ['pie', 'slice', 'sector']):
             return 'pie_chart'
         elif any(keyword in text_lower for keyword in ['bar', 'column', 'histogram']):
@@ -467,16 +467,16 @@ class DocxProcessor:
         """Calculate confidence score for chart detection."""
         if not elements:
             return 0.0
-        
+
         avg_confidence = sum(elem['confidence'] for elem in elements) / len(elements)
-        
+
         # Boost confidence if we have both labels and values
         has_labels = any(elem['type'] == 'label' for elem in elements)
         has_values = any(elem['type'] == 'value' for elem in elements)
-        
+
         if has_labels and has_values:
             avg_confidence *= 1.2
-        
+
         return min(avg_confidence / 100.0, 1.0)
 
     def _table_to_markdown(self, table: docx.table.Table) -> str:
@@ -496,19 +496,19 @@ class DocxProcessor:
             rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
             if not rows:
                 return ""
-            
+
             header = rows[0]
             separator = ["---"] * len(header)
             body = rows[1:]
-            
+
             markdown = "| " + " | ".join(header) + " |\n"
             markdown += "| " + " | ".join(separator) + " |\n"
-            
+
             for row in body:
                 # Ensure row has same length as header
                 padded_row = row + [""] * (len(header) - len(row))
                 markdown += "| " + " | ".join(padded_row[:len(header)]) + " |\n"
-            
+
             return markdown.strip()
 
         except Exception as e:
@@ -556,7 +556,7 @@ class DocxProcessor:
                             img_description = f"[IMAGE {count}: {format_type} image, {width}x{height} pixels, {mode} mode]"
                         except Exception as e:
                             img_description = f"[IMAGE {count}: Unable to analyze image - {str(e)}]"
-                        
+
                         image_info.append({
                             "index": count,
                             "description": img_description,
@@ -572,7 +572,7 @@ class DocxProcessor:
                         })
         except Exception as e:
             logger.error(f"Error extracting image info: {e}")
-        
+
         return image_info
 
     def _extract_images_from_docx(self, container: str, blob_name: str) -> List[Tuple[str, Dict[str, Any]]]:
@@ -593,8 +593,8 @@ class DocxProcessor:
 
         try:
             # Get DOCX file from Azure Blob Storage
-            docx_bytes = blob_storage_service.download_blob(container, blob_name)
-            
+            docx_bytes = blob_storage_service.download_file(container, blob_name)
+
             with zipfile.ZipFile(io.BytesIO(docx_bytes), 'r') as docx_zip:
                 media_files = [item for item in docx_zip.infolist() if item.filename.startswith('word/media/')]
 
@@ -603,15 +603,15 @@ class DocxProcessor:
                         image_bytes = docx_zip.read(media_file.filename)
                         img = Image.open(io.BytesIO(image_bytes))
                         img = self.ensure_rgb_image(img)
-                        
+
                         # Try table detection first
                         detected_tables = self.detect_tables_with_transformer(img)
-                        
+
                         if detected_tables:
                             # Process as table
                             for table_data in detected_tables:
                                 table_text = self.format_table_data(table_data['table_data'])
-                                
+
                                 metadata = {
                                     "page_numbers": [1],
                                     "block_type": "table",
@@ -625,7 +625,7 @@ class DocxProcessor:
                         else:
                             # Process as chart or general image
                             chart_data = self.extract_chart_data_advanced(img)
-                            
+
                             if chart_data['raw_text'].strip():
                                 metadata = {
                                     "page_numbers": [1],
@@ -652,19 +652,19 @@ class DocxProcessor:
             rows = table_data['parsed_rows']
             if not rows:
                 return table_data.get('raw_text', '')
-            
+
             headers = rows[0] if rows else []
             if not headers:
                 return table_data.get('raw_text', '')
-                
+
             # Create markdown table
             markdown = "| " + " | ".join(headers) + " |\n"
             markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-            
+
             for row in rows[1:]:
                 padded_row = row + [''] * (len(headers) - len(row))
                 markdown += "| " + " | ".join(padded_row[:len(headers)]) + " |\n"
-            
+
             return markdown
         else:
             return table_data.get('raw_text', '')
@@ -685,7 +685,7 @@ class DocxProcessor:
 
         # Extract image information
         image_info_list = self._extract_image_info_enhanced(doc)
-        
+
         # Create element mappings for efficient processing
         table_elements = {tbl._element: tbl for tbl in doc.tables}
         para_elements = {p._element: p for p in doc.paragraphs}
@@ -697,7 +697,7 @@ class DocxProcessor:
         for element in doc.element.body:
             element_order += 1
             page_numbers = self._get_page_numbers_from_element(element, doc)
-            
+
             # Process tables
             if element in table_elements:
                 table = table_elements[element]
@@ -711,7 +711,7 @@ class DocxProcessor:
                         "num_rows": len(table.rows),
                         "num_cols": len(table.columns) if table.rows else 0
                     })
-            
+
             # Process paragraphs
             elif element in para_elements:
                 para = para_elements[element]
@@ -725,20 +725,20 @@ class DocxProcessor:
                         "style_name": para.style.name,
                         "block_type": self._get_paragraph_style_type(para)
                     })
-            
+
             # Process image/drawing elements
             elif element.tag.endswith("drawing"):
                 if img_counter < len(image_info_list):
                     img_info = image_info_list[img_counter]
-                    
+
                     try:
                         if img_info.get("blob"):
                             img = Image.open(io.BytesIO(img_info["blob"]))
                             img = self.ensure_rgb_image(img)
-                            
+
                             # Try table detection first
                             detected_tables = self.detect_tables_with_transformer(img)
-                            
+
                             if detected_tables:
                                 for j, table_data in enumerate(detected_tables):
                                     table_text = self.format_table_data(table_data['table_data'])
@@ -776,7 +776,7 @@ class DocxProcessor:
                             "image_size": img_info["size"],
                             "image_index": img_info["index"]
                         })
-                    
+
                     img_counter += 1
 
         # Add any leftover images
@@ -877,7 +877,7 @@ class DocxProcessor:
                     "source_type": block.get("source_type", "text"),
                     "element_order": block.get("element_order", 0)
                 }
-                
+
                 block_nodes = self.node_parser.get_nodes_from_documents([doc])
                 for node in block_nodes:
                     node.metadata.update(doc.metadata)
@@ -899,10 +899,10 @@ class DocxProcessor:
             List of standardized block dictionaries
         """
         normalized_blocks = []
-        
+
         if not blocks_input:
             return normalized_blocks
-            
+
         # Handle list input
         if isinstance(blocks_input, list):
             for item in blocks_input:
@@ -918,7 +918,7 @@ class DocxProcessor:
                         "type": getattr(item, 'type', 'text'),
                         "page_numbers": getattr(item, 'page_numbers', [1])
                     })
-        
+
         # Handle iterable objects
         elif hasattr(blocks_input, '__iter__') and not isinstance(blocks_input, (str, dict)):
             try:
@@ -935,7 +935,7 @@ class DocxProcessor:
                         })
             except Exception as e:
                 logger.warning(f"Error normalizing blocks input: {e}")
-        
+
         # Handle ProcessingResult or similar objects
         elif hasattr(blocks_input, 'chunks_preview'):
             try:
@@ -948,7 +948,7 @@ class DocxProcessor:
                         })
             except Exception as e:
                 logger.warning(f"Error extracting from ProcessingResult: {e}")
-        
+
         return normalized_blocks
 
     def generate_metadata_with_llamaindex(self, container: str, blob_name: str, blocks: Any, nodes: List[Any] = None) -> Dict[str, Any]:
@@ -1105,7 +1105,7 @@ class DocxProcessor:
             )
 
         # Check if blob exists
-        if not blob_storage_service.blob_exists(container, blob_name):
+        if not blob_storage_service.file_exists(container, blob_name):
             raise FileProcessingError(f"File not found in Azure Blob Storage: {container}/{blob_name}", filepath=blob_name)
 
         # Determine parsing method
@@ -1302,12 +1302,12 @@ class DocxProcessor:
         try:
             # Save metadata JSON to Azure Blob Storage
             metadata_json = json.dumps(metadata, ensure_ascii=False, indent=2)
-            blob_storage_service.upload_text(output_container, metadata_blob_name, metadata_json)
+            blob_storage_service.upload_file(output_container, metadata_blob_name, metadata_json)
             logger.info(f"Metadata saved to: {output_container}/{metadata_blob_name}")
 
             # Save parsed blocks JSON to Azure Blob Storage
             blocks_json = json.dumps(blocks, ensure_ascii=False, indent=2)
-            blob_storage_service.upload_text(output_container, blocks_blob_name, blocks_json)
+            blob_storage_service.upload_file(output_container, blocks_blob_name, blocks_json)
             logger.info(f"Parsed blocks saved to: {output_container}/{blocks_blob_name}")
 
         except Exception as e:
@@ -1352,23 +1352,23 @@ class DocxProcessor:
         }
 
         total_text_length = 0
-        
+
         for text, metadata in processed_blocks:
             # Count block types
             block_type = metadata.get("block_type", "unknown")
             stats["block_types"][block_type] = stats["block_types"].get(block_type, 0) + 1
-            
+
             # Count source types
             source_type = metadata.get("source_type", "unknown")
             stats["source_types"][source_type] = stats["source_types"].get(source_type, 0) + 1
-            
+
             # Count extraction methods
             extraction_method = metadata.get("extraction_method", "standard")
             stats["extraction_methods"][extraction_method] = stats["extraction_methods"].get(extraction_method, 0) + 1
-            
+
             # Calculate text statistics
             total_text_length += len(text)
-            
+
             # Count specific content types
             if block_type == "table" or source_type == "table":
                 stats["tables_detected"] += 1
@@ -1376,7 +1376,7 @@ class DocxProcessor:
                 stats["charts_detected"] += 1
             if source_type == "image":
                 stats["images_processed"] += 1
-        
+
         stats["average_text_length"] = total_text_length / len(processed_blocks) if processed_blocks else 0
         return stats
 
@@ -1402,28 +1402,28 @@ class DocxProcessor:
             if not isinstance(text, str):
                 validation_results["errors"].append(f"Block {i}: text is not a string")
                 validation_results["is_valid"] = False
-            
+
             # Validate metadata structure
             if not isinstance(metadata, dict):
                 validation_results["errors"].append(f"Block {i}: metadata is not a dictionary")
                 validation_results["is_valid"] = False
                 continue
-            
+
             # Check required metadata fields
             required_fields = ["block_type", "source_type", "file_type", "page_numbers"]
             for field in required_fields:
                 if field not in metadata:
                     validation_results["warnings"].append(f"Block {i}: missing {field} in metadata")
-            
+
             # Check for empty content
             if not text.strip():
                 validation_results["warnings"].append(f"Block {i}: empty text content")
-            
+
             # Validate table-specific metadata
             if metadata.get("block_type") == "table":
                 if "num_rows" not in metadata and "table_confidence" not in metadata:
                     validation_results["warnings"].append(f"Block {i}: table missing row count or confidence")
-            
+
             # Validate page numbers
             page_nums = metadata.get("page_numbers", [])
             if not isinstance(page_nums, list) or not page_nums:

@@ -14,13 +14,18 @@ from .strategies import (
     chunk_data_heavy_document,
     chunk_document_semantic,
     chunk_document_adaptive,
-    chunk_presentation_document,  # ✅ ADD THIS
+    chunk_presentation_document,
 )
 
 
 __all__ = [
-    'ChunkMetadata', 'TokenCounter', 'NLPProcessor',
-    'chunk_formal_document', 'chunk_conversational_record',
-    'chunk_data_heavy_document', 'chunk_document_semantic',
-    'chunk_document_adaptive', 'chunk_presentation_document'  # ✅ ADD THIS
+    "ChunkMetadata",
+    "TokenCounter",
+    "NLPProcessor",
+    "chunk_formal_document",
+    "chunk_conversational_record",
+    "chunk_data_heavy_document",
+    "chunk_document_semantic",
+    "chunk_document_adaptive",
+    "chunk_presentation_document",
 ]

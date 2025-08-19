@@ -47,8 +47,8 @@ except ImportError:
 
 # RAG Pipeline imports
 try:
-    from giani_pkb.utils.exceptions import ParsingError, FileProcessingError
-    from giani_pkb.preprocessing.node_converter import NodeConverter
+    from utils.exceptions import ParsingError, FileProcessingError
+    from preprocessing.node_converter import NodeConverter
     RAG_IMPORTS_AVAILABLE = True
 except ImportError:
     RAG_IMPORTS_AVAILABLE = False
@@ -57,7 +57,7 @@ except ImportError:
         def __init__(self, message, filename=None):
             super().__init__(message)
             self.filename = filename
-    
+
     class FileProcessingError(Exception):
         def __init__(self, message, filepath=None):
             super().__init__(message)
@@ -89,7 +89,7 @@ else:
 class EnhancedPptxProcessor:
     """
     Enhanced processor for PowerPoint (PPTX) files with complete RAG pipeline integration.
-    
+
     Features:
     - Advanced text extraction from slides with metadata
     - Enhanced image extraction with AI-powered analysis
@@ -107,7 +107,7 @@ class EnhancedPptxProcessor:
     def __init__(self, image_processor=None, openai_api_key=None, document_id=None, project_id=None, node_converter=None):
         """
         Initialize the Enhanced PPTX processor.
-        
+
         Args:
             image_processor: Optional image processor for OCR
             openai_api_key: OpenAI API key for multi-modal analysis
@@ -116,11 +116,11 @@ class EnhancedPptxProcessor:
             node_converter: NodeConverter instance for RAG pipeline integration
         """
         self.supported_extensions = {'.pptx'}
-        
+
         # RAG Pipeline compatibility attributes
         self.document_id = document_id
         self.project_id = project_id
-        
+
         # Initialize NodeConverter for RAG pipeline integration
         if node_converter:
             self.node_converter = node_converter
@@ -138,7 +138,7 @@ class EnhancedPptxProcessor:
         # Initialize image processor (maintaining original logic)
         if image_processor is None:
             try:
-                from giani_pkb.preprocessing.image_processor import ImageProcessor
+                from preprocessing.image_processor import ImageProcessor
                 self.image_processor = ImageProcessor()
                 logger.info("PPTX processor initialized with default image processor")
             except ImportError:
@@ -163,11 +163,11 @@ class EnhancedPptxProcessor:
                     Analyze this diagram/flowchart image and extract structured information.
                     Focus on identifying the type of diagram, main elements, relationships between elements,
                     any text content, and provide a summary of what the diagram represents.
-                    
+
                     Return the analysis in the specified JSON format.
                     """
                 )
-                
+
                 self.image_analyzer = MultiModalLLMCompletionProgram.from_defaults(
                     output_parser=PydanticOutputParser(ImageAnalysis),
                     multi_modal_llm=self.multi_modal_llm,
@@ -175,11 +175,11 @@ class EnhancedPptxProcessor:
                     Analyze this image and extract comprehensive information.
                     Identify the type of image, detect objects or elements, extract any text content,
                     provide a detailed description, and list key insights.
-                    
+
                     Return the analysis in the specified JSON format.
                     """
                 )
-                
+
                 logger.info("LlamaIndex multi-modal components initialized successfully")
                 self.ai_analysis_enabled = True
             except Exception as e:
@@ -253,14 +253,14 @@ class EnhancedPptxProcessor:
             return "chart"
         elif shape.shape_type == MSO_SHAPE_TYPE.TEXT_BOX:
             return "text_box"
-        
+
         return "other_shape"
 
     def preprocess_image_for_ocr(self, image: Image.Image, content_type: str = 'general') -> Image.Image:
         """Enhanced image preprocessing for better OCR accuracy"""
         # Convert to opencv format
         opencv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        
+
         # Apply different preprocessing based on content type
         if content_type == 'chart':
             opencv_image = cv2.convertScaleAbs(opencv_image, alpha=1.5, beta=10)
@@ -271,24 +271,24 @@ class EnhancedPptxProcessor:
         elif content_type in ['diagram', 'flowchart']:
             opencv_image = cv2.convertScaleAbs(opencv_image, alpha=1.3, beta=5)
             opencv_image = cv2.bilateralFilter(opencv_image, 5, 50, 50)
-        
+
         # Convert to grayscale and apply adaptive thresholding
         gray = cv2.cvtColor(opencv_image, cv2.COLOR_BGR2GRAY)
         binary = cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
         )
-        
+
         # Morphological operations to clean up
         kernel = np.ones((1, 1), np.uint8)
         cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        
+
         return Image.fromarray(cleaned)
 
     def detect_content_type(self, image: Image.Image) -> str:
         """Detect the type of content in the image"""
         try:
             text = pytesseract.image_to_string(image, config='--psm 6').lower()
-            
+
             if any(indicator in text for indicator in ['|', 'table', 'row', 'column', 'cell']):
                 return 'table'
             elif any(indicator in text for indicator in ['chart', 'graph', '%', 'percentage', 'data', 'axis']):
@@ -306,18 +306,18 @@ class EnhancedPptxProcessor:
         """Use TableTransformer to detect and extract tables"""
         if not self.table_transformer_available:
             return []
-        
+
         try:
             encoding = self.table_processor(image, return_tensors="pt")
-            
+
             with torch.no_grad():
                 outputs = self.table_detection_model(**encoding)
-            
+
             target_sizes = torch.tensor([image.size[::-1]])
             results = self.table_processor.post_process_object_detection(
                 outputs, threshold=0.7, target_sizes=target_sizes
             )[0]
-            
+
             tables = []
             for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
                 if score > 0.7:
@@ -325,14 +325,14 @@ class EnhancedPptxProcessor:
                     x1, y1, x2, y2 = box
                     table_crop = image.crop((x1, y1, x2, y2))
                     table_data = self.extract_table_structure(table_crop)
-                    
+
                     tables.append({
                         "bbox": box,
                         "confidence": score.item(),
                         "table_data": table_data,
                         "image_crop": table_crop
                     })
-            
+
             return tables
         except Exception as e:
             logger.warning(f"TableTransformer error: {e}")
@@ -341,11 +341,11 @@ class EnhancedPptxProcessor:
     def extract_table_structure(self, table_image: Image.Image) -> Dict:
         """Extract table structure using enhanced methods"""
         processed_img = self.preprocess_image_for_ocr(table_image, 'table')
-        
+
         try:
             table_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs['table'])
             rows = self.parse_table_text(table_text)
-            
+
             return {
                 "structure_detected": len(rows) > 0,
                 "raw_text": table_text,
@@ -367,12 +367,12 @@ class EnhancedPptxProcessor:
         """Parse OCR text into table structure"""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         rows = []
-        
+
         for line in lines:
             cells = re.split(r' {2,}|\t+', line)
             if len(cells) > 1:
                 rows.append([cell.strip() for cell in cells])
-        
+
         return rows
 
     def _image_to_base64(self, image_bytes: bytes) -> str:
@@ -384,12 +384,12 @@ class EnhancedPptxProcessor:
         try:
             image = Image.open(io.BytesIO(image_bytes))
             gray_image = image.convert('L')
-            
+
             img_array = np.array(gray_image)
             contrast = img_array.std()
-            
+
             return contrast > 50
-            
+
         except Exception as e:
             logger.warning(f"Error in diagram detection heuristic: {e}")
             return False
@@ -401,7 +401,7 @@ class EnhancedPptxProcessor:
             try:
                 pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
                 content_type = self.detect_content_type(pil_image)
-                
+
                 if content_type == 'table':
                     detected_tables = self.detect_tables_with_transformer(pil_image)
                     if detected_tables:
@@ -410,11 +410,11 @@ class EnhancedPptxProcessor:
                             "structured_content": f"Table detected with {len(detected_tables)} regions",
                             "table_data": detected_tables[0]['table_data'] if detected_tables else {}
                         }
-                
+
                 # Enhanced OCR fallback
                 processed_img = self.preprocess_image_for_ocr(pil_image, content_type)
                 ocr_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs.get(content_type, self.ocr_configs['general']))
-                
+
                 return {
                     "analysis_type": "enhanced_ocr",
                     "content_type": content_type,
@@ -426,7 +426,7 @@ class EnhancedPptxProcessor:
         try:
             base64_image = self._image_to_base64(image_bytes)
             is_likely_diagram = self._is_diagram_or_flowchart(image_bytes)
-            
+
             if is_likely_diagram and self.diagram_analyzer:
                 analysis = self.diagram_analyzer(image_documents=[base64_image])
                 return {
@@ -458,7 +458,7 @@ class EnhancedPptxProcessor:
                                             f"Description: {analysis.description}\n\n"
                                             f"Key Insights: {'; '.join(analysis.key_insights)}"
                     }
-                
+
         except Exception as e:
             logger.error(f"Error in AI image analysis for {shape_name}: {e}")
             return {"analysis_type": "error", "content": f"AI analysis failed: {str(e)}"}
@@ -474,25 +474,25 @@ class EnhancedPptxProcessor:
             "document_id": self.document_id,
             "project_id": self.project_id,
             "file_type": "pptx",
-            
+
             # Shape-specific metadata
             "shape_name": shape.name or f"Shape_{shape_idx}",
             "shape_type_raw": shape.shape_type.name if shape.shape_type else "UNKNOWN",
             "shape_idx_on_slide": shape_idx,
-            
+
             # Enhanced positioning
             "bbox": [int(shape.left), int(shape.top), int(shape.width), int(shape.height)] if hasattr(shape, 'left') else [0, 0, 0, 0],
             "bbox_units": "pptx_emu",
             "page_width": getattr(self, 'slide_width', 0),
             "page_height": getattr(self, 'slide_height', 0),
-            
+
             # Content classification
             "extraction_confidence": "high",  # Can be overridden by specific extractors
         }
-        
+
         # Merge with base metadata
         enhanced_metadata.update(base_metadata)
-        
+
         return enhanced_metadata
 
     def _extract_text_from_shape(self, shape, slide_num: int, shape_idx: int) -> Optional[Tuple[str, Dict[str, Any]]]:
@@ -508,7 +508,7 @@ class EnhancedPptxProcessor:
             "block_type": self._get_shape_type(shape),
             "source_type": "text",
         }
-        
+
         metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
         return (text, metadata)
 
@@ -520,10 +520,10 @@ class EnhancedPptxProcessor:
         try:
             image_bytes = shape.image.blob
             shape_name = shape.name or f"Image_{shape_idx}"
-            
+
             # Enhanced AI analysis
             ai_analysis = self._analyze_image_with_ai(image_bytes, shape_name)
-            
+
             # Traditional OCR processing (if available)
             ocr_text = ""
             if self.image_processor:
@@ -532,7 +532,7 @@ class EnhancedPptxProcessor:
                     ocr_text = result.get('combined_text', '').strip()
                 except Exception as e:
                     logger.warning(f"OCR processing failed for {shape_name}: {e}")
-            
+
             # Enhanced OCR fallback
             if not ocr_text:
                 try:
@@ -542,23 +542,23 @@ class EnhancedPptxProcessor:
                     ocr_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs.get(content_type, self.ocr_configs['general']))
                 except Exception as e:
                     logger.warning(f"Enhanced OCR failed for {shape_name}: {e}")
-            
+
             # Combine AI analysis with OCR
             combined_content = []
-            
+
             if ai_analysis.get("structured_content"):
                 combined_content.append("=== AI Analysis ===")
                 combined_content.append(ai_analysis["structured_content"])
-            
+
             if ocr_text.strip():
                 combined_content.append("=== OCR Text ===")
                 combined_content.append(ocr_text.strip())
-            
+
             if not combined_content:
                 return None
-                
+
             final_content = "\n\n".join(combined_content)
-            
+
             base_metadata = {
                 "block_type": "image_analysis" if ai_analysis.get("analysis_type") in ["diagram", "image"] else "image_text",
                 "source_type": "image",
@@ -566,7 +566,7 @@ class EnhancedPptxProcessor:
                 "has_ocr": bool(ocr_text.strip()),
                 "has_ai_analysis": ai_analysis.get("analysis_type") in ["diagram", "image"],
             }
-            
+
             # Add specific metadata based on analysis type
             if ai_analysis.get("analysis_type") == "diagram":
                 base_metadata.update({
@@ -583,7 +583,7 @@ class EnhancedPptxProcessor:
 
             metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
             return (final_content, metadata)
-            
+
         except Exception as e:
             logger.error(f"Error processing image in slide {slide_num}, shape {shape.name or shape_idx}: {e}")
             return None
@@ -610,7 +610,7 @@ class EnhancedPptxProcessor:
             if table_lines:
                 table_text = "\n".join(table_lines)
                 headers = table_lines[0].split(" | ") if table_lines else []
-                
+
                 base_metadata = {
                     "block_type": "table",
                     "source_type": "table",
@@ -619,7 +619,7 @@ class EnhancedPptxProcessor:
                     "column_names": headers,  # CRITICAL for table-aware processing
                     "extraction_method": "native_pptx"
                 }
-                
+
                 metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
                 return (table_text, metadata)
 
@@ -632,7 +632,7 @@ class EnhancedPptxProcessor:
         """Extract chart data from a shape with enhanced analysis."""
         if shape.shape_type != MSO_SHAPE_TYPE.CHART:
             return None
-            
+
         if not hasattr(shape, 'chart'):
             return None
 
@@ -640,7 +640,7 @@ class EnhancedPptxProcessor:
             chart = shape.chart
             if chart is None:
                 return None
-                
+
             chart_info = []
 
             # Extract chart title with safety checks
@@ -665,7 +665,7 @@ class EnhancedPptxProcessor:
                     chart_info.append(f"X-Axis: {chart.category_axis.title.text}")
             except Exception as e:
                 logger.debug(f"Could not extract X-axis info: {e}")
-                
+
             try:
                 if hasattr(chart, 'value_axis') and chart.value_axis and hasattr(chart.value_axis, 'title') and chart.value_axis.title:
                     chart_info.append(f"Y-Axis: {chart.value_axis.title.text}")
@@ -677,14 +677,14 @@ class EnhancedPptxProcessor:
                 chart_info.append("Chart detected (details not accessible)")
 
             chart_text = "\n".join(chart_info)
-            
+
             base_metadata = {
                 "block_type": "chart",
                 "source_type": "chart",
                 "chart_type": chart.chart_type.name if hasattr(chart, 'chart_type') and chart.chart_type else "UNKNOWN",
                 "extraction_method": "native_pptx"
             }
-            
+
             metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
             return (chart_text, metadata)
 
@@ -700,30 +700,30 @@ class EnhancedPptxProcessor:
         try:
             image_bytes = shape.image.blob
             pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            
+
             # Detect if this is likely a table
             content_type = self.detect_content_type(pil_image)
             if content_type != 'table':
                 return None
-            
+
             # Try TableTransformer detection
             detected_tables = self.detect_tables_with_transformer(pil_image)
-            
+
             if detected_tables:
                 table_data = detected_tables[0]['table_data']  # Use first detected table
-                
+
                 if table_data.get('parsed_rows'):
                     rows = table_data['parsed_rows']
                     headers = rows[0] if rows else []
-                    
+
                     # Create markdown table
                     markdown = "| " + " | ".join(headers) + " |\n"
                     markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-                    
+
                     for row in rows[1:]:
                         padded_row = row + [''] * (len(headers) - len(row))
                         markdown += "| " + " | ".join(padded_row[:len(headers)]) + " |\n"
-                    
+
                     base_metadata = {
                         "block_type": "table",
                         "source_type": "table",
@@ -733,27 +733,27 @@ class EnhancedPptxProcessor:
                         "table_rows": len(rows),
                         "table_cols": len(headers)
                     }
-                    
+
                     metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
                     return (markdown, metadata)
-            
+
             # Fallback to enhanced OCR for table-like content
             processed_img = self.preprocess_image_for_ocr(pil_image, 'table')
             ocr_text = pytesseract.image_to_string(processed_img, config=self.ocr_configs['table'])
-            
+
             if ocr_text.strip():
                 rows = self.parse_table_text(ocr_text)
                 if rows:
                     headers = rows[0] if rows else []
-                    
+
                     # Create markdown table
                     markdown = "| " + " | ".join(headers) + " |\n"
                     markdown += "| " + " | ".join(["---"] * len(headers)) + " |\n"
-                    
+
                     for row in rows[1:]:
                         padded_row = row + [''] * (len(headers) - len(row))
                         markdown += "| " + " | ".join(padded_row[:len(headers)]) + " |\n"
-                    
+
                     base_metadata = {
                         "block_type": "table",
                         "source_type": "table",
@@ -762,13 +762,13 @@ class EnhancedPptxProcessor:
                         "table_rows": len(rows),
                         "table_cols": len(headers)
                     }
-                    
+
                     metadata = self._create_enhanced_metadata(slide_num, shape_idx, shape, base_metadata)
                     return (markdown, metadata)
-                    
+
         except Exception as e:
             logger.warning(f"Error extracting table from image in slide {slide_num}: {e}")
-            
+
         return None
 
     def _process_slide(self, slide, slide_num: int) -> List[Tuple[str, Dict[str, Any]]]:
@@ -796,7 +796,7 @@ class EnhancedPptxProcessor:
             # Skip title if already processed
             if shape == slide.shapes.title:
                 continue
-                
+
             try:
                 # Enhanced image processing with table detection
                 if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
@@ -805,7 +805,7 @@ class EnhancedPptxProcessor:
                     if table_result:
                         slide_blocks.append(table_result)
                         continue
-                
+
                 # Extract text
                 text_result = self._extract_text_from_shape(shape, slide_num, shape_idx)
                 if text_result:
@@ -825,7 +825,7 @@ class EnhancedPptxProcessor:
                 chart_result = self._extract_chart_from_shape(shape, slide_num, shape_idx)
                 if chart_result:
                     slide_blocks.append(chart_result)
-                    
+
             except Exception as e:
                 logger.error(f"Error processing shape {shape_idx} on slide {slide_num}: {e}")
                 continue
@@ -837,23 +837,23 @@ class EnhancedPptxProcessor:
         if not LLAMAINDEX_AVAILABLE:
             logger.warning("LlamaIndex not available. Returning empty list.")
             return []
-            
+
         documents = []
-        
+
         for content, metadata in processed_blocks:
             # Ensure page_numbers is properly set
             if 'page_numbers' not in metadata and 'slide_number' in metadata:
                 metadata['page_numbers'] = [metadata['slide_number']]
             elif 'page_numbers' not in metadata and 'page_number' in metadata:
                 metadata['page_numbers'] = [metadata['page_number']]
-            
+
             doc = Document(
                 text=content,
                 metadata=metadata,
                 doc_id=f"slide_{metadata.get('slide_number', metadata.get('page_number', 0))}_shape_{metadata.get('shape_idx_on_slide', 0)}"
             )
             documents.append(doc)
-            
+
         return documents
 
     def convert_to_nodes(self, processed_blocks: List[Tuple[str, Dict[str, Any]]]) -> List:
@@ -863,7 +863,7 @@ class EnhancedPptxProcessor:
             return []
 
         nodes = []
-        
+
         for content, metadata in processed_blocks:
             try:
                 # Ensure page_numbers is properly formatted as List[int]
@@ -872,26 +872,26 @@ class EnhancedPptxProcessor:
                     metadata['page_numbers'] = [slide_num]
                 elif not isinstance(metadata['page_numbers'], list):
                     metadata['page_numbers'] = [metadata['page_numbers']]
-                
+
                 # Create a chunk-like object for the node converter
                 chunk = {
                     'content': content,
                     'metadata': metadata
                 }
-                
+
                 # Use the node converter to create the node with proper page numbering
                 node = self.node_converter.convert_chunk_to_node(chunk)
-                
+
                 # Double-check that page_numbers is properly set
                 if hasattr(node, 'metadata') and 'page_numbers' in metadata:
                     node.metadata['page_numbers'] = metadata['page_numbers']
-                
+
                 nodes.append(node)
-                
+
             except Exception as e:
                 logger.error(f"Error converting block to node: {e}")
                 continue
-        
+
         logger.info(f"Converted {len(nodes)} blocks to RAG pipeline nodes")
         return nodes
 
@@ -913,7 +913,7 @@ class EnhancedPptxProcessor:
         try:
             # Load presentation
             presentation = Presentation(str(file_path))
-            
+
             # Store presentation dimensions for processing
             try:
                 self.slide_width = int(presentation.slide_width)
@@ -930,13 +930,13 @@ class EnhancedPptxProcessor:
                 logger.warning(f"No content blocks extracted from {file_path}")
 
             logger.info(f"Successfully processed {file_path}: {len(processed_blocks)} blocks from {len(presentation.slides)} slides")
-            
+
             # Log enhanced analysis statistics
             ai_analyzed = sum(1 for _, metadata in processed_blocks if metadata.get('has_ai_analysis', False))
             diagrams_found = sum(1 for _, metadata in processed_blocks if metadata.get('ai_analysis_type') == 'diagram')
             tables_found = sum(1 for _, metadata in processed_blocks if metadata.get('block_type') == 'table')
             charts_found = sum(1 for _, metadata in processed_blocks if metadata.get('block_type') == 'chart')
-            
+
             logger.info(f"Enhanced Analysis Statistics: {ai_analyzed} AI analyzed, {diagrams_found} diagrams, {tables_found} tables, {charts_found} charts")
 
             return processed_blocks
@@ -958,26 +958,26 @@ class EnhancedPptxProcessor:
         """Get a comprehensive summary of the analysis results."""
         total_blocks = len(processed_blocks)
         slides = set(metadata.get('slide_number') or metadata.get('page_number') for _, metadata in processed_blocks)
-        
+
         # Count different types of content
         text_blocks = sum(1 for _, metadata in processed_blocks if metadata.get('source_type') == 'text')
         image_blocks = sum(1 for _, metadata in processed_blocks if metadata.get('source_type') == 'image')
         table_blocks = sum(1 for _, metadata in processed_blocks if metadata.get('source_type') == 'table')
         chart_blocks = sum(1 for _, metadata in processed_blocks if metadata.get('source_type') == 'chart')
-        
+
         # Enhanced analysis statistics
         ai_analyzed = sum(1 for _, metadata in processed_blocks if metadata.get('has_ai_analysis', False))
         diagrams = sum(1 for _, metadata in processed_blocks if metadata.get('ai_analysis_type') == 'diagram')
-        tables_with_transformer = sum(1 for _, metadata in processed_blocks 
+        tables_with_transformer = sum(1 for _, metadata in processed_blocks
                                     if metadata.get('block_type') == 'table' and metadata.get('extraction_method') == 'table_transformer')
-        
+
         # Page numbering validation
         page_numbers_valid = all(
-            isinstance(metadata.get('page_numbers'), list) and 
+            isinstance(metadata.get('page_numbers'), list) and
             len(metadata.get('page_numbers', [])) > 0
             for _, metadata in processed_blocks
         )
-        
+
         return {
             'total_blocks': total_blocks,
             'total_slides': len(slides),
@@ -1003,7 +1003,7 @@ class EnhancedPptxProcessor:
                 'node_converter_available': bool(self.node_converter),
                 'page_numbers_valid': page_numbers_valid,
                 'table_column_names_present': all(
-                    'column_names' in metadata for _, metadata in processed_blocks 
+                    'column_names' in metadata for _, metadata in processed_blocks
                     if metadata.get('block_type') == 'table'
                 )
             }

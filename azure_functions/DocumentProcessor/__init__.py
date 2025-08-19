@@ -1,8 +1,10 @@
+import sys
+import os
 import json
 import azure.functions as func
 
 # This allows the function to import from the shared_code directory
-# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from utils.logging import setup_logging
 from services.service_bus_sender import onboarding_service_bus
@@ -44,7 +46,7 @@ def main(msg: func.ServiceBusMessage):
 
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
-            logger.info(f"✅ Document processed, batch_status = {batch_status["status"]}")
+            logger.info(f"✅ Document processed, batch_status = {batch_status['status']}")
 
             if batch_status and batch_status["status"] == 'COMPLETED':
                 logger.info(
