@@ -7,17 +7,17 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional, Union
 from dataclasses import dataclass
 
-from azure_functions.utils.exceptions import ProcessingError, FileProcessingError
-from azure_functions.utils.config import config
-from azure_functions.services.blob_storage_service import blob_storage_service
-from azure_functions.preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
+from utils.exceptions import ProcessingError, FileProcessingError
+from utils.config import config
+from services.blob_storage_service import blob_storage_service
+from preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
 
 # Import new processors
-from azure_functions.preprocessing.pdf_processor import EnhancedPdfProcessor
-from azure_functions.preprocessing.image_processor import ImageProcessor
-from azure_functions.preprocessing.csv_processor import CSVProcessor
-from azure_functions.preprocessing.pptx_processor import EnhancedPptxProcessor
-from azure_functions.preprocessing.docx_processor import DocxProcessor
+from preprocessing.pdf_processor import EnhancedPdfProcessor
+from preprocessing.image_processor import ImageProcessor
+from preprocessing.csv_processor import CSVProcessor
+from preprocessing.pptx_processor import EnhancedPptxProcessor
+from preprocessing.docx_processor import DocxProcessor
 
 logger = logging.getLogger(__name__)
 

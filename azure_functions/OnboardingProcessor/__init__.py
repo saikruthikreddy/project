@@ -5,9 +5,9 @@ import os
 
 import sys
 
-sys.path.append(
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-)
+# sys.path.append(
+#     os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+# )
 
 from services.onboarding_guide_service import OnboardingGuideGenerator
 from database.database_manager import DatabaseManager

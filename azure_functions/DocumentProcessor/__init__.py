@@ -4,7 +4,7 @@ import json
 import azure.functions as func
 
 # This allows the function to import from the shared_code directory
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from utils.logging import setup_logging
 from services.service_bus_sender import onboarding_service_bus
