@@ -3,7 +3,6 @@ Document upload service for handling file uploads and processing.
 """
 
 import os
-import shutil
 import uuid
 from datetime import datetime
 from typing import Dict, Any
@@ -75,7 +74,6 @@ class DocumentUploadService:
         try:
             logger.info(f"Processing single document: {temp_document_id}")
 
-
             # Get temp document from database
             temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
 
@@ -102,6 +100,8 @@ class DocumentUploadService:
 
             # Create document metadata
             document_id = uuid.uuid4()
+            metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
+            metadata_path = os.path.join(temp_doc['blob_name'], metadata_filename)
 
             try:
                 # Create DocumentMetadata object

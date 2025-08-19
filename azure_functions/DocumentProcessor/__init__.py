@@ -1,29 +1,24 @@
-import logging
-from logging.handlers import RotatingFileHandler  # Added missing import
 import sys
+import os
 import json
 import azure.functions as func
-import os
-from datetime import datetime
-
-from utils.logging import setup_logging
-
 
 # This allows the function to import from the shared_code directory
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
+from utils.logging import setup_logging
 from services.service_bus_sender import onboarding_service_bus
 from services.document_upload_service import DocumentUploadService
 from database.database_manager import DatabaseManager
 
-# Set up logging
+# Setup comprehensive logging
 logger = setup_logging()
 
 def main(msg: func.ServiceBusMessage, context: func.Context):
     logger.info("✅ Function triggered")
     batch_id = None
     db_manager = None  # Initialize to None at the start
-    
+
     try:
         message_body = msg.get_body().decode("utf-8")
         task_data = json.loads(message_body)
@@ -80,6 +75,6 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
                     logger.error(f"Failed to update batch progress in exception handler: {db_error}", exc_info=True)
             else:
                 logger.error(f"Cannot update batch progress - db_manager was not initialized")
-        
+
         # The message will be automatically dead-lettered by Azure Functions on failure
         raise
