@@ -10,9 +10,7 @@ import asyncio
 import os
 import re
 from typing import Dict, Any, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-import time
 from azure_functions.database.database_manager import DatabaseManager
 from azure_functions.utils.config import GEMINI_API_KEY
 from azure_functions.utils.gemini_client import initialize_gemini_client
@@ -161,11 +159,11 @@ class OnboardingGuideGenerator:
             self.logger.error(f"Cleaned response: {cleaned_response[:500]}...")
             raise
     
-    def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
+    async def generate_onboarding_guide(self, project_id: int) -> Dict[str, Any]:
         """
         Generates the project onboarding guide for a given project_id with parallel processing.
         """
-        start_time = time.time()
+        start_time = datetime.now()
         self.logger.info(f"Generating onboarding guide for project_id: {project_id}")
         
         try:
@@ -178,7 +176,7 @@ class OnboardingGuideGenerator:
                 return self._create_empty_guide(project_context)
             
             # Step 2: AI-Powered Synthesis (Parallel - these are independent)
-            synthesis_results = self._run_parallel_synthesis(project_context, document_summaries)
+            synthesis_results = await self._run_parallel_synthesis(project_context, document_summaries)
             
             # Step 3: Data Aggregation & Assembly - FIXED to match LLM outputs
             mission_and_approach = synthesis_results.get("mission_and_approach", {})
@@ -207,8 +205,9 @@ class OnboardingGuideGenerator:
             }
             
             # Add synthesis status for debugging
+            end_time = datetime.now()
             onboarding_guide["synthesisStatus"] = {
-                "totalTime": round(time.time() - start_time, 2),
+                "totalTime": round((end_time - start_time).total_seconds(), 2),
                 "errors": synthesis_results.get("errors", {}),
                 "successfulSections": [k for k, v in synthesis_results.items() if k != "errors" and v]
             }
@@ -225,7 +224,7 @@ class OnboardingGuideGenerator:
                 "lastSynthesized": datetime.utcnow().isoformat() + "Z"
             }
     
-    def _safe_synthesis_call(self, func, task_name: str, *args) -> Dict[str, Any]:
+    async def _safe_synthesis_call(self, func, task_name: str, *args) -> Dict[str, Any]:
         """
         Safely executes a synthesis function with retry logic and error handling.
         """
@@ -233,7 +232,7 @@ class OnboardingGuideGenerator:
         
         for attempt in range(max_retries):
             try:
-                result = func(*args)
+                result = await func(*args)
                 if result:  # Non-empty result
                     return {"success": True, "data": result}
                 else:
@@ -249,46 +248,36 @@ class OnboardingGuideGenerator:
             
             # Wait before retry
             if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)  # Exponential backoff
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
         
         return {"success": False, "error": f"All {max_retries} attempts failed"}
     
-    def _run_parallel_synthesis(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _run_parallel_synthesis(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Runs all synthesis tasks in parallel using ThreadPoolExecutor.
+        Runs all synthesis tasks in parallel using asyncio.gather.
         """
         synthesis_results = {"errors": {}}
         
         # Define synthesis tasks
         tasks = {
-            "mission_and_approach": (self._synthesize_mission_and_approach, project_context, document_summaries),
-            "strategic_intelligence_readout": (self._synthesize_strategic_intelligence_readout, document_summaries),
-            "priority_reading_list": (self._identify_priority_reading_list, document_summaries),
-            "knowledge_base_faq": (self._generate_knowledge_base_faq, document_summaries)
+            "mission_and_approach": self._safe_synthesis_call(self._synthesize_mission_and_approach, "mission_and_approach", project_context, document_summaries),
+            "strategic_intelligence_readout": self._safe_synthesis_call(self._synthesize_strategic_intelligence_readout, "strategic_intelligence_readout", document_summaries),
+            "priority_reading_list": self._safe_synthesis_call(self._identify_priority_reading_list, "priority_reading_list", document_summaries),
+            "knowledge_base_faq": self._safe_synthesis_call(self._generate_knowledge_base_faq, "knowledge_base_faq", document_summaries)
         }
         
-        # Execute tasks in parallel
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Submit all tasks
-            future_to_task = {}
-            for task_name, (func, *args) in tasks.items():
-                future = executor.submit(self._safe_synthesis_call, func, task_name, *args)
-                future_to_task[future] = task_name
-            
-            # Collect results as they complete
-            for future in as_completed(future_to_task):
-                task_name = future_to_task[future]
-                try:
-                    result = future.result()
-                    if result.get("success"):
-                        synthesis_results[task_name] = result["data"]
-                    else:
-                        synthesis_results["errors"][task_name] = result["error"]
-                        self.logger.error(f"Task {task_name} failed: {result['error']}")
-                except Exception as e:
-                    synthesis_results["errors"][task_name] = str(e)
-                    self.logger.error(f"Task {task_name} raised exception: {e}")
+        results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         
+        for task_name, result in zip(tasks.keys(), results):
+            if isinstance(result, Exception):
+                synthesis_results["errors"][task_name] = str(result)
+                self.logger.error(f"Task {task_name} raised exception: {result}")
+            elif result.get("success"):
+                synthesis_results[task_name] = result["data"]
+            else:
+                synthesis_results["errors"][task_name] = result["error"]
+                self.logger.error(f"Task {task_name} failed: {result['error']}")
+                
         return synthesis_results
     
     def _format_strategic_intelligence_readout(self, strategic_intelligence_readout: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -348,14 +337,7 @@ class OnboardingGuideGenerator:
         """Retrieves document summaries from the database in a single optimized query."""
         self.logger.info(f"Getting document summaries for project_id: {project_id}")
         try:
-            self.logger.warning("Using fallback method for document summaries - consider implementing get_all_summaries_for_project")
-            documents = self.db_manager.get_project_documents(project_id)
-            summaries = []
-            
-            for doc in documents:
-                summary = self.db_manager.get_document_summary(doc.id)
-                if summary:
-                    summaries.append(summary)
+            summaries = self.db_manager.get_project_summaries(project_id)
             
             # Convert summaries to dict format and ensure document_id is UUID string
             formatted_summaries = []
@@ -444,7 +426,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         
         return "\n".join(context_parts)
     
-    def _synthesize_mission_and_approach(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _synthesize_mission_and_approach(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Synthesizes the 'Mission & Approach' section of the onboarding guide."""
         self.logger.info("Synthesizing 'Mission & Approach' section")
         
@@ -462,7 +444,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         prompt = self.prompts['mission_and_approach'].format(lean_context=lean_context)
         
         try:
-            response = self.model.generate_content(prompt)
+            response = await self.model.generate_content_async(prompt)
             # Move logging AFTER response is generated
             self.logger.info(f"Mission & Approach LLM Response: {response.text}")
             
@@ -479,7 +461,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
             self.logger.error(f"Error synthesizing 'Mission & Approach' section: {e}")
             # Try fallback model
             try:
-                response = self.fallback_model.generate_content(prompt)
+                response = await self.fallback_model.generate_content_async(prompt)
                 self.logger.info(f"Mission & Approach Fallback LLM Response: {response.text}")
                 result = self._safe_json_parse(response.text)
                 if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
@@ -494,7 +476,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
                     "strategicApproach": []
                 }
     
-    def _synthesize_strategic_intelligence_readout(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _synthesize_strategic_intelligence_readout(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Synthesizes the 'Strategic Intelligence Readout' section of the onboarding guide."""
         self.logger.info("Synthesizing 'Strategic Intelligence Readout' section")
         
@@ -518,7 +500,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
             )
             
             try:
-                response = self.model.generate_content(prompt)
+                response = await self.model.generate_content_async(prompt)
                 self.logger.info(f"Strategic Intelligence Readout LLM Response for {source_type}: {response.text}")
                 result = self._safe_json_parse(response.text)
                 
@@ -538,7 +520,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         
         return strategic_intelligence_readout
     
-    def _identify_priority_reading_list(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _identify_priority_reading_list(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Identifies the 'Priority Reading List' section of the onboarding guide."""
         self.logger.info("Identifying 'Priority Reading List' section")
         
@@ -560,7 +542,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         self.logger.info(f"Priority Reading List prompt: {prompt}")
         
         try:
-            response = self.model.generate_content(prompt)
+            response = await self.model.generate_content_async(prompt)
             self.logger.info(f"Priority Reading List LLM Response: {response.text}")
             result = self._safe_json_parse(response.text)
             
@@ -586,7 +568,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
             self.logger.error(f"Error identifying 'Priority Reading List': {e}")
             return {"priorityReadingList": {"highPriority": [], "mediumPriority": []}}
     
-    def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def _generate_knowledge_base_faq(self, document_summaries: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Generates the 'Knowledge Base FAQ' section of the onboarding guide."""
         self.logger.info("Generating 'Knowledge Base FAQ' section")
         
@@ -666,7 +648,7 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         )
         
         try:
-            response = self.model.generate_content(prompt)
+            response = await self.model.generate_content_async(prompt)
             self.logger.info(f"Knowledge Base FAQ LLM Response: {response.text}")
             result = json.loads(response.text)
             

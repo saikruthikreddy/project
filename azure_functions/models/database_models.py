@@ -67,6 +67,7 @@ class Project(Base):
     # Relationships
     owner: Mapped["User"] = relationship("User", back_populates="projects")
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="project")
+    onboarding_guide: Mapped["OnboardingGuide"] = relationship("OnboardingGuide", back_populates="project", uselist=False, cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convert project to dictionary for JSON serialization."""
@@ -96,6 +97,18 @@ class Project(Base):
             'created_at': self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
             'updated_at': self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
         }
+
+class OnboardingGuide(Base):
+    __tablename__ = "onboarding_guides"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, unique=True)
+    content = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project: Mapped["Project"] = relationship("Project", back_populates="onboarding_guide")
 
 class Document(Base):
     """Document model for storing document metadata and information."""

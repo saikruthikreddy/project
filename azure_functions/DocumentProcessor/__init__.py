@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler  # Added missing import
 import sys
 import json
 import azure.functions as func
@@ -100,9 +101,11 @@ def setup_comprehensive_logging():
 # Setup comprehensive logging
 logger = setup_comprehensive_logging()
 
-def main(msg: func.ServiceBusMessage):
+def main(msg: func.ServiceBusMessage, context: func.Context):
     logger.info("✅ Function triggered")
-
+    batch_id = None
+    db_manager = None  # Initialize to None at the start
+    
     try:
         message_body = msg.get_body().decode("utf-8")
         task_data = json.loads(message_body)
@@ -112,7 +115,7 @@ def main(msg: func.ServiceBusMessage):
         project_id = task_data.get("project_id")
 
         upload_service = DocumentUploadService()
-        db_manager = DatabaseManager()
+        db_manager = DatabaseManager()  # Initialize db_manager here
 
         batch = db_manager.get_processing_batch(batch_id)
         if not batch:
@@ -132,7 +135,7 @@ def main(msg: func.ServiceBusMessage):
 
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
-            logger.info(f"✅ Document processed, batch_status = {batch_status["status"]}")
+            logger.info(f"✅ Document processed, batch_status = {batch_status['status']}")
 
             if batch_status and batch_status["status"] == 'COMPLETED':
                 logger.info(
@@ -149,7 +152,17 @@ def main(msg: func.ServiceBusMessage):
                 )
 
     except Exception as e:
-        # db_manager.increment_batch_progress(batch_id, False) # TODO: Cannot do this here as this gets run on retries as well, should probably be done when the message is sent to dead-letter queue
         logger.error(f"Error processing document: {e}", exc_info=True)
+        if batch_id and context.retry_context and (context.retry_context.retry_count == context.retry_context.max_retry_count):
+            logger.error(f"Message for batch {batch_id} has reached max retries. Marking as failed.")
+            # Only call db_manager if it was successfully initialized
+            if db_manager is not None:
+                try:
+                    db_manager.increment_batch_progress(batch_id, False)
+                except Exception as db_error:
+                    logger.error(f"Failed to update batch progress in exception handler: {db_error}", exc_info=True)
+            else:
+                logger.error(f"Cannot update batch progress - db_manager was not initialized")
+        
         # The message will be automatically dead-lettered by Azure Functions on failure
         raise

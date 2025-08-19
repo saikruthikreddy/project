@@ -17,6 +17,7 @@ from azure_functions.models.database_models import (
 )
 from azure_functions.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from azure_functions.utils.auth_utils import hash_password, verify_password
+from azure_functions.services.blob_storage_service import BlobStorageService
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,7 @@ class DatabaseManager:
 
     def __init__(self):
         self.engine = engine
-        from azure_functions.services.storage_factory import storage_service
-        self.storage_service = storage_service
+        self.storage_service = BlobStorageService()
 
     @contextmanager
     def get_session(self):
@@ -577,6 +577,44 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error deleting project: {e}")
             raise DatabaseError(f"Failed to delete project: {e}")
+
+    def create_or_update_onboarding_guide(self, project_id: Union[int, str], content: Dict[str, Any]):
+        """Create or update an onboarding guide for a project."""
+        try:
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    raise ValidationError(f"Invalid project_id format: {project_id}")
+
+            with self.get_session() as session:
+                from azure_functions.models.database_models import OnboardingGuide, Project
+                
+                project = session.query(Project).filter(Project.id == project_id).first()
+                if not project:
+                    raise NotFoundError(f"Project with ID {project_id} not found")
+
+                guide = session.query(OnboardingGuide).filter(OnboardingGuide.project_id == project_id).first()
+
+                if guide:
+                    guide.content = content
+                    guide.updated_at = datetime.now(timezone.utc)
+                    logger.info(f"Updated onboarding guide for project: {project_id}")
+                else:
+                    guide = OnboardingGuide(
+                        project_id=project_id,
+                        content=content
+                    )
+                    session.add(guide)
+                    logger.info(f"Created onboarding guide for project: {project_id}")
+                
+                session.flush()
+                session.expunge(guide)
+                return guide
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error creating/updating onboarding guide: {e}")
+            raise DatabaseError(f"Failed to create or update onboarding guide: {e}")
 
     def create_processing_batch(self, batch_id: str, project_id: Union[int, str],
                           user_id: Union[str, uuid.UUID], total_documents: int) -> Optional[Dict[str, Any]]:
@@ -1433,6 +1471,33 @@ class DatabaseManager:
             logger.error(f"Database error getting project documents: {e}")
             return []
 
+    def get_project_summaries(self, project_id: Union[int, str]) -> List[DocumentSummary]:
+        """Get all summaries for a project with an optimized query."""
+        try:
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    logger.error(f"Invalid project_id format: {project_id}")
+                    return []
+
+            with self.get_session() as session:
+                summaries = (
+                    session.query(DocumentSummary)
+                    .join(Document)
+                    .filter(Document.project_id == project_id)
+                    .all()
+                )
+
+                for summary in summaries:
+                    session.expunge(summary)
+
+                return summaries
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting project summaries: {e}")
+            return []
+
     def search_documents(self, search_term: str, user_id: Union[str, uuid.UUID] = None) -> List[Document]:
         """Search documents with optimized full-text search and enhanced validation."""
         try:
@@ -1841,338 +1906,12 @@ class DatabaseManager:
             logger.error(f"Database error getting statistics: {e}")
             return {}
 
-    def add_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
-        """Add a project to user's projects relationship with enhanced validation."""
-        try:
-            # Input validation
-            if not project_name or not project_name.strip():
-                logger.error("Project name cannot be empty")
-                return False
 
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return False
 
-            project_name = project_name.strip()
 
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
 
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return False
 
-                # Check if project with that name exists
-                existing_project = session.query(Project).filter(
-                    and_(
-                        Project.name == project_name,
-                        Project.owner_id == user_id,
-                        Project.is_active == True
-                    )
-                ).first()
 
-                if existing_project:
-                    if hasattr(user, 'projects') and existing_project not in user.projects:
-                        user.projects.append(existing_project)
-                        user.updated_at = datetime.now(timezone.utc)
-                        session.flush()
-                        logger.info(f"Added existing project '{project_name}' to user {user.username}")
-                    else:
-                        logger.info(f"Project '{project_name}' already exists for user {user.username}")
-                    return True
-                else:
-                    # Create and add new project
-                    new_project = Project(
-                        name=project_name,
-                        owner_id=user_id,
-                        is_active=True,
-                        created_at=datetime.now(timezone.utc),
-                        updated_at=datetime.now(timezone.utc)
-                    )
-                    session.add(new_project)
-
-                    if hasattr(user, 'projects'):
-                        user.projects.append(new_project)
-
-                    user.updated_at = datetime.now(timezone.utc)
-                    session.flush()
-                    logger.info(f"Created and added new project '{project_name}' for user {user.username}")
-                    return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error adding project to user: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error adding project to user: {e}")
-            return False
-
-    def remove_user_project(self, user_id: Union[str, uuid.UUID], project_name: str) -> bool:
-        """Remove a project from user's projects relationship with enhanced validation."""
-        try:
-            # Input validation
-            if not project_name or not project_name.strip():
-                logger.error("Project name cannot be empty")
-                return False
-
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return False
-
-            project_name = project_name.strip()
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return False
-
-                if hasattr(user, 'projects'):
-                    project_to_remove = next((p for p in user.projects if p.name == project_name), None)
-
-                    if project_to_remove:
-                        user.projects.remove(project_to_remove)
-                        user.updated_at = datetime.now(timezone.utc)
-                        session.flush()
-                        logger.info(f"Removed project '{project_name}' from user {user.username}")
-                        return True
-                    else:
-                        logger.info(f"Project '{project_name}' not found for user {user.username}")
-                        return True
-                else:
-                    logger.info(f"User {user.username} has no projects relationship")
-                    return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error removing project from user: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error removing project from user: {e}")
-            return False
-
-    def get_user_projects_list(self, user_id: Union[str, uuid.UUID]) -> List[str]:
-        """Get the project names from user's relationship with enhanced validation."""
-        try:
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return []
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-
-                if not user:
-                    logger.error(f"User with ID {user_id} not found or inactive")
-                    return []
-
-                if hasattr(user, 'projects') and user.projects:
-                    return [p.name for p in user.projects if p.is_active]
-                else:
-                    return []
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user projects list: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected error getting user projects list: {e}")
-            return []
-
-    def verify_database_integrity(self) -> bool:
-        """Verify database integrity and relationships with comprehensive checks."""
-        try:
-            with self.get_session() as session:
-                integrity_issues = []
-
-                # Check for orphaned documents
-                orphaned_documents = session.query(Document).filter(
-                    ~Document.user_id.in_(session.query(User.id))
-                ).count()
-
-                if orphaned_documents > 0:
-                    integrity_issues.append(f"Found {orphaned_documents} orphaned documents")
-
-                # Check for orphaned projects
-                orphaned_projects = session.query(Project).filter(
-                    ~Project.owner_id.in_(session.query(User.id))
-                ).count()
-
-                if orphaned_projects > 0:
-                    integrity_issues.append(f"Found {orphaned_projects} orphaned projects")
-
-                # Check for orphaned document chunks
-                try:
-                    orphaned_chunks = session.query(DocumentChunk).filter(
-                        ~DocumentChunk.document_id.in_(session.query(Document.id))
-                    ).count()
-
-                    if orphaned_chunks > 0:
-                        integrity_issues.append(f"Found {orphaned_chunks} orphaned document chunks")
-                except:
-                    pass  # Table might not exist
-
-                # Check for orphaned document summaries
-                try:
-                    orphaned_summaries = session.query(DocumentSummary).filter(
-                        ~DocumentSummary.document_id.in_(session.query(Document.id))
-                    ).count()
-
-                    if orphaned_summaries > 0:
-                        integrity_issues.append(f"Found {orphaned_summaries} orphaned document summaries")
-                except:
-                    pass  # Table might not exist
-
-                # Check for orphaned processing batches
-                try:
-                    from azure_functions.models.database_models import ProcessingBatch
-                    orphaned_batches = session.query(ProcessingBatch).filter(
-                        ~ProcessingBatch.user_id.in_(session.query(User.id))
-                    ).count()
-
-                    if orphaned_batches > 0:
-                        integrity_issues.append(f"Found {orphaned_batches} orphaned processing batches")
-                except:
-                    pass  # Table might not exist
-
-                if integrity_issues:
-                    logger.warning(f"Database integrity issues found: {'; '.join(integrity_issues)}")
-                    return False
-
-                logger.info("Database integrity check passed")
-                return True
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database integrity check failed: {e}")
-            return False
-
-    def cleanup_orphaned_records(self) -> Dict[str, int]:
-        """Clean up orphaned records and return counts of cleaned records."""
-        try:
-            cleanup_counts = {}
-
-            with self.get_session() as session:
-                # Clean up orphaned document chunks
-                try:
-                    orphaned_chunks = session.query(DocumentChunk).filter(
-                        ~DocumentChunk.document_id.in_(session.query(Document.id))
-                    ).delete(synchronize_session=False)
-                    cleanup_counts['document_chunks'] = orphaned_chunks
-                except Exception as e:
-                    logger.warning(f"Could not clean orphaned chunks: {e}")
-                    cleanup_counts['document_chunks'] = 0
-
-                # Clean up orphaned document summaries
-                try:
-                    orphaned_summaries = session.query(DocumentSummary).filter(
-                        ~DocumentSummary.document_id.in_(session.query(Document.id))
-                    ).delete(synchronize_session=False)
-                    cleanup_counts['document_summaries'] = orphaned_summaries
-                except Exception as e:
-                    logger.warning(f"Could not clean orphaned summaries: {e}")
-                    cleanup_counts['document_summaries'] = 0
-
-                # Note: We don't automatically clean orphaned documents/projects
-                # as this could be destructive
-
-                session.flush()
-
-                logger.info(f"Cleanup completed: {cleanup_counts}")
-                return cleanup_counts
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database cleanup failed: {e}")
-            return {}
-
-    def get_user_statistics(self, user_id: Union[str, uuid.UUID]) -> Dict[str, Any]:
-        """Get statistics for a specific user."""
-        try:
-            # Convert user_id to UUID if it's a string
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    logger.error(f"Invalid UUID format for user_id: {user_id}")
-                    return {}
-
-            with self.get_session() as session:
-                stats = {}
-
-                # User's projects
-                stats['projects'] = session.query(func.count(Project.id)).filter(
-                    and_(Project.owner_id == user_id, Project.is_active == True)
-                ).scalar() or 0
-
-                # User's documents
-                stats['documents'] = session.query(func.count(Document.id)).filter(
-                    Document.user_id == user_id
-                ).scalar() or 0
-
-                # Recent activity (last 30 days)
-                thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-                stats['recent_documents'] = session.query(func.count(Document.id)).filter(
-                    and_(
-                        Document.user_id == user_id,
-                        Document.date_added_to_giani >= thirty_days_ago
-                    )
-                ).scalar() or 0
-
-                return stats
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error getting user statistics: {e}")
-            return {}
-
-    def update_user_microsoft_id(self, user_id: Union[str, uuid.UUID], microsoft_id: str) -> Optional[User]:
-        "Update microsoft id for the user"
-        try:
-            # Convert string to UUID if needed
-            if isinstance(user_id, str):
-                try:
-                    user_id = uuid.UUID(user_id)
-                except ValueError:
-                    raise ValidationError(f"Invalid UUID format: {user_id}")
-
-            with self.get_session() as session:
-                user = session.query(User).filter(
-                    and_(User.id == user_id, User.is_active == True)
-                ).first()
-                if not user:
-                    raise NotFoundError(f"User with id {user_id} not found")
-
-                setattr(user, "microsoft_id", microsoft_id)
-
-            setattr(user, "updated_at", datetime.now(timezone.utc))
-
-            session.flush()
-            session.expunge(user)
-            logger.info(f"Updated user: {user.username}")
-
-            return user
-
-        except ValidationError:
-            raise
-        except SQLAlchemyError as e:
-            logger.error(f"Database error updating user: {e}")
-            raise DatabaseError(f"Failed to update user: {e}")
-        except Exception as e:
-            logger.error(f"Unexpected error updating the microsoft id for the user: {e}")
-            raise DatabaseError(f"Unexpected error updating the microsoft id for the user: {e}")
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database with separate summarization and metadata analysis."""
@@ -2732,62 +2471,5 @@ class DatabaseManager:
             logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
             raise
 
-    def run_migrations(self, target_revision: str = "head") -> bool:
-        """Run database migrations to target revision."""
-        try:
-            import subprocess
-            result = subprocess.run([
-                'alembic', 'upgrade', target_revision
-            ], capture_output=True, text=True, cwd=os.getcwd())
 
-            if result.returncode == 0:
-                logger.info(f"Migrations applied successfully to {target_revision}")
-                return True
-            else:
-                logger.error(f"Migration failed: {result.stderr}")
-                return False
-        except Exception as e:
-            logger.error(f"Error running migrations: {e}")
-            return False
 
-    def create_migration(self, message: str) -> bool:
-        """Create a new migration."""
-        try:
-            import subprocess
-            result = subprocess.run([
-                'alembic', 'revision', '--autogenerate', '-m', message
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            if result.returncode == 0:
-                logger.info(f"Migration created: {message}")
-                return True
-            else:
-                logger.error(f"Migration creation failed: {result.stderr}")
-                return False
-        except Exception as e:
-            logger.error(f"Error creating migration: {e}")
-            return False
-
-    def get_migration_status(self) -> Dict[str, Any]:
-        """Get current migration status."""
-        try:
-            import subprocess
-
-            # Get current revision
-            current_result = subprocess.run([
-                'alembic', 'current'
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            # Get migration history
-            history_result = subprocess.run([
-                'alembic', 'history'
-            ], capture_output=True, text=True, cwd=os.getcwd())
-
-            return {
-                'current_revision': current_result.stdout.strip(),
-                'history': history_result.stdout.strip(),
-                'status': 'success' if current_result.returncode == 0 else 'error'
-            }
-        except Exception as e:
-            logger.error(f"Error getting migration status: {e}")
-            return {'status': 'error', 'error': str(e)}
