@@ -7,17 +7,17 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional, Union
 from dataclasses import dataclass
 
-from utils.exceptions import ProcessingError, FileProcessingError
-from utils.config import config
-from preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
-from services.blob_storage_service import blob_storage_service
+from azure_functions.utils.exceptions import ProcessingError, FileProcessingError
+from azure_functions.utils.config import config
+from azure_functions.services.blob_storage_service import blob_storage_service
+from azure_functions.preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
 
 # Import new processors
-from preprocessing.pdf_processor import PdfProcessor
-from preprocessing.image_processor import ImageProcessor
-from preprocessing.csv_processor import CSVProcessor
-from preprocessing.pptx_processor import PptxProcessor
-from preprocessing.docx_processor import DocxProcessor
+from azure_functions.preprocessing.pdf_processor import EnhancedPdfProcessor
+from azure_functions.preprocessing.image_processor import ImageProcessor
+from azure_functions.preprocessing.csv_processor import CSVProcessor
+from azure_functions.preprocessing.pptx_processor import EnhancedPptxProcessor
+from azure_functions.preprocessing.docx_processor import DocxProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +75,10 @@ class DocumentProcessor:
             openai_key = self.api_keys.get('openai') or os.getenv('OPENAI_API_KEY') or getattr(config, 'OPENAI_API_KEY', None)
 
             # Initialize processors
-            self.pdf_processor = PdfProcessor()
+            self.pdf_processor = EnhancedPdfProcessor()
             self.image_processor = ImageProcessor()
             self.csv_processor = CSVProcessor(api_key=gemini_key)
-            self.pptx_processor = PptxProcessor(image_processor=self.image_processor)
+            self.pptx_processor = EnhancedPptxProcessor(image_processor=self.image_processor)
             self.docx_processor = DocxProcessor()
 
             logger.info("All document processors initialized successfully")

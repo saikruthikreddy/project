@@ -1,21 +1,17 @@
-import logging
 import sys
+import os
 import json
 import azure.functions as func
-import os
-from datetime import datetime
-
-from utils.logging import setup_logging
-
 
 # This allows the function to import from the shared_code directory
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
+from utils.logging import setup_logging
 from services.service_bus_sender import onboarding_service_bus
 from services.document_upload_service import DocumentUploadService
 from database.database_manager import DatabaseManager
 
-# Set up logging
+# Setup comprehensive logging
 logger = setup_logging()
 
 def main(msg: func.ServiceBusMessage):
@@ -50,7 +46,7 @@ def main(msg: func.ServiceBusMessage):
 
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
-            logger.info(f"✅ Document processed, batch_status = {batch_status["status"]}")
+            logger.info(f"✅ Document processed, batch_status = {batch_status['status']}")
 
             if batch_status and batch_status["status"] == 'COMPLETED':
                 logger.info(

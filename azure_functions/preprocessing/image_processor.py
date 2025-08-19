@@ -1,14 +1,16 @@
 """
 Image processor for OCR text extraction and AI-powered image captioning.
 """
+import os
 import pytesseract
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageFile as PILImageFile
 from io import BytesIO
 from typing import Dict, Any, Optional, Union
 import logging
 from pathlib import Path
 
 from utils.exceptions import ProcessingError, DependencyError
+from services.blob_storage_service import blob_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -79,13 +81,13 @@ class ImageProcessor:
             self.blip_model = None
             raise DependencyError(f"Failed to initialize AI models: {e}")
 
-    def _load_image(self, image_source: Union[str, Path, bytes]) -> PILImage.Image:
+    def _load_image(self, image_source: Union[str, bytes], blob_name: str) -> PILImage.Image:
         """
         Load image from various sources.
 
         Args:
-            image_source: File path, Path object, or image bytes
-
+            image_source: Image bytes or the blob container name
+            blob_name: File blob name
         Returns:
             PIL Image object
 
@@ -93,8 +95,8 @@ class ImageProcessor:
             ProcessingError: If image cannot be loaded
         """
         try:
-            if isinstance(image_source, (str, Path)):
-                image = PILImage.open(str(image_source))
+            if isinstance(image_source, str) and blob_name:
+                image = self.load_image_from_blob(container_name=image_source, blob_name=blob_name)
             elif isinstance(image_source, bytes):
                 image = PILImage.open(BytesIO(image_source))
             else:
@@ -179,13 +181,12 @@ class ImageProcessor:
 
         return "\n".join(parts) if parts else "No content extracted"
 
-    def process_file(self, file_path: Union[str, Path], lang: str = 'eng', config: str = '',
+    def process_file(self, container_name: str, blob_name: str, lang: str = 'eng', config: str = '',
                     include_ocr: bool = True, include_caption: bool = True) -> Dict[str, Any]:
         """
         Process an image file and extract text and caption.
 
         Args:
-            file_path: Path to image file
             lang: Language code for OCR
             config: Tesseract configuration string
             include_ocr: Whether to include OCR text in output
@@ -197,21 +198,19 @@ class ImageProcessor:
         Raises:
             ProcessingError: If processing fails
         """
-        file_path = Path(file_path)
+        file_name = os.path.basename(blob_name)
+        name_without_ext, file_extension = os.path.splitext(file_name)
 
-        if not file_path.exists():
-            raise ProcessingError(f"Image file not found: {file_path}", filepath=str(file_path))
-
-        if file_path.suffix.lower() not in self.supported_formats:
+        if file_extension not in self.supported_formats:
             raise ProcessingError(
-                f"Unsupported image format: {file_path.suffix}. "
+                f"Unsupported image format: {file_extension}. "
                 f"Supported: {', '.join(self.supported_formats)}",
-                filename=str(file_path)
+                filename=str(file_name)
             )
 
         try:
             # Load and process image
-            image = self._load_image(file_path)
+            image = self._load_image(container_name, blob_name)
 
             # Extract OCR text
             ocr_text = ""
@@ -230,19 +229,35 @@ class ImageProcessor:
                 'ocr_text': ocr_text,
                 'caption': caption,
                 'combined_text': combined_text,
-                'file_path': str(file_path),
-                'file_size': file_path.stat().st_size,
+                'container_name': container_name,
+                'blob_name': blob_name,
                 'image_format': image.format,
                 'image_size': image.size,
                 'processing_successful': True
             }
 
-            logger.info(f"Successfully processed image {file_path}: {len(ocr_text)} chars OCR, {len(caption)} chars caption")
+            logger.info(f"Successfully processed image {file_name}: {len(ocr_text)} chars OCR, {len(caption)} chars caption")
             return result
 
         except Exception as e:
-            logger.error(f"Error processing image {file_path}: {e}")
-            raise ProcessingError(f"Error processing image {file_path}: {e}", filepath=str(file_path))
+            logger.error(f"Error processing image {file_name}: {e}")
+            raise ProcessingError(f"Error processing image {file_name}: {e}", filepath=str(file_name))
+
+    def load_image_from_blob(self, container_name: str, blob_name: str) -> Union[PILImage.Image, PILImageFile.ImageFile]:
+        """
+        Process image bytes and extract text and caption.
+
+        Args:
+            container_name: Blob storage container
+            blob_name: Blob path
+        Returns:
+            Dictionary with processing results
+        """
+        image_bytes = blob_storage_service.download_file(container_name, blob_name)
+        image = PILImage.open(BytesIO(image_bytes))
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        return image
 
     def process_bytes(self, image_bytes: bytes, lang: str = 'eng', config: str = '',
                      include_ocr: bool = True, include_caption: bool = True) -> Dict[str, Any]:
