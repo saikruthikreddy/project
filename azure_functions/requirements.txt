@@ -3,6 +3,7 @@ azure-functions==1.20.0
 azure-servicebus==7.14.2
 azure-storage-blob==12.19.1
 azure-identity==1.16.1
+azure-search-documents==11.4.0
 
 # Database
 sqlalchemy>=2.0.0
