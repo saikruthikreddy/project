@@ -7,7 +7,7 @@ import uuid
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from azure_functions.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 
 class SummaryChunkingService:
     """

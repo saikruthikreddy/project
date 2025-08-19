@@ -5,7 +5,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Foreign
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import UUID
-from giani_pkb.utils.database import Base
+from azure_functions.utils.database import Base
 from sqlalchemy.types import TypeDecorator, TEXT
 import json
 from datetime import datetime, timezone

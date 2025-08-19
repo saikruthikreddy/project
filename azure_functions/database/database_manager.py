@@ -10,13 +10,13 @@ from sqlalchemy.exc import SQLAlchemyError
 import uuid
 import os
 import re
-from giani_pkb.utils.config import config
-from giani_pkb.utils.database import SessionLocal, engine
-from giani_pkb.models.database_models import (
+from azure_functions.utils.config import config
+from azure_functions.utils.database import SessionLocal, engine
+from azure_functions.models.database_models import (
     User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk
 )
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
-from giani_pkb.utils.auth_utils import hash_password, verify_password
+from azure_functions.utils.exceptions import DatabaseError, ValidationError, NotFoundError
+from azure_functions.utils.auth_utils import hash_password, verify_password
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class DatabaseManager:
 
     def __init__(self):
         self.engine = engine
-        from giani_pkb.services.storage_factory import storage_service
+        from azure_functions.services.storage_factory import storage_service
         self.storage_service = storage_service
 
     @contextmanager
@@ -590,7 +590,7 @@ class DatabaseManager:
                 raise ValidationError("Total documents cannot be negative")
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from azure_functions.models.database_models import ProcessingBatch
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -702,7 +702,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from azure_functions.models.database_models import TempDocument
 
                 # Convert user_id to UUID if provided and is string
                 if user_id:
@@ -790,7 +790,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from azure_functions.models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -835,7 +835,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from azure_functions.models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -871,7 +871,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from azure_functions.models.database_models import ProcessingBatch
 
                 # Convert user_id to UUID if provided and is string
                 if user_id and isinstance(user_id, str):
@@ -944,7 +944,7 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import ProcessingBatch
+                from azure_functions.models.database_models import ProcessingBatch
 
                 batch = session.query(ProcessingBatch).filter(
                     ProcessingBatch.batch_id == batch_id.strip()
@@ -987,7 +987,7 @@ class DatabaseManager:
                     raise ValidationError(f"Required field '{field}' is missing or empty")
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from azure_functions.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 user_id = kwargs.get('user_id')
@@ -1101,7 +1101,7 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from azure_functions.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1181,7 +1181,7 @@ class DatabaseManager:
         """List all temporary documents for a given project and user with optional filtering."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from azure_functions.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1263,7 +1263,7 @@ class DatabaseManager:
         """Get count of temporary documents for a given project and user."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
+                from azure_functions.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1826,7 +1826,7 @@ class DatabaseManager:
 
                 # Add processing batch statistics
                 try:
-                    from giani_pkb.models.database_models import ProcessingBatch
+                    from azure_functions.models.database_models import ProcessingBatch
                     stats['processing_batches'] = session.query(func.count(ProcessingBatch.id)).scalar() or 0
                     stats['active_batches'] = session.query(func.count(ProcessingBatch.id)).filter(
                         ProcessingBatch.status.in_(['QUEUED', 'PROCESSING'])
@@ -2040,7 +2040,7 @@ class DatabaseManager:
 
                 # Check for orphaned processing batches
                 try:
-                    from giani_pkb.models.database_models import ProcessingBatch
+                    from azure_functions.models.database_models import ProcessingBatch
                     orphaned_batches = session.query(ProcessingBatch).filter(
                         ~ProcessingBatch.user_id.in_(session.query(User.id))
                     ).count()
@@ -2695,7 +2695,7 @@ class DatabaseManager:
 
         try:
             # Import here to avoid circular imports if needed
-            from giani_pkb.services.rag.query_executor import run_query
+            from azure_functions.services.rag.query_executor import run_query
 
             # Make sure we're passing the actual session, not a context manager
             session = self.get_session()

@@ -14,15 +14,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import google.generativeai as genai
 
-from giani_pkb.models.document import DocumentMetadata
-from giani_pkb.services.metadata_manager import MetadataManagerService
-from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
-from giani_pkb.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
-from giani_pkb.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
-from giani_pkb.preprocessing.document_processor import DocumentProcessor
-from giani_pkb.utils.gemini_client import initialize_gemini_client
-from giani_pkb.utils.api_tracker import APICallTracker
-from giani_pkb.utils.prompt_generators import get_both_prompts, get_summarization_prompt, get_metadata_prompt
+from azure_functions.models.document import DocumentMetadata
+from azure_functions.services.metadata_manager import MetadataManagerService
+from azure_functions.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from azure_functions.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
+from azure_functions.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
+from azure_functions.preprocessing.document_processor import DocumentProcessor
+from azure_functions.utils.gemini_client import initialize_gemini_client
+from azure_functions.utils.api_tracker import APICallTracker
+from azure_functions.utils.prompt_generators import get_both_prompts, get_summarization_prompt, get_metadata_prompt
 
 class SummarizationService:
     """
