@@ -1105,7 +1105,7 @@ class DocxProcessor:
             )
 
         # Check if blob exists
-        if not blob_storage_service.file_exists(container, blob_name):
+        if not blob_storage_service.file_exists({"container_name": container, "blob_name": blob_name}):
             raise FileProcessingError(f"File not found in Azure Blob Storage: {container}/{blob_name}", filepath=blob_name)
 
         # Determine parsing method
