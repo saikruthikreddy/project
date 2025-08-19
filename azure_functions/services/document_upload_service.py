@@ -95,8 +95,10 @@ class DocumentUploadService:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unique_filename = f"{timestamp}_{original_filename}"
 
-            source_path = f"{user_id}/{project_id}/{original_filename}"
-            dest_path = f"{category_folder}/{user_id}/{project_id}/{unique_filename}"
+            source_container = config.TEMP_DOCUMENTS_CONTAINER
+            dest_container = config.DOCUMENTS_CONTAINER
+            source_blob_name = f"{user_id}/{project_id}/{original_filename}"
+            dest_blob_name = f"{category_folder}/{user_id}/{project_id}/{original_filename}"
 
             # Create document metadata
             document_id = uuid.uuid4()
@@ -119,7 +121,7 @@ class DocumentUploadService:
                     finalPurpose=ai_purpose,
                     priority=task.get("document_priority", "Medium"),
                     finalizedAt=datetime.now().isoformat(),
-                    storagePath=dest_path,
+                    storagePath=dest_blob_name,
                     categoryFolder=category_folder,
                     storedFilename=unique_filename,
                     savedAt=datetime.now().isoformat(),
@@ -149,7 +151,7 @@ class DocumentUploadService:
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
-                    storage_path=dest_path,
+                    storage_path=dest_blob_name,
                     category_folder=category_folder,
                     stored_filename=unique_filename,
                     final_category=task["ai_classification"],
@@ -203,7 +205,7 @@ class DocumentUploadService:
 
                 # Process document once to get parsed blocks
                 parsed_blocks, chunks_with_metadata = self.document_processor.process_single_file(
-                    file_path=source_path, document_id=document_id, project_id=project_id
+                    container_name=source_container, blob_name=source_blob_name, document_id=document_id, project_id=project_id
                 )
 
                 if parsed_blocks:

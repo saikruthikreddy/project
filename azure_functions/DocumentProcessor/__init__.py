@@ -14,6 +14,7 @@ from database.database_manager import DatabaseManager
 # Setup comprehensive logging
 logger = setup_logging()
 
+
 def main(msg: func.ServiceBusMessage):
     logger.info("✅ Function triggered")
 
@@ -36,7 +37,11 @@ def main(msg: func.ServiceBusMessage):
             db_manager.update_batch_status(batch_id, "PROCESSING")
 
         # Process the document
-        result = upload_service.process_single_document(task_data)
+        try:
+            result = upload_service.process_single_document(task_data)
+        except Exception as e:
+            raise
+
         logger.info(f"Document processing completed: {result}")
         db_manager.increment_batch_progress(batch_id, True)
 
@@ -46,9 +51,11 @@ def main(msg: func.ServiceBusMessage):
 
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
-            logger.info(f"✅ Document processed, batch_status = {batch_status['status']}")
+            logger.info(
+                f"✅ Document processed, batch_status = {batch_status['status']}"
+            )
 
-            if batch_status and batch_status["status"] == 'COMPLETED':
+            if batch_status and batch_status["status"] == "COMPLETED":
                 logger.info(
                     f"Batch {batch_id} is complete. Queuing project {project_id} for onboarding guide generation."
                 )
