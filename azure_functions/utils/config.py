@@ -45,7 +45,7 @@ class Config:
     ONBOARDING_PROCESSING_QUEUE = os.getenv("ONBOARDING_PROCESSING_QUEUE", "")
 
     # File upload configuration
-    PROCESSED_FOLDER = os.getenv("PROCESSED_FOLDER", "data/uploaded_documents")
+    PROCESSED_FOLDER = os.getenv("PROCESSED_FOLDER", "/tmp/giani_uploads-dev")
 
     # Allowed file extensions
     ALLOWED_EXTENSIONS: Set[str] = {

@@ -34,7 +34,7 @@ class MetadataManagerService:
             self.master_metadata_path = MASTER_METADATA_PATH
 
         Path(self.master_metadata_path).parent.mkdir(parents=True, exist_ok=True)
-        Path("data/uploaded_documents").mkdir(parents=True, exist_ok=True)
+        # Path("data/uploaded_documents").mkdir(parents=True, exist_ok=True)
 
     def load_master_metadata(self) -> Dict[str, Any]:
         """Load the master metadata JSON file."""

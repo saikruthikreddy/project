@@ -17,6 +17,8 @@ logger = setup_logging()
 
 def main(msg: func.ServiceBusMessage):
     logger.info("✅ Function triggered")
+    temp_dir = os.environ.get('TMP')
+    logger.info(f"📔TMP directory for the app is: {temp_dir}")
 
     try:
         message_body = msg.get_body().decode("utf-8")
