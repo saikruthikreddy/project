@@ -8,9 +8,8 @@ searching, and retrieval with semantic capabilities.
 import os
 import json
 import logging
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from datetime import datetime
-import asyncio
 import uuid
 
 from azure.search.documents import SearchClient
@@ -22,7 +21,6 @@ from azure.search.documents.indexes.models import (
     SearchFieldDataType,
     SimpleField,
     SearchableField,
-    ComplexField,
     VectorSearch,
     HnswAlgorithmConfiguration,
     VectorSearchProfile,
