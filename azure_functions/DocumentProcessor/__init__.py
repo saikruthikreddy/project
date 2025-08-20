@@ -4,7 +4,7 @@ import json
 import azure.functions as func
 
 # This allows the function to import from the shared_code directory
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+# sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from utils.logging import setup_logging
 from services.service_bus_sender import onboarding_service_bus
@@ -18,6 +18,8 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
     logger.info("✅ Function triggered")
     batch_id = None
     db_manager = None  # Initialize to None at the start
+    temp_dir = os.environ.get('TMP')
+    logger.info(f"📔TMP directory for the app is: {temp_dir}")
 
     try:
         message_body = msg.get_body().decode("utf-8")
@@ -38,7 +40,11 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
             db_manager.update_batch_status(batch_id, "PROCESSING")
 
         # Process the document
-        result = upload_service.process_single_document(task_data)
+        try:
+            result = upload_service.process_single_document(task_data)
+        except Exception as e:
+            raise
+
         logger.info(f"Document processing completed: {result}")
         db_manager.increment_batch_progress(batch_id, True)
 
@@ -48,9 +54,11 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
 
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
-            logger.info(f"✅ Document processed, batch_status = {batch_status['status']}")
+            logger.info(
+                f"✅ Document processed, batch_status = {batch_status['status']}"
+            )
 
-            if batch_status and batch_status["status"] == 'COMPLETED':
+            if batch_status and batch_status["status"] == "COMPLETED":
                 logger.info(
                     f"Batch {batch_id} is complete. Queuing project {project_id} for onboarding guide generation."
                 )

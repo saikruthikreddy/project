@@ -11,11 +11,11 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 
-from azure_functions.preprocessing.chunking.models import ChunkMetadata
-from azure_functions.preprocessing.chunking.token_counter import TokenCounter
-from azure_functions.preprocessing.chunking.nlp_processor import NLPProcessor
-from azure_functions.preprocessing.chunking.chunking_config import CHUNKING_PARAMETERS
-from azure_functions.preprocessing.chunking.validators import validate_blocks_for_chunking
+from .models import ChunkMetadata
+from .token_counter import TokenCounter
+from .nlp_processor import NLPProcessor
+from .chunking_config import CHUNKING_PARAMETERS
+from .validators import validate_blocks_for_chunking
 
 logger = logging.getLogger(__name__)
 

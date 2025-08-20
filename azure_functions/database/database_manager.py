@@ -215,9 +215,10 @@ class DatabaseManager:
                             file_path_abs = os.path.abspath(file_path)
 
                             # Check if file is in temp_uploads or other allowed directories
+                            # TODO: Update this to use blob storage
                             allowed_dirs = [
-                                os.path.abspath("temp_uploads"),
-                                os.path.abspath("data/uploaded_documents")
+                                # os.path.abspath("temp_uploads"),
+                                # os.path.abspath("data/uploaded_documents")
                             ]
 
                             is_safe_path = any(file_path_abs.startswith(allowed_dir) for allowed_dir in allowed_dirs)

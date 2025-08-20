@@ -1,30 +1,34 @@
 """
 Main document processing orchestrator that coordinates all file processors.
 """
+
 import os
 import logging
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional, Union
 from dataclasses import dataclass
 
-from azure_functions.utils.exceptions import ProcessingError, FileProcessingError
-from azure_functions.utils.config import config
-from azure_functions.services.blob_storage_service import blob_storage_service
-from azure_functions.preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
+from utils.exceptions import ProcessingError, FileProcessingError
+from utils.config import config
+from services.blob_storage_service import blob_storage_service
+from preprocessing.chunking.strategies import chunk_document_adaptive, ChunkMetadata
 
 # Import new processors
-from azure_functions.preprocessing.pdf_processor import EnhancedPdfProcessor
-from azure_functions.preprocessing.image_processor import ImageProcessor
-from azure_functions.preprocessing.csv_processor import CSVProcessor
-from azure_functions.preprocessing.pptx_processor import EnhancedPptxProcessor
-from azure_functions.preprocessing.docx_processor import DocxProcessor
+from preprocessing.pdf_processor import EnhancedPdfProcessor
+from preprocessing.image_processor import ImageProcessor
+from preprocessing.csv_processor import CSVProcessor
+from preprocessing.pptx_processor import EnhancedPptxProcessor
+from preprocessing.docx_processor import DocxProcessor
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ProcessingResult:
     """Result of processing a single document."""
-    file_path: str
+
+    blob_name: str
+    container_name: str
     document_id: str
     project_id: str
     status: str
@@ -32,6 +36,7 @@ class ProcessingResult:
     chunk_count: int
     chunks_preview: List[Tuple[str, str, str]]  # (text_preview, chunk_id, chunk_type)
     error_message: Optional[str] = None
+
 
 class DocumentProcessor:
     """
@@ -60,25 +65,47 @@ class DocumentProcessor:
         # Supported file extensions
         self.supported_extensions = {
             # Images
-            '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif',
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".bmp",
+            ".tiff",
+            ".tif",
+            ".gif",
             # Documents
-            '.pdf', '.docx', '.doc', '.pptx', '.ppt',
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".pptx",
+            ".ppt",
             # Data
-            '.csv', '.xlsx', '.xls'
+            ".csv",
+            ".xlsx",
+            ".xls",
         }
 
     def _initialize_processors(self):
         """Initialize all document processors."""
         try:
             # Get API keys
-            gemini_key = self.api_keys.get('gemini') or os.getenv('GEMINI_API_KEY') or getattr(config, 'GEMINI_API_KEY', None)
-            openai_key = self.api_keys.get('openai') or os.getenv('OPENAI_API_KEY') or getattr(config, 'OPENAI_API_KEY', None)
+            gemini_key = (
+                self.api_keys.get("gemini")
+                or os.getenv("GEMINI_API_KEY")
+                or getattr(config, "GEMINI_API_KEY", None)
+            )
+            openai_key = (
+                self.api_keys.get("openai")
+                or os.getenv("OPENAI_API_KEY")
+                or getattr(config, "OPENAI_API_KEY", None)
+            )
 
             # Initialize processors
             self.pdf_processor = EnhancedPdfProcessor()
             self.image_processor = ImageProcessor()
             self.csv_processor = CSVProcessor(api_key=gemini_key)
-            self.pptx_processor = EnhancedPptxProcessor(image_processor=self.image_processor)
+            self.pptx_processor = EnhancedPptxProcessor(
+                image_processor=self.image_processor
+            )
             self.docx_processor = DocxProcessor()
 
             logger.info("All document processors initialized successfully")
@@ -102,20 +129,22 @@ class DocumentProcessor:
         """
         extension = file_extension.lower()
 
-        if extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif']:
+        if extension in [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif"]:
             return self.image_processor
-        elif extension == '.pdf':
+        elif extension == ".pdf":
             return self.pdf_processor
-        elif extension in ['.csv', '.xlsx', '.xls']:
+        elif extension in [".csv", ".xlsx", ".xls"]:
             return self.csv_processor
-        elif extension in ['.pptx', '.ppt']:
+        elif extension in [".pptx", ".ppt"]:
             return self.pptx_processor
-        elif extension in ['.docx', '.doc']:
+        elif extension in [".docx", ".doc"]:
             return self.docx_processor
         else:
             raise ProcessingError(f"Unsupported file type: {extension}")
 
-    def _determine_document_type(self, document_category_hint: Optional[str] = None) -> str:
+    def _determine_document_type(
+        self, document_category_hint: Optional[str] = None
+    ) -> str:
         """
         Determine document type for chunking based on category hint.
 
@@ -147,28 +176,36 @@ class DocumentProcessor:
         if not image_text or not image_text.strip():
             return []
 
-        return [(
-            image_text.strip(),
-            {
-                "block_type": "image_full_text",
-                "source_type": "image",
-                "page_number": 1,
-                "file_type": "image"
-            }
-        )]
+        return [
+            (
+                image_text.strip(),
+                {
+                    "block_type": "image_full_text",
+                    "source_type": "image",
+                    "page_number": 1,
+                    "file_type": "image",
+                },
+            )
+        ]
 
-    def process_single_file(self,
-                          file_path: Union[str, Path],
-                          document_id: str,
-                          project_id: str,
-                          document_category_hint: Optional[str] = None,
-                          use_semantic_chunker: bool = False,
-                          **chunker_kwargs) -> Tuple[Optional[List[Tuple[str, Dict[str, Any]]]], List[Tuple[str, ChunkMetadata]]]:
+    def process_single_file(
+        self,
+        container_name: str,
+        blob_name: str,
+        document_id: str,
+        project_id: str,
+        document_category_hint: Optional[str] = None,
+        use_semantic_chunker: bool = False,
+        **chunker_kwargs,
+    ) -> Tuple[
+        Optional[List[Tuple[str, Dict[str, Any]]]], List[Tuple[str, ChunkMetadata]]
+    ]:
         """
         Process a single file: parse it into blocks and then chunk those blocks.
 
         Args:
-            file_path: Path to the file
+            container_name:
+            blob_name:
             document_id: ID of the document
             project_id: ID of the project
             document_category_hint: Hint for document type classification
@@ -181,13 +218,17 @@ class DocumentProcessor:
         Raises:
             FileProcessingError: If file processing fails
         """
-        file_info = blob_storage_service.get_blob_info({"blob_name": file_path, "container_name": config.TEMP_DOCUMENTS_CONTAINER })
+        file_info = blob_storage_service.get_blob_info(
+            {"blob_name": blob_name, "container_name": container_name}
+        )
 
         if not file_info:
-            raise FileProcessingError(f"File not found: {file_path}", filepath=str(file_path))
+            raise FileProcessingError(
+                f"File not found: {blob_name} in container: {container_name}"
+            )
 
         try:
-            logger.info(f"Processing file: {file_path} for doc_id: {document_id}")
+            logger.info(f"Processing file: {blob_name} for doc_id: {document_id}")
 
             # Get file extension and processor
             file_ext = file_info["file_extension"]
@@ -198,25 +239,28 @@ class DocumentProcessor:
             # Process file based on type
             parsed_blocks = None
 
-
-            if file_ext in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif']:
+            if file_ext in [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif"]:
                 # Handle image processing
                 result = processor.process_file(container, blob_name)
-                parsed_blocks = self._create_image_block(result['combined_text'])
+                parsed_blocks = self._create_image_block(result["combined_text"])
             else:
                 # Handle other file types
                 parsed_blocks = processor.process_file(container, blob_name)
 
             if not parsed_blocks:
-                logger.warning(f"No content blocks extracted from {file_path} for doc_id: {document_id}")
+                logger.warning(
+                    f"No content blocks extracted from {blob_name} for doc_id: {document_id}"
+                )
                 return None, []
 
             # Determine document type for chunking
             doc_type = self._determine_document_type(document_category_hint)
-            logger.info(f"DocID {document_id}: Using document type '{doc_type}' for adaptive chunking.")
+            logger.info(
+                f"DocID {document_id}: Using document type '{doc_type}' for adaptive chunking."
+            )
 
             # Get OpenAI API key for semantic chunking
-            openai_key = self.api_keys.get('openai') or os.getenv('OPENAI_API_KEY')
+            openai_key = self.api_keys.get("openai") or os.getenv("OPENAI_API_KEY")
 
             # Generate chunks
             chunks_with_metadata = chunk_document_adaptive(
@@ -226,17 +270,26 @@ class DocumentProcessor:
                 document_type=doc_type,
                 use_semantic_chunker=use_semantic_chunker,
                 openai_api_key=openai_key,
-                **chunker_kwargs
+                **chunker_kwargs,
             )
 
-            logger.info(f"DocID {document_id}: Generated {len(chunks_with_metadata)} chunks.")
+            logger.info(
+                f"DocID {document_id}: Generated {len(chunks_with_metadata)} chunks."
+            )
             return parsed_blocks, chunks_with_metadata
 
         except Exception as e:
-            logger.error(f"Error processing file {file_path} for doc_id {document_id}: {e}", exc_info=True)
-            raise FileProcessingError(f"Error processing file {file_path}: {e}", filepath=str(file_path))
+            logger.error(
+                f"Error processing file {blob_name} for doc_id {document_id}: {e}",
+                exc_info=True,
+            )
+            raise FileProcessingError(
+                f"Error processing file {blob_name} in {container_name}: {e}"
+            )
 
-    def process_files(self, file_metadata_list: List[Dict[str, Any]]) -> List[ProcessingResult]:
+    def process_files(
+        self, file_metadata_list: List[Dict[str, Any]]
+    ) -> List[ProcessingResult]:
         """
         Process multiple files with their metadata.
 
@@ -251,23 +304,27 @@ class DocumentProcessor:
         for item in file_metadata_list:
             try:
                 # Extract required metadata
-                file_path = item.get("file_path")
+                blob_name = item.get("blob_name")
+                container_name = item.get("container_name")
                 doc_id = item.get("document_id")
                 proj_id = item.get("project_id")
 
-                if not all([file_path, doc_id, proj_id]):
-                    error_msg = "Missing critical metadata (file_path, document_id, or project_id)"
+                if not all([blob_name, container_name, doc_id, proj_id]):
+                    error_msg = "Missing critical metadata (blob_name, container_name, document_id, or project_id)"
                     logger.error(f"{error_msg} in item: {item}")
-                    results.append(ProcessingResult(
-                        file_path=file_path or "unknown",
-                        document_id=doc_id or "unknown",
-                        project_id=proj_id or "unknown",
-                        status="Error - Missing critical metadata",
-                        parsed_block_count=0,
-                        chunk_count=0,
-                        chunks_preview=[],
-                        error_message=error_msg
-                    ))
+                    results.append(
+                        ProcessingResult(
+                            blob_name=blob_name,
+                            container_name=container_name,
+                            document_id=doc_id or "unknown",
+                            project_id=proj_id or "unknown",
+                            status="Error - Missing critical metadata",
+                            parsed_block_count=0,
+                            chunk_count=0,
+                            chunks_preview=[],
+                            error_message=error_msg,
+                        )
+                    )
                     continue
 
                 # Extract optional parameters
@@ -277,41 +334,54 @@ class DocumentProcessor:
 
                 # Process file
                 parsed_blocks, chunks = self.process_single_file(
-                    file_path, doc_id, proj_id,
+                    blob_name,
+                    container_name,
+                    doc_id,
+                    proj_id,
                     document_category_hint=doc_category_hint,
                     use_semantic_chunker=use_semantic,
-                    **chunker_settings
+                    **chunker_settings,
                 )
 
                 # Create result
                 num_parsed_blocks = len(parsed_blocks) if parsed_blocks else 0
                 chunks_preview = [
-                    (chunk_text[:100] + "...", chunk_meta.chunk_id, chunk_meta.chunk_type)
+                    (
+                        chunk_text[:100] + "...",
+                        chunk_meta.chunk_id,
+                        chunk_meta.chunk_type,
+                    )
                     for chunk_text, chunk_meta in chunks[:2]
                 ]
 
-                results.append(ProcessingResult(
-                    file_path=file_path,
-                    document_id=doc_id,
-                    project_id=proj_id,
-                    status="Success",
-                    parsed_block_count=num_parsed_blocks,
-                    chunk_count=len(chunks),
-                    chunks_preview=chunks_preview
-                ))
+                results.append(
+                    ProcessingResult(
+                        blob_name=blob_name,
+                        container_name=container_name,
+                        document_id=doc_id,
+                        project_id=proj_id,
+                        status="Success",
+                        parsed_block_count=num_parsed_blocks,
+                        chunk_count=len(chunks),
+                        chunks_preview=chunks_preview,
+                    )
+                )
 
             except Exception as e:
                 logger.error(f"Error processing item {item}: {e}")
-                results.append(ProcessingResult(
-                    file_path=item.get("file_path", "unknown"),
-                    document_id=item.get("document_id", "unknown"),
-                    project_id=item.get("project_id", "unknown"),
-                    status="Error",
-                    parsed_block_count=0,
-                    chunk_count=0,
-                    chunks_preview=[],
-                    error_message=str(e)
-                ))
+                results.append(
+                    ProcessingResult(
+                        blob_name=item.get("blob_name", "unknown"),
+                        container_name=item.get("container_name", "unknown"),
+                        document_id=item.get("document_id", "unknown"),
+                        project_id=item.get("project_id", "unknown"),
+                        status="Error",
+                        parsed_block_count=0,
+                        chunk_count=0,
+                        chunks_preview=[],
+                        error_message=str(e),
+                    )
+                )
 
         return results
 
@@ -334,17 +404,24 @@ class DocumentProcessor:
         file_paths = []
         try:
             for file_path in target_folder.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in self.supported_extensions:
+                if (
+                    file_path.is_file()
+                    and file_path.suffix.lower() in self.supported_extensions
+                ):
                     file_paths.append(str(file_path))
 
-            logger.info(f"Discovered {len(file_paths)} supported files in {target_folder}")
+            logger.info(
+                f"Discovered {len(file_paths)} supported files in {target_folder}"
+            )
 
         except Exception as e:
             logger.error(f"Error discovering files in {target_folder}: {e}")
 
         return file_paths
 
-    def main_processing_orchestrator(self, file_metadata_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def main_processing_orchestrator(
+        self, file_metadata_list: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """
         Legacy method for backward compatibility.
 
@@ -359,12 +436,15 @@ class DocumentProcessor:
         # Convert to legacy format
         legacy_results = []
         for result in results:
-            legacy_results.append({
-                "path": result.file_path,
-                "document_id": result.document_id,
-                "parsed_block_count": result.parsed_block_count,
-                "chunk_count": result.chunk_count,
-                "chunks_preview": result.chunks_preview
-            })
+            legacy_results.append(
+                {
+                    "blob": result.blob_name,
+                    "container": result.container_name,
+                    "document_id": result.document_id,
+                    "parsed_block_count": result.parsed_block_count,
+                    "chunk_count": result.chunk_count,
+                    "chunks_preview": result.chunks_preview,
+                }
+            )
 
         return legacy_results
