@@ -65,43 +65,58 @@ class DocumentUploadService:
             logger.error(f"Error initializing services: {e}")
             raise
 
-    def process_single_document(self, task: Dict[str, Any]):
+    def _process_single_document(self, task: Dict[str, Any]):
         """Process a single document with comprehensive error handling and cleanup."""
         temp_document_id = task["temp_document_id"]
         project_id = task["project_id"]
         user_id = task["user_id"]
+        batch_id = task["batch_id"]
+
+        temp_file_path = None
         dest_path = None
 
         try:
             logger.info(f"Processing single document: {temp_document_id}")
 
-
             # Get temp document from database
-            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
+            temp_doc = self.db_manager.get_temp_document(
+                temp_document_id, project_id, user_id
+            )
 
             if not temp_doc:
                 raise FileProcessingError(f"Temp document {temp_document_id} not found in database")
 
             # Extract document information
             original_filename = temp_doc["original_filename"]
+            temp_file_path = temp_doc["file_path"]
             file_size = temp_doc.get("file_size", 0)
             mime_type = temp_doc.get("mime_type", "application/octet-stream")
             text_preview = temp_doc.get("text_preview", "")
             ai_purpose = temp_doc.get("ai_purpose", task["ai_purpose"])
             source = task["source"]
 
+            # TODO: Validate file exists
+            # if not temp_file_path or not os.path.exists(temp_file_path):
+            #     raise FileProcessingError(f"Temp file not found: {temp_file_path}")
+
             # Determine category folder based on AI classification
-            category_folder = temp_doc.get("ai_classification", task["ai_classification"])
+            category_folder = temp_doc.get(
+                "ai_classification", task["ai_classification"]
+            )
 
             # Create unique destination filename to prevent conflicts
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            unique_filename = f"{timestamp}_{original_filename}"
+            base_name = Path(original_filename).stem
+            extension = Path(original_filename).suffix
+            unique_filename = f"{timestamp}_{base_name}{extension}"
 
             source_path = f"{user_id}/{project_id}/{original_filename}"
-            dest_path = f"{category_folder}/{user_id}/{project_id}/{unique_filename}"
+            dest_path = f"{category_folder}/{user_id}/{project_id}/{original_filename}"
 
             # Create document metadata
             document_id = uuid.uuid4()
+            metadata_filename = f"{Path(unique_filename).stem}_metadata.json"
+            metadata_path = os.path.join(temp_doc['blob_name'], metadata_filename)
 
             try:
                 # Create DocumentMetadata object
