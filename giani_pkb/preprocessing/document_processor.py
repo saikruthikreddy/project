@@ -155,6 +155,71 @@ class DocumentProcessor:
                 "file_type": "image"
             }
         )]
+    
+
+    def process_file_light(self, file_path: Union[str, Path], max_chars: int = 5000) -> str:
+        """
+        Lightweight parsing for AI classification suggestions.
+        Extracts ONLY plain text (no OCR, BLIP, or LlamaIndex).
+        Truncates to first max_chars.
+        """
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileProcessingError(f"File not found: {file_path}", filepath=str(file_path))
+
+        ext = file_path.suffix.lower()
+
+        try:
+            if ext == ".pdf":
+                # Use PyMuPDF raw text only
+                import fitz
+                doc = fitz.open(str(file_path))
+                text = []
+                for page in doc:
+                    text.append(page.get_text())
+                    if len("".join(text)) > max_chars:
+                        break
+                return "".join(text)[:max_chars]
+
+            elif ext in [".docx"]:
+                import docx
+                document = docx.Document(str(file_path))
+                text = []
+                for para in document.paragraphs:
+                    text.append(para.text)
+                    if len(" ".join(text)) > max_chars:
+                        break
+                return " ".join(text)[:max_chars]
+
+            elif ext in [".pptx"]:
+                from pptx import Presentation
+                prs = Presentation(str(file_path))
+                text = []
+                for slide in prs.slides:
+                    for shape in slide.shapes:
+                        if shape.has_text_frame:
+                            text.append(shape.text.strip())
+                        if len(" ".join(text)) > max_chars:
+                            break
+                return " ".join(text)[:max_chars]
+
+            elif ext in ['.csv', '.xlsx', '.xls']:
+                import pandas as pd
+                if ext == ".csv":
+                    df = pd.read_csv(str(file_path), nrows=50)  # only first rows
+                else:
+                    df = pd.read_excel(str(file_path), nrows=50)
+                return df.to_csv(index=False)[:max_chars]
+
+            elif ext in ['.txt', '.md']:
+                return open(file_path, "r", encoding="utf-8", errors="ignore").read(max_chars)
+
+            else:
+                return ""  # unsupported extension for light parse
+
+        except Exception as e:
+            logger.error(f"Light parse failed for {file_path}: {e}")
+            return ""
 
     def process_single_file(self,
                           file_path: Union[str, Path],
