@@ -11,7 +11,7 @@ import uuid
 import os
 from utils.database import SessionLocal, engine
 from models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary
+    OnboardingGuide, User, Project, Document, DocumentChunk, DocumentSummary
 )
 from utils.exceptions import DatabaseError, ValidationError, NotFoundError
 
@@ -215,9 +215,10 @@ class DatabaseManager:
                             file_path_abs = os.path.abspath(file_path)
 
                             # Check if file is in temp_uploads or other allowed directories
+                            # TODO: Update this to use blob storage
                             allowed_dirs = [
-                                os.path.abspath("temp_uploads"),
-                                os.path.abspath("data/uploaded_documents")
+                                # os.path.abspath("temp_uploads"),
+                                # os.path.abspath("data/uploaded_documents")
                             ]
 
                             is_safe_path = any(file_path_abs.startswith(allowed_dir) for allowed_dir in allowed_dirs)
@@ -769,6 +770,32 @@ class DatabaseManager:
             logger.error(f"Unexpected error listing temp documents: {e}")
             return []
 
+    def get_project(self, project_id: Union[int, str]) -> Optional[Project]:
+        """Get project by ID with optional user access check and improved type handling."""
+        try:
+            # Convert project_id to int if needed
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    logger.error(f"Invalid project_id format: {project_id}")
+                    return None
+
+            with self.get_session() as session:
+                query = session.query(Project).filter(
+                    and_(Project.id == project_id, Project.is_active == True)
+                )
+
+                project = query.first()
+
+                if project:
+                    session.expunge(project)
+
+                return project
+
+        except Exception as e:
+            logger.error(f"Database error getting project: {e}")
+            return None
 
     def get_temp_documents_count(self, project_id: Union[int, str],
                                 user_id: Union[str, uuid.UUID],
@@ -1208,6 +1235,60 @@ class DatabaseManager:
             logger.error(f"Database error getting document summaries: {e}")
             return []
 
+    def get_project_summaries(self, project_id: int) -> List[DocumentSummary]:
+        """Gets all the documents summaries for a given project """
+        try:
+            if isinstance(project_id, str):
+                try:
+                    project_id = int(project_id)
+                except ValueError:
+                    logger.error(f"Invalid format for project_id: {project_id}")
+                    raise
+
+            with self.get_session() as session:
+                summaries = (
+                    session.query(DocumentSummary)
+                    .join(Document, DocumentSummary.document_id == Document.id)
+                    .filter(Document.project_id == project_id)
+                    .order_by(DocumentSummary.processing_timestamp.desc())
+                ).all()
+
+                # Detach all summaries from session
+                for summary in summaries:
+                    session.expunge(summary)
+
+                return summaries
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting summaries for the project: {project_id}")
+
+    def create_or_update_onboarding_guide(self, project_id: int, guide: dict[str, Any]):
+        """Create or update an onboarding guide for a given project id"""
+        try:
+            with self.get_session() as session:
+                existing_guide = session.query(OnboardingGuide).filter(
+                    OnboardingGuide.project_id == project_id
+                ).first()
+
+                if existing_guide:
+                    existing_guide.content = guide
+                    session.flush()
+
+                    logger.info(f"Updated onboarding_guide: {existing_guide.id} for project: {project_id}")
+                    return existing_guide.id
+                else:
+                    onboarding_guide = OnboardingGuide(project_id=project_id, content=guide)
+                    session.add(onboarding_guide)
+                    session.flush()
+
+                    logger.info(f"Created onboarding_guide: {onboarding_guide.id} for project: {project_id}")
+                    return onboarding_guide.id
+
+        except Exception as e:
+            logger.error(f"Unexpected error creating/updating onboarding guide: {e}")
+            raise DatabaseError(f"Unexpected error creating/updating onboarding guide: {e}")
+
+
     # Statistics and Analytics (Enhanced)
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database."""
@@ -1234,7 +1315,9 @@ class DatabaseManager:
             with self.get_session() as session:
                 summary = DocumentSummary(
                     document_id=document_uuid,
-                    llm_analysis=llm_analysis,
+                    # llm_analysis=llm_analysis,
+                    summarization_analysis=summary_data.get("summarization_analysis"),
+                    metadata_analysis=summary_data.get("metadata_analysis"),
 
                     # Document context
                     document_filename=summary_data.get("document_filename"),
@@ -1245,14 +1328,14 @@ class DatabaseManager:
 
                     # Processing metadata
                     processing_timestamp=datetime.now(timezone.utc),
-                    llm_model_used=llm_analysis.get("llm_used_for_processing"),
+                    summarization_llm_model=summary_data.get("summarization_llm_model", ""),
                     summary_storage_path=summary_data.get("summaryStoragePath"),
 
                     # Extracted fields for easy querying
-                    narrative_summary=llm_analysis.get("ai_high_level_narrative_summary"),
-                    key_themes=llm_analysis.get("ai_overall_key_themes_list"),
-                    key_takeaways=llm_analysis.get("ai_key_takeaways_bullets"),
-                    extracted_keywords=llm_analysis.get("extracted_keywords"),
+                    narrative_summary=summary_data.get("ai_high_level_narrative_summary"),
+                    key_themes=summary_data.get("ai_overall_key_themes_list"),
+                    key_takeaways=summary_data.get("ai_key_takeaways_bullets"),
+                    extracted_keywords=summary_data.get("extracted_keywords"),
 
                     # Metadata for search and filtering
                     document_sentiment=extracted_metadata.get("document_overall_sentiment"),

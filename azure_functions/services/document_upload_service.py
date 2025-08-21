@@ -3,7 +3,6 @@ Document upload service for handling file uploads and processing.
 """
 
 import os
-import shutil
 import uuid
 from datetime import datetime
 from typing import Dict, Any
@@ -65,53 +64,41 @@ class DocumentUploadService:
             logger.error(f"Error initializing services: {e}")
             raise
 
-    def _process_single_document(self, task: Dict[str, Any]):
+    def process_single_document(self, task: Dict[str, Any]):
         """Process a single document with comprehensive error handling and cleanup."""
         temp_document_id = task["temp_document_id"]
         project_id = task["project_id"]
         user_id = task["user_id"]
-        batch_id = task["batch_id"]
-
-        temp_file_path = None
         dest_path = None
 
         try:
             logger.info(f"Processing single document: {temp_document_id}")
 
             # Get temp document from database
-            temp_doc = self.db_manager.get_temp_document(
-                temp_document_id, project_id, user_id
-            )
+            temp_doc = self.db_manager.get_temp_document(temp_document_id, project_id, user_id)
 
             if not temp_doc:
                 raise FileProcessingError(f"Temp document {temp_document_id} not found in database")
 
             # Extract document information
             original_filename = temp_doc["original_filename"]
-            temp_file_path = temp_doc["file_path"]
             file_size = temp_doc.get("file_size", 0)
             mime_type = temp_doc.get("mime_type", "application/octet-stream")
             text_preview = temp_doc.get("text_preview", "")
             ai_purpose = temp_doc.get("ai_purpose", task["ai_purpose"])
             source = task["source"]
 
-            # TODO: Validate file exists
-            # if not temp_file_path or not os.path.exists(temp_file_path):
-            #     raise FileProcessingError(f"Temp file not found: {temp_file_path}")
-
             # Determine category folder based on AI classification
-            category_folder = temp_doc.get(
-                "ai_classification", task["ai_classification"]
-            )
+            category_folder = temp_doc.get("ai_classification", task["ai_classification"])
 
             # Create unique destination filename to prevent conflicts
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            base_name = Path(original_filename).stem
-            extension = Path(original_filename).suffix
-            unique_filename = f"{timestamp}_{base_name}{extension}"
+            unique_filename = f"{timestamp}_{original_filename}"
 
-            source_path = f"{user_id}/{project_id}/{original_filename}"
-            dest_path = f"{category_folder}/{user_id}/{project_id}/{original_filename}"
+            source_container = config.TEMP_DOCUMENTS_CONTAINER
+            dest_container = config.DOCUMENTS_CONTAINER
+            source_blob_name = f"{user_id}/{project_id}/{original_filename}"
+            dest_blob_name = f"{category_folder}/{user_id}/{project_id}/{original_filename}"
 
             # Create document metadata
             document_id = uuid.uuid4()
@@ -134,7 +121,7 @@ class DocumentUploadService:
                     finalPurpose=ai_purpose,
                     priority=task.get("document_priority", "Medium"),
                     finalizedAt=datetime.now().isoformat(),
-                    storagePath=dest_path,
+                    storagePath=dest_blob_name,
                     categoryFolder=category_folder,
                     storedFilename=unique_filename,
                     savedAt=datetime.now().isoformat(),
@@ -164,7 +151,7 @@ class DocumentUploadService:
                     original_filename=original_filename,
                     file_size=file_size,
                     file_mime_type=mime_type,
-                    storage_path=dest_path,
+                    storage_path=dest_blob_name,
                     category_folder=category_folder,
                     stored_filename=unique_filename,
                     final_category=task["ai_classification"],
@@ -218,7 +205,7 @@ class DocumentUploadService:
 
                 # Process document once to get parsed blocks
                 parsed_blocks, chunks_with_metadata = self.document_processor.process_single_file(
-                    file_path=source_path, document_id=document_id, project_id=project_id
+                    container_name=source_container, blob_name=source_blob_name, document_id=document_id, project_id=project_id
                 )
 
                 if parsed_blocks:
@@ -300,8 +287,12 @@ class DocumentUploadService:
             try:
                 # Remove temp file
                 try:
-                    blob_storage_service.move_file(source_path, dest_path, source_container=config.TEMP_DOCUMENTS_CONTAINER, dest_container=config.DOCUMENTS_CONTAINER)
-                    # blob_storage_service.delete_file(config.TEMP_DOCUMENTS_CONTAINER, source_path)
+                    blob_storage_service.move_file(
+                        source_path=source_blob_name,
+                        dest_path=dest_blob_name,
+                        source_container=source_container,
+                        dest_container=dest_container
+                    )
                 except Exception as e:
                     logger.error("Unable to move file.")
                     raise

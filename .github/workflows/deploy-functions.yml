@@ -2,7 +2,7 @@ name: Deploy Azure Functions
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'azure_functions/**'
   workflow_dispatch:
@@ -16,43 +16,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: 'Checkout GitHub Action'
-      uses: actions/checkout@v4
+      - name: 'Checkout GitHub Action'
+        uses: actions/checkout@v4
 
-    - name: 'Login to Azure'
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: 'Login to Azure'
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: 'Login to Azure Container Registry'
-      uses: docker/login-action@v3
-      with:
-        registry: gianidevacr.azurecr.io
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
+      - name: 'Login to Azure Container Registry'
+        uses: docker/login-action@v3
+        with:
+          registry: gianidevacr.azurecr.io
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
-    - name: 'Cache Docker layers'
-      uses: actions/cache@v3
-      with:
-        path: /tmp/.buildx-cache
-        key: ${{ runner.os }}-buildx-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
+      - name: 'Cache Docker layers'
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
 
-    - name: 'Build and Push Docker Image'
-      working-directory: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
-      run: |
-        # Build image with timestamp tag
-        IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
-        docker build -t gianidevacr.azurecr.io/giani-functions:$IMAGE_TAG .
-        docker build -t gianidevacr.azurecr.io/giani-functions:latest .
+      - name: Set IMAGE_TAG
+        id: vars
+        run: echo "IMAGE_TAG=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
 
-        # Push both tags
-        docker push gianidevacr.azurecr.io/giani-functions:$IMAGE_TAG
-        docker push gianidevacr.azurecr.io/giani-functions:latest
+      - name: 'Build and Push Docker Image'
+        working-directory: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        run: |
+          # Build image with timestamp tag
+          docker build -t gianidevacr.azurecr.io/giani-functions:$IMAGE_TAG -t gianidevacr.azurecr.io/giani-functions:latest .
 
-    - name: 'Deploy to Azure Functions'
-      uses: Azure/functions-container-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-        image: gianidevacr.azurecr.io/giani-functions:latest
+          # Push both tags
+          docker push gianidevacr.azurecr.io/giani-functions:$IMAGE_TAG
+          docker push gianidevacr.azurecr.io/giani-functions:latest
+
+      - name: 'Deploy to Azure Functions'
+        uses: Azure/functions-container-action@v1
+        with:
+          app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+          image: gianidevacr.azurecr.io/giani-functions:${{ env.IMAGE_TAG }}
