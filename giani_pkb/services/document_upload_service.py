@@ -79,12 +79,6 @@ class DocumentUploadService:
             logger.error(f"Error initializing services: {e}")
             raise
 
-        # Initialize lightweight document processor for previews
-        try:
-            self.light_processor = DocumentProcessor(api_keys=api_keys)
-        except Exception as e:
-            logger.error(f"Error initializing light processor: {e}")
-            self.light_processor = None
 
     def _ensure_directories(self):
         """Ensure all required directories exist with proper permissions."""
@@ -273,12 +267,10 @@ class DocumentUploadService:
         try:
             if not file_path:
                 return "File path not provided for text extraction"
-                
-            if not self.light_processor:
-                return "Light processor not available"
+
                 
             # Use the lightweight processor
-            preview_text = self.light_processor.process_file_light(file_path, max_chars)
+            preview_text = self.document_processor.process_file_light(file_path, max_chars)
             
             if preview_text and preview_text.strip():
                 return preview_text.strip()
