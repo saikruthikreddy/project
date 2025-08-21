@@ -546,7 +546,7 @@ class EnhancedPdfProcessor:
     def _get_pdf_from_blob(self, container: str, blob_name: str) -> fitz.Document:
         """Get PDF document from Azure blob storage."""
         try:
-            pdf_bytes = blob_storage_service.download_blob_bytes(container, blob_name)
+            pdf_bytes = blob_storage_service.download_file(container, blob_name)
             return fitz.open(stream=pdf_bytes, filetype="pdf")
         except Exception as e:
             logger.error(f"Error loading PDF from blob {blob_name}: {e}")
@@ -565,7 +565,7 @@ class EnhancedPdfProcessor:
         """
         try:
             # Download PDF to temporary file for LlamaIndex processing
-            pdf_bytes = blob_storage_service.download_blob_bytes(container, blob_name)
+            pdf_bytes = blob_storage_service.download_file(container, blob_name)
             
             with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
                 tmp_file.write(pdf_bytes)
