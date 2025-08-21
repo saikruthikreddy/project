@@ -28,6 +28,7 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
 
         batch_id = task_data.get("batch_id")
         project_id = task_data.get("project_id")
+        user_id = task_data.get("user_id")
 
         upload_service = DocumentUploadService()
         db_manager = DatabaseManager()  # Initialize db_manager here
@@ -49,9 +50,6 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
         db_manager.increment_batch_progress(batch_id, True)
 
         # Check if batch is complete and send onboarding message
-        batch_id = task_data.get("batch_id")
-        project_id = task_data.get("project_id")
-
         if batch_id and project_id:
             batch_status = db_manager.get_batch_status(batch_id)
             logger.info(
@@ -65,6 +63,7 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
                 onboarding_message_payload = {
                     "project_id": project_id,
                     "triggered_by_batch_id": batch_id,
+                    "user_id": user_id,
                 }
                 onboarding_service_bus.send_document_task(onboarding_message_payload)
                 logger.info(

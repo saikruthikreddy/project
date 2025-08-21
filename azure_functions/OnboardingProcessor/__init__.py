@@ -21,10 +21,13 @@ async def main(msg: func.ServiceBusMessage):
         message_body = msg.get_body().decode("utf-8")
         task_data = json.loads(message_body)
         project_id = task_data.get("project_id")
+        user_id = task_data.get("user_id")
 
         if not project_id:
             logging.error("Message is missing 'project_id'.")
             return
+
+        project_id = int(project_id)
 
         logging.info(f"Generating onboarding guide for project {project_id}.")
 

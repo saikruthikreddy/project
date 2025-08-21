@@ -1,8 +1,8 @@
 """
 Utility for generating summarization and metadata prompts based on document groups.
 """
-from giani_pkb.utils.prompt_loader import load_prompt_template
-from giani_pkb.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from utils.prompt_loader import load_prompt_template
+from utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 
 
 def get_group_a_summarization_prompt(originalFilename: str, documentSourceType: str, userNoteOnPurpose: str, key_document_chunks: str) -> str:
@@ -145,10 +145,10 @@ def get_both_prompts(document_category: str, originalFilename: str, documentSour
     try:
         summarization_function = SUMMARIZATION_PROMPT_FUNCTIONS[group]
         metadata_function = METADATA_PROMPT_FUNCTIONS[group]
-        
+
         summarization_prompt = summarization_function(originalFilename, documentSourceType, userNoteOnPurpose, key_document_chunks)
         metadata_prompt = metadata_function(originalFilename, documentSourceType, userNoteOnPurpose, key_document_chunks)
-        
+
         return summarization_prompt, metadata_prompt
     except Exception as e:
         raise

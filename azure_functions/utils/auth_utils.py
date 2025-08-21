@@ -11,8 +11,8 @@ import hashlib
 import secrets
 import uuid
 
-from giani_pkb.utils.response_utils import api_authentication_error
-from giani_pkb.utils.exceptions import DatabaseError, ValidationError
+from utils.response_utils import api_authentication_error
+from utils.exceptions import DatabaseError, ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ class AuthUtils:
     """
 
     def __init__(self, jwt_secret: str = 'GIANIAI', jwt_algorithm: str = 'HS256'):
-        from giani_pkb.database.database_manager import DatabaseManager
+        from database.database_manager import DatabaseManager
         self.jwt_secret = jwt_secret
         self.jwt_algorithm = jwt_algorithm
         self.db_manager = DatabaseManager()

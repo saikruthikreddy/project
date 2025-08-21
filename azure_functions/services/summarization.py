@@ -14,15 +14,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import google.generativeai as genai
 
-from azure_functions.models.document import DocumentMetadata
-from azure_functions.services.metadata_manager import MetadataManagerService
-from azure_functions.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
-from azure_functions.utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
-from azure_functions.utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
-from azure_functions.preprocessing.document_processor import DocumentProcessor
-from azure_functions.utils.gemini_client import initialize_gemini_client
-from azure_functions.utils.api_tracker import APICallTracker
-from azure_functions.utils.prompt_generators import get_both_prompts, get_summarization_prompt, get_metadata_prompt
+from models.document import DocumentMetadata
+from services.metadata_manager import MetadataManagerService
+from utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
+from utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
+from preprocessing.document_processor import DocumentProcessor
+from utils.gemini_client import initialize_gemini_client
+from utils.api_tracker import APICallTracker
+from utils.prompt_generators import get_both_prompts, get_summarization_prompt, get_metadata_prompt
 
 class SummarizationService:
     """
@@ -65,7 +65,7 @@ class SummarizationService:
     def extract_document_chunks(self, document_path: str) -> List[Dict[str, Any]]:
         """Extracts text chunks from a document."""
         self.logger.info(f"Starting chunk extraction for: {document_path}")
-        
+
         if not os.path.isabs(document_path):
             document_path = os.path.join(os.getcwd(), document_path)
 
@@ -75,7 +75,7 @@ class SummarizationService:
 
         try:
             parsed_blocks, _ = self.processor.process_single_file(document_path, "doc-id", "proj-id")
-            
+
             if not parsed_blocks:
                 self.logger.warning(f"No parsed blocks returned for: {document_path}")
                 return []
@@ -97,7 +97,7 @@ class SummarizationService:
 
             self.logger.info(f"Created {len(chunks)} chunks from document")
             return chunks
-            
+
         except Exception as e:
             self.logger.error(f"Failed to process document content: {e}")
             raise ParsingError(f"Failed to process document content: {e}", filename=document_path)
@@ -113,9 +113,11 @@ class SummarizationService:
     def extract_clean_json(self, raw: str) -> Optional[str]:
         """Clean malformed JSON content."""
         self.logger.debug(f"Starting JSON cleanup, raw length: {len(raw)}")
-        
+
+        self.logger.info(f'============= RAW =============: {type(raw)}')
+        self.logger.info(raw)
         cleaned = raw.strip()
-        
+
         # Extract content from code blocks
         if "```json" in cleaned:
             start = cleaned.find("```json") + 7
@@ -125,42 +127,42 @@ class SummarizationService:
             start = cleaned.find("```")
             end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
-        
+
         # Normalize brackets - find first { and last }
         if "{" in cleaned:
             cleaned = cleaned[cleaned.find("{"):]
-        
+
         if "}" in cleaned:
             cleaned = cleaned[:cleaned.rfind("}") + 1]
-        
+
         # Balance braces
         open_braces = cleaned.count("{")
         close_braces = cleaned.count("}")
         if open_braces > close_braces:
             cleaned += "}" * (open_braces - close_braces)
             self.logger.debug(f"Added {open_braces - close_braces} closing braces")
-        
+
         # Fix common JSON errors
         cleaned = re.sub(r',\s*}', '}', cleaned)  # Remove trailing commas before }
         cleaned = re.sub(r',\s*]', ']', cleaned)  # Remove trailing commas before ]
-        
+
         # Validate basic JSON structure
         is_valid = cleaned.startswith("{") and cleaned.endswith("}")
         if not is_valid:
             self.logger.warning("Invalid JSON structure after cleaning")
-        
+
         return cleaned if is_valid else None
 
     def validate_summarization_response(self, response: Dict[str, Any]) -> bool:
         """Validate summarization response structure."""
         self.logger.debug("Validating summarization response")
-        
+
         required_fields = {
             "ai_overall_key_themes_list": list,
-            "ai_high_level_narrative_summary": str,
+            "ai_high_level_narrative_summary": list,
             "ai_main_topics_with_summaries_list_of_objects": list,
             "ai_key_takeaways_bullets": list,
-            "ai_tldr_key_finding": str
+            # "ai_tldr_key_finding": str
         }
 
         for field, field_type in required_fields.items():
@@ -183,7 +185,7 @@ class SummarizationService:
     def validate_metadata_response(self, response: Dict[str, Any]) -> bool:
         """Validate metadata response structure."""
         self.logger.debug("Validating metadata response")
-        
+
         required_fields = {
             "extracted_metadata": dict,
             "extracted_keywords": list,
@@ -201,7 +203,7 @@ class SummarizationService:
         # Validate extracted_metadata structure
         metadata = response["extracted_metadata"]
         required_metadata_sections = ["intelligence_layer", "rag_specific_metadata", "universal_metadata"]
-        
+
         for section in required_metadata_sections:
             if section not in metadata:
                 self.logger.error(f"Missing section in extracted_metadata: {section}")
@@ -210,7 +212,7 @@ class SummarizationService:
         # Validate intelligence_layer structure
         intelligence_layer = metadata["intelligence_layer"]
         required_intel_fields = ["strategy_and_objectives", "key_findings_and_data", "risks_and_mitigations", "execution_and_actions"]
-        
+
         for field in required_intel_fields:
             if field not in intelligence_layer:
                 self.logger.error(f"Missing field in intelligence_layer: {field}")
@@ -225,12 +227,12 @@ class SummarizationService:
     def call_llm_api(self, prompt: str, prompt_type: str, retries: int = 3) -> Optional[Dict[str, Any]]:
         """Call LLM API with retries for either summarization or metadata extraction."""
         self.logger.info(f"Starting {prompt_type} LLM API call with {retries} retries")
-        
+
         for attempt in range(retries):
             try:
                 self.logger.debug(f"{prompt_type} LLM API attempt {attempt + 1}/{retries}")
                 response = self.model.generate_content(prompt, generation_config=self.generation_config)
-                
+
                 if not response.text:
                     self.logger.error(f"Empty response from LLM on attempt {attempt + 1}")
                     raise APIError("Empty response from LLM")
@@ -240,15 +242,15 @@ class SummarizationService:
                 try:
                     result = json.loads(response.text)
                     self.logger.debug(f"Direct JSON parse successful for {prompt_type}")
-                    
+
                 except json.JSONDecodeError as json_err:
                     self.logger.debug(f"Direct JSON parse failed for {prompt_type}: {json_err}")
-                    
+
                     cleaned = self.extract_clean_json(response.text)
                     if not cleaned:
                         self.logger.error(f"Unable to clean JSON from {prompt_type} LLM output")
                         raise ParsingError(f"Unable to clean and parse JSON from {prompt_type} LLM output")
-                    
+
                     try:
                         result = json.loads(cleaned)
                         self.logger.debug(f"Cleaned JSON parse successful for {prompt_type}")
@@ -264,11 +266,11 @@ class SummarizationService:
                     is_valid = self.validate_summarization_response(result)
                 elif prompt_type == "metadata":
                     is_valid = self.validate_metadata_response(result)
-                    
+
                 if is_valid:
                     if prompt_type == "metadata" and "llm_used_for_processing" not in result:
                         result["llm_used_for_processing"] = f"gemini-{self.model.model_name}"
-                    
+
                     timestamp = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
                     self.api_call_tracker.log_api_call(prompt, str(result), self.model.model_name, timestamp)
                     self.logger.info(f"Successfully processed {prompt_type} LLM response")
@@ -291,11 +293,11 @@ class SummarizationService:
 
         raise APIError(f"{prompt_type} LLM API failed after retries")
 
-    def call_llm_apis_parallel(self, document_category: str, document_filename: str, 
+    def call_llm_apis_parallel(self, document_category: str, document_filename: str,
                               user_purpose: str, combined_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Call both summarization and metadata LLM APIs in parallel."""
         self.logger.info(f"Starting parallel LLM API calls for category: {document_category}")
-        
+
         try:
             # Get both prompts using the existing prompt generators
             summarization_prompt, metadata_prompt = get_both_prompts(
@@ -305,22 +307,22 @@ class SummarizationService:
                 user_purpose,
                 combined_text
             )
-            
+
             self.logger.debug("Successfully generated both prompts")
-            
+
         except Exception as e:
             self.logger.error(f"Failed to generate prompts: {e}")
             raise e
-        
+
         summarization_result = None
         metadata_result = None
-        
+
         # Use ThreadPoolExecutor for parallel execution
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit both tasks
             future_summarization = executor.submit(self.call_llm_api, summarization_prompt, "summarization")
             future_metadata = executor.submit(self.call_llm_api, metadata_prompt, "metadata")
-            
+
             # Collect results as they complete
             for future in as_completed([future_summarization, future_metadata]):
                 try:
@@ -335,21 +337,21 @@ class SummarizationService:
                         self.logger.error(f"Summarization API call failed: {e}")
                     elif future == future_metadata:
                         self.logger.error(f"Metadata API call failed: {e}")
-        
+
         return summarization_result, metadata_result
 
     def _normalize_chunks(self, chunks: List[Any]) -> List[Dict[str, Any]]:
         """
         Normalize chunks to dictionary format regardless of input format.
-        
+
         Args:
             chunks: List of chunks in various formats (tuples, dicts, etc.)
-            
+
         Returns:
             List of normalized chunk dictionaries
         """
         processed_chunks = []
-        
+
         for i, chunk in enumerate(chunks):
             if isinstance(chunk, tuple):
                 # Handle tuple format (raw output from chunk_document_adaptive)
@@ -362,7 +364,7 @@ class SummarizationService:
                     "embedding_checksum": chunk[3] if len(chunk) > 3 else None
                 }
                 processed_chunks.append(processed_chunk)
-                
+
             elif isinstance(chunk, dict):
                 # Handle dictionary format - ensure required fields exist
                 normalized_chunk = {
@@ -374,7 +376,7 @@ class SummarizationService:
                     "embedding_checksum": chunk.get("embedding_checksum")
                 }
                 processed_chunks.append(normalized_chunk)
-                
+
             elif isinstance(chunk, str):
                 # Handle plain text format
                 processed_chunk = {
@@ -386,29 +388,29 @@ class SummarizationService:
                     "embedding_checksum": None
                 }
                 processed_chunks.append(processed_chunk)
-                
+
             else:
                 self.logger.warning(f"Unknown chunk format at index {i}: {type(chunk)}, skipping")
                 continue
-        
+
         return processed_chunks
 
     def summarize_from_chunks(self, document: DocumentMetadata, chunks: List[Any]) -> Optional[Dict[str, Any]]:
         """
         Summarize a document using pre-processed chunks with parallel processing.
         This method runs both summarization and metadata extraction in parallel.
-        
+
         Args:
             document: DocumentMetadata object containing document information
             chunks: Pre-processed chunks from the document (supports multiple formats)
-            
+
         Returns:
             Dictionary containing both summarization and metadata results or None if failed
         """
         self.logger.info(f"Starting parallel summarization from pre-processed chunks for: {document.originalFilename}")
-        
+
         start_time = time.time()
-        
+
         try:
             if not chunks:
                 self.logger.warning("No chunks provided for summarization")
@@ -416,7 +418,7 @@ class SummarizationService:
 
             # Normalize chunks to dictionary format
             processed_chunks = self._normalize_chunks(chunks)
-            
+
             if not processed_chunks:
                 self.logger.warning("No valid chunks found after normalization")
                 return None
@@ -427,7 +429,7 @@ class SummarizationService:
             combined_text = "\n\n".join(
                 chunk.get("text", "") for chunk in processed_chunks if chunk.get("text", "").strip()
             )
-            
+
             self.logger.debug(f"Combined text from {len(processed_chunks)} chunks, length: {len(combined_text)} characters")
 
             if not combined_text.strip():
@@ -472,7 +474,7 @@ class SummarizationService:
 
             self.logger.info(f"Successfully completed parallel summarization for: {document.originalFilename}")
             return result
-            
+
         except Exception as exc:
             self.logger.error(f"Failed to summarize document from chunks {document.originalFilename}: {exc}")
             raise FileProcessingError(f"Failed to summarize document from chunks: {exc}", filepath=document.storagePath)
@@ -483,16 +485,16 @@ class SummarizationService:
         This method is kept for backward compatibility and standalone usage.
         """
         self.logger.info(f"Starting file-based parallel summarization for: {document.originalFilename}")
-        
+
         try:
             chunks = self.extract_document_chunks(document.storagePath)
-            
+
             if not chunks:
                 self.logger.warning("No chunks extracted from document")
                 return None
-                
+
             return self.summarize_from_chunks(document, chunks)
-            
+
         except Exception as exc:
             self.logger.error(f"Failed to summarize document {document.originalFilename}: {exc}")
             raise FileProcessingError(f"Failed to summarize document: {exc}", filepath=document.storagePath)
@@ -501,7 +503,7 @@ class SummarizationService:
         """Process all documents with parallel summarization and metadata extraction."""
         documents = self.metadata_manager.get_all_document_metadata()
         self.logger.info(f"Found {len(documents)} documents to process")
-        
+
         results = []
 
         for i, doc in enumerate(documents):

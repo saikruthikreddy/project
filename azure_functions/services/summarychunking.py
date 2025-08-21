@@ -7,7 +7,7 @@ import uuid
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
-from azure_functions.utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
+from utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 
 class SummaryChunkingService:
     """
@@ -22,7 +22,7 @@ class SummaryChunkingService:
         """Get document group from category."""
         return CATEGORY_TO_GROUP_MAPPING.get(category, DocumentGroup.GROUP_D)
 
-    def create_chunk_metadata(self, 
+    def create_chunk_metadata(self,
                             document_id: str,
                             project_id: str,
                             data_type: str,
@@ -43,7 +43,7 @@ class SummaryChunkingService:
             "processing_method": "summary_derived_chunking"
         }
 
-    def create_overall_summary_chunk(self, 
+    def create_overall_summary_chunk(self,
                                    summary_json: Dict[str, Any],
                                    document_id: str,
                                    project_id: str,
@@ -96,7 +96,7 @@ class SummaryChunkingService:
             self.logger.error(f"Failed to create overall summary chunk: {e}")
             raise
 
-    def create_faq_chunk(self, 
+    def create_faq_chunk(self,
                         summary_json: Dict[str, Any],
                         document_id: str,
                         project_id: str,
@@ -130,7 +130,7 @@ class SummaryChunkingService:
             self.logger.error(f"Failed to create FAQ chunk: {e}")
             raise
 
-    def create_entities_chunk(self, 
+    def create_entities_chunk(self,
                             summary_json: Dict[str, Any],
                             document_id: str,
                             project_id: str,
@@ -165,7 +165,7 @@ class SummaryChunkingService:
             self.logger.error(f"Failed to create entities chunk: {e}")
             raise
 
-    def create_data_findings_chunk(self, 
+    def create_data_findings_chunk(self,
                                  summary_json: Dict[str, Any],
                                  document_id: str,
                                  project_id: str,
@@ -218,7 +218,7 @@ class SummaryChunkingService:
             self.logger.error(f"Failed to create data findings chunk: {e}")
             raise
 
-    def create_actions_risks_chunk(self, 
+    def create_actions_risks_chunk(self,
                                  summary_json: Dict[str, Any],
                                  document_id: str,
                                  project_id: str,
@@ -271,26 +271,26 @@ class SummaryChunkingService:
             self.logger.error(f"Failed to create actions risks chunk: {e}")
             raise
 
-    def create_derived_chunks(self, 
+    def create_derived_chunks(self,
                             summary_json: Dict[str, Any],
                             document_id: str,
                             project_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Create all derived chunks from AI-generated summary JSON.
-        
+
         Args:
             summary_json: The complete AI-generated summary JSON object
             document_id: The document ID
             project_id: The project ID (optional)
-            
+
         Returns:
             List of derived chunk dictionaries ready for vectorization
         """
         self.logger.info(f"Creating derived chunks for document: {document_id}")
-        
+
         if not project_id:
             project_id = "default_project"
-        
+
         chunks = []
         chunk_index = 0
 
@@ -298,11 +298,11 @@ class SummaryChunkingService:
             # Get document group for adaptive chunking
             document_category = summary_json.get("document_category", "")
             document_group = self.get_document_group_from_category(document_category)
-            
+
             self.logger.debug(f"Document category: {document_category}, Group: {document_group.value}")
 
             # Universal chunks (created for all document groups)
-            
+
             # 1. Overall Summary chunk
             overall_summary_chunk = self.create_overall_summary_chunk(
                 summary_json, document_id, project_id, chunk_index
@@ -332,7 +332,7 @@ class SummaryChunkingService:
                 )
                 chunks.append(data_findings_chunk)
                 chunk_index += 1
-                
+
             elif document_group in [DocumentGroup.GROUP_C, DocumentGroup.GROUP_D]:
                 # Execution & Conversational docs: Actions, Decisions & Risks chunk
                 actions_risks_chunk = self.create_actions_risks_chunk(
@@ -360,25 +360,25 @@ class SummaryChunkingService:
     def chunk_multiple_summaries(self, summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Process multiple summary JSON objects and create derived chunks for all.
-        
+
         Args:
             summaries: List of AI-generated summary JSON objects
-            
+
         Returns:
             List of all derived chunks from all summaries
         """
         self.logger.info(f"Processing {len(summaries)} summaries for chunking")
-        
+
         all_chunks = []
-        
+
         for i, summary in enumerate(summaries):
             try:
                 document_id = summary.get("document_id", f"doc_{i}")
                 project_id = summary.get("project_id", "default_project")
-                
+
                 chunks = self.create_derived_chunks(summary, document_id, project_id)
                 all_chunks.extend(chunks)
-                
+
             except Exception as e:
                 self.logger.error(f"Failed to process summary {i}: {e}")
                 continue
@@ -393,7 +393,7 @@ class SummaryChunkingService:
 
         chunk_types = {}
         total_text_length = 0
-        
+
         for chunk in chunks:
             chunk_type = chunk.get("chunk_type", "unknown")
             chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
