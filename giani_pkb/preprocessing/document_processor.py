@@ -157,62 +157,88 @@ class DocumentProcessor:
         )]
     
 
-    def process_file_light(self, file_path: Union[str, Path], max_chars: int = 5000) -> str:
+    def process_file_light(self, file_path: Union[str, Path], max_chars: int = 5000, max_pages: int = 10) -> str:
         """
         Lightweight parsing for AI classification suggestions.
         Extracts ONLY plain text (no OCR, BLIP, or LlamaIndex).
-        Truncates to first max_chars.
+        Limits to first max_pages pages OR max_chars characters, whichever comes first.
         """
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileProcessingError(f"File not found: {file_path}", filepath=str(file_path))
-
+        
         ext = file_path.suffix.lower()
-
         try:
             if ext == ".pdf":
                 # Use PyMuPDF raw text only
                 import fitz
                 doc = fitz.open(str(file_path))
                 text = []
-                for page in doc:
-                    text.append(page.get_text())
-                    if len("".join(text)) > max_chars:
-                        break
+                
+                # Process up to max_pages or until max_chars is reached
+                pages_to_process = min(max_pages, len(doc))
+                for page_num in range(pages_to_process):
+                    page_text = doc[page_num].get_text()
+                    text.append(page_text)
+                    
+                    # Check if we've exceeded max_chars
+                    combined_text = "".join(text)
+                    if len(combined_text) >= max_chars:
+                        return combined_text[:max_chars]
+                
                 return "".join(text)[:max_chars]
 
             elif ext in [".docx"]:
                 import docx
                 document = docx.Document(str(file_path))
                 text = []
+                
+                # Process paragraphs, checking character limit
                 for para in document.paragraphs:
                     text.append(para.text)
-                    if len(" ".join(text)) > max_chars:
-                        break
+                    combined_text = " ".join(text)
+                    if len(combined_text) >= max_chars:
+                        return combined_text[:max_chars]
+                
                 return " ".join(text)[:max_chars]
 
             elif ext in [".pptx"]:
                 from pptx import Presentation
                 prs = Presentation(str(file_path))
                 text = []
-                for slide in prs.slides:
+                
+                # Process up to max_pages slides or until max_chars is reached
+                slides_to_process = min(max_pages, len(prs.slides))
+                for slide_num in range(slides_to_process):
+                    slide = prs.slides[slide_num]
                     for shape in slide.shapes:
                         if shape.has_text_frame:
                             text.append(shape.text.strip())
-                        if len(" ".join(text)) > max_chars:
-                            break
+                    
+                    # Check character limit after each slide
+                    combined_text = " ".join(text)
+                    if len(combined_text) >= max_chars:
+                        return combined_text[:max_chars]
+                
                 return " ".join(text)[:max_chars]
 
             elif ext in ['.csv', '.xlsx', '.xls']:
                 import pandas as pd
+                
+                # Use max_pages as max_rows for spreadsheets (interpret pages as data chunks)
+                max_rows = max_pages * 50  # Assume ~50 rows per "page"
+                
                 if ext == ".csv":
-                    df = pd.read_csv(str(file_path), nrows=50)  # only first rows
+                    df = pd.read_csv(str(file_path), nrows=max_rows)
                 else:
-                    df = pd.read_excel(str(file_path), nrows=50)
-                return df.to_csv(index=False)[:max_chars]
+                    df = pd.read_excel(str(file_path), nrows=max_rows)
+                
+                csv_text = df.to_csv(index=False)
+                return csv_text[:max_chars]
 
             elif ext in ['.txt', '.md']:
-                return open(file_path, "r", encoding="utf-8", errors="ignore").read(max_chars)
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    return f.read(max_chars)
 
             else:
                 return ""  # unsupported extension for light parse
