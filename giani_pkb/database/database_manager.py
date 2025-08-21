@@ -13,7 +13,7 @@ import re
 from giani_pkb.utils.config import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog
+    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
@@ -2175,7 +2175,59 @@ class DatabaseManager:
             raise DatabaseError(f"Unexpected error updating the microsoft id for the user: {e}")
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
-        """Save a document summary to the database."""
+        """Save a document summary to the database with separate summarization and metadata analysis."""
+        
+        def safe_extract(data, key, default=None):
+            """Safely extract a value from nested data structures."""
+            if isinstance(data, dict):
+                value = data.get(key, default)
+                
+                # Handle cases where the value might be a dict with additional nesting
+                if isinstance(value, dict):
+                    # Priority order for extracting the actual value from nested dicts
+                    for extract_key in ['title', 'value', 'text', 'content']:
+                        if extract_key in value:
+                            extracted = value[extract_key]
+                            # Return the extracted value if it's not another complex dict
+                            if not isinstance(extracted, (dict, list)):
+                                return extracted
+                    
+                    # If no standard keys found, return the default
+                    return default
+                
+                return value
+            return default
+
+        def safe_extract_list(data, key, default=None):
+            """Safely extract a list value, ensuring it's actually a list."""
+            value = safe_extract(data, key, default or [])
+            return value if isinstance(value, list) else (default or [])
+
+        def validate_and_convert_for_db(value, expected_type='string'):
+            """Validate and convert values for database storage."""
+            if value is None:
+                return None
+            
+            if expected_type == 'string':
+                if isinstance(value, dict):
+                    # Try to extract a meaningful string representation
+                    if 'title' in value:
+                        return str(value['title'])
+                    elif 'value' in value:
+                        return str(value['value'])
+                    else:
+                        return str(value)  # Last resort
+                return str(value) if value is not None else None
+            
+            elif expected_type == 'list':
+                if isinstance(value, list):
+                    return value
+                elif isinstance(value, dict):
+                    return []  # Return empty list for dicts when list expected
+                return []
+            
+            return value
+
         try:
             # Convert string to UUID if necessary
             if isinstance(document_id, str):
@@ -2192,14 +2244,30 @@ class DatabaseManager:
                 logger.error(f"Cannot save summary: document_id {document_id} does not exist")
                 return False
 
-            # Extract llm_analysis for easier access
-            llm_analysis = summary_data.get("llm_analysis", {})
-            extracted_metadata = llm_analysis.get("extracted_metadata", {})
+            # Extract both analysis types
+            summarization_analysis = summary_data.get("summarization_analysis", {})
+            metadata_analysis = summary_data.get("metadata_analysis", {})
+            
+            # Validate that both analyses are present
+            if not summarization_analysis:
+                logger.warning(f"No summarization_analysis found for document {document_id}")
+            if not metadata_analysis:
+                logger.warning(f"No metadata_analysis found for document {document_id}")
+            
+            # Extract nested structures with fallbacks
+            extracted_metadata = metadata_analysis.get("extracted_metadata", {})
+            intelligence_layer = extracted_metadata.get("intelligence_layer", {})
+            universal_metadata = extracted_metadata.get("universal_metadata", {})
+            rag_specific = extracted_metadata.get("rag_specific_metadata", {})
+            group_specific = extracted_metadata.get("group_specific", {})
 
             with self.get_session() as session:
                 summary = DocumentSummary(
                     document_id=document_uuid,
-                    llm_analysis=llm_analysis,
+                    
+                    # Core LLM Analysis - separate columns for each type
+                    summarization_analysis=summarization_analysis,
+                    metadata_analysis=metadata_analysis,
 
                     # Document context
                     document_filename=summary_data.get("document_filename"),
@@ -2210,29 +2278,62 @@ class DatabaseManager:
 
                     # Processing metadata
                     processing_timestamp=datetime.now(timezone.utc),
-                    llm_model_used=llm_analysis.get("llm_used_for_processing"),
+                    summarization_llm_model=summarization_analysis.get("llm_used_for_processing"),
+                    metadata_llm_model=metadata_analysis.get("llm_used_for_processing"),
                     summary_storage_path=summary_data.get("summaryStoragePath"),
 
-                    # Extracted fields for easy querying
-                    narrative_summary=llm_analysis.get("ai_high_level_narrative_summary"),
-                    key_themes=llm_analysis.get("ai_overall_key_themes_list"),
-                    key_takeaways=llm_analysis.get("ai_key_takeaways_bullets"),
-                    extracted_keywords=llm_analysis.get("extracted_keywords"),
+                    # Extracted fields for easy querying (from summarization_analysis)
+                    narrative_summary=summarization_analysis.get("ai_high_level_narrative_summary"),
+                    key_themes=safe_extract_list(summarization_analysis, "ai_overall_key_themes_list"),
+                    key_takeaways=safe_extract_list(summarization_analysis, "ai_key_takeaways_bullets"),
+                    tldr_key_finding=summarization_analysis.get("ai_tldr_key_finding"),
+                    main_topics=safe_extract_list(summarization_analysis, "ai_main_topics_with_summaries_list_of_objects"),
 
-                    # Metadata for search and filtering
-                    document_sentiment=extracted_metadata.get("document_overall_sentiment"),
-                    suggested_title=extracted_metadata.get("suggested_document_title"),
-                    implied_audience=extracted_metadata.get("implied_audience"),
-                    geographical_focus=extracted_metadata.get("primary_geographical_focus"),
+                    # Extracted fields for easy querying (from metadata_analysis) - with validation
+                    extracted_keywords=safe_extract_list(metadata_analysis, "extracted_keywords"),
+                    
+                    # Extract from universal_metadata with safe handling and validation
+                    suggested_title=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "suggested_document_title"), 
+                        'string'
+                    ),
+                    implied_audience=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "implied_audience"), 
+                        'string'
+                    ),
+                    geographical_focus=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "primary_geographical_focus"), 
+                        'string'
+                    ),
 
-                    # Key entities
-                    key_people_mentioned=extracted_metadata.get("key_people_or_roles_mentioned"),
-                    key_organizations_mentioned=extracted_metadata.get("key_companies_organizations_mentioned"),
-                    key_dates_mentioned=extracted_metadata.get("key_dates_mentioned"),
+                    # Intelligence layer data (from metadata_analysis)
+                    strategy_objectives=safe_extract_list(intelligence_layer, "strategy_and_objectives"),
+                    key_findings_data=safe_extract_list(intelligence_layer, "key_findings_and_data"),
+                    risks_mitigations=safe_extract_list(intelligence_layer, "risks_and_mitigations"),
+                    execution_actions=safe_extract_list(intelligence_layer, "execution_and_actions"),
+
+                    # RAG specific data
+                    potential_questions=safe_extract_list(rag_specific, "ai_generated_potential_questions_list"),
+
+                    # Key entities (try group_specific first, then universal_metadata)
+                    key_people_mentioned=(
+                        safe_extract_list(group_specific, "key_attendees_or_participants_list") or
+                        safe_extract_list(universal_metadata, "key_people_or_roles_mentioned")
+                    ),
+                    key_organizations_mentioned=safe_extract_list(universal_metadata, "key_companies_organizations_mentioned"),
+                    key_dates_mentioned=safe_extract_list(universal_metadata, "key_dates_mentioned"),
+
+                    # Performance tracking
+                    summarization_duration_seconds=summary_data.get("summarization_duration_seconds"),
+                    metadata_duration_seconds=summary_data.get("metadata_duration_seconds"), 
+                    total_processing_duration_seconds=summary_data.get("processing_duration_seconds"),
                 )
+                
                 session.add(summary)
                 session.commit()
                 logger.info(f"Successfully saved summary for document {document_id}")
+                logger.debug(f"Summary saved with {len(safe_extract_list(summarization_analysis, 'ai_overall_key_themes_list'))} themes, "
+                            f"{len(safe_extract_list(intelligence_layer, 'strategy_and_objectives'))} strategy items")
                 return True
 
         except SQLAlchemyError as e:
@@ -2240,7 +2341,10 @@ class DatabaseManager:
             return False
         except Exception as e:
             logger.error(f"Unexpected error saving summary: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
+
 
     def _normalize_document_id(self, document_id: Union[str, uuid.UUID]) -> str:
         """Normalize document ID to string format for database storage."""
@@ -2437,12 +2541,10 @@ class DatabaseManager:
 
     def get_document_summary(self, document_id: Union[str, uuid.UUID], summary_id: int = None) -> Dict[str, Any]:
         """
-        Get document summary from the database.
-
+        Get document summary from the database with separate summarization and metadata analysis.
         Args:
             document_id: UUID string of the document
             summary_id: Optional specific summary ID. If None, returns the most recent summary.
-
         Returns:
             Dictionary containing summary data or None if not found
         """
@@ -2466,7 +2568,7 @@ class DatabaseManager:
                 query = session.query(DocumentSummary).filter(
                     DocumentSummary.document_id == document_uuid
                 )
-
+                
                 # If specific summary_id is provided, filter by it
                 if summary_id is not None:
                     query = query.filter(DocumentSummary.id == summary_id)
@@ -2479,8 +2581,9 @@ class DatabaseManager:
                     logger.info(f"No summary found for document {document_id}")
                     return None
 
-                # Convert summary to dictionary
+                # Convert summary to dictionary with new structure
                 summary_data = {
+                    # Basic information
                     'id': summary.id,
                     'document_id': str(summary.document_id),
                     'document_filename': summary.document_filename,
@@ -2489,37 +2592,55 @@ class DatabaseManager:
                     'user_note_purpose': summary.user_note_purpose,
                     'source': summary.source,
                     'processing_timestamp': summary.processing_timestamp.isoformat() if summary.processing_timestamp else None,
-                    'llm_model_used': summary.llm_model_used,
+                    
+                    # LLM model information
+                    'summarization_llm_model': summary.summarization_llm_model,
+                    'metadata_llm_model': summary.metadata_llm_model,
                     'summary_storage_path': summary.summary_storage_path,
-                    'processing_duration_seconds': summary.processing_duration_seconds,
 
-                    # Core analysis fields
+                    # Performance tracking
+                    'summarization_duration_seconds': summary.summarization_duration_seconds,
+                    'metadata_duration_seconds': summary.metadata_duration_seconds,
+                    'total_processing_duration_seconds': summary.total_processing_duration_seconds,
+
+                    # Core analysis data (raw JSON responses)
+                    'summarization_analysis': summary.summarization_analysis,
+                    'metadata_analysis': summary.metadata_analysis,
+
+                    # Extracted summarization fields (for easy access)
                     'narrative_summary': summary.narrative_summary,
                     'key_themes': summary.key_themes,
                     'key_takeaways': summary.key_takeaways,
-                    'extracted_keywords': summary.extracted_keywords,
+                    'tldr_key_finding': summary.tldr_key_finding,
+                    'main_topics': summary.main_topics,
 
-                    # Metadata for search and filtering
+                    # Extracted metadata fields (for easy access)
+                    'extracted_keywords': summary.extracted_keywords,
                     'document_sentiment': summary.document_sentiment,
                     'suggested_title': summary.suggested_title,
                     'implied_audience': summary.implied_audience,
                     'geographical_focus': summary.geographical_focus,
 
+                    # Intelligence layer data
+                    'strategy_objectives': summary.strategy_objectives,
+                    'key_findings_data': summary.key_findings_data,
+                    'risks_mitigations': summary.risks_mitigations,
+                    'execution_actions': summary.execution_actions,
+
+                    # RAG specific data
+                    'potential_questions': summary.potential_questions,
+
                     # Key entities
                     'key_people_mentioned': summary.key_people_mentioned,
                     'key_organizations_mentioned': summary.key_organizations_mentioned,
                     'key_dates_mentioned': summary.key_dates_mentioned,
-
-                    # Computed properties from the model
-                    'main_topics': summary.main_topics,
-                    'key_data_points': summary.key_data_points,
-                    'key_recommendations': summary.key_recommendations,
-
-                    # Full LLM analysis
-                    'llm_analysis': summary.llm_analysis
                 }
 
                 logger.info(f"Successfully retrieved summary for document {document_id}")
+                logger.debug(f"Summary contains {len(summary.key_themes or [])} themes, "
+                            f"{len(summary.strategy_objectives or [])} strategy items, "
+                            f"{len(summary.potential_questions or [])} questions")
+                
                 return summary_data
 
         except SQLAlchemyError as e:
@@ -2527,7 +2648,42 @@ class DatabaseManager:
             return None
         except Exception as e:
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
+
+    def save_summary_chunks(self, summary_id: int, document_id: Union[str, uuid.UUID], chunks: List[Dict[str, Any]]) -> bool:
+        """Save specialized summary chunks to the database."""
+        try:
+            if not chunks:
+                logger.info("No summary chunks to save.")
+                return True
+
+            if isinstance(document_id, str):
+                document_id = uuid.UUID(document_id)
+
+            with self.get_session() as session:
+                for chunk_data in chunks:
+                    new_chunk = SummaryChunk(
+                        summary_id=summary_id,
+                        document_id=document_id,
+                        chunk_id=chunk_data.get("metadata", {}).get("chunk_id", str(uuid.uuid4())),
+                        chunk_text=chunk_data.get("text"),
+                        chunk_type=chunk_data.get("chunk_type"),
+                        metadata_=chunk_data.get("metadata", {}),
+                        embedding_vector=chunk_data.get("embedding_vector")
+                    )
+                    session.add(new_chunk)
+                
+                logger.info(f"Successfully saved {len(chunks)} summary chunks for summary ID: {summary_id}")
+                return True
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error saving summary chunks: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving summary chunks: {e}")
+            return False
 
     def query_project(self, project_id: int, user_question: str,
                  document_content_type: Optional[str] = None,

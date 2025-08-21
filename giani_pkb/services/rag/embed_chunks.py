@@ -27,3 +27,40 @@ def embed_chunks_for_project(db: Session, project_id: int):
         for ch, emb in zip(batch, resp.data):
             ch.embedding_vector = emb.embedding
     db.commit()
+
+
+def embed_summary_chunks(chunks: list) -> list:
+    """
+    Generate embeddings for a list of summary chunks.
+    """
+    if not chunks:
+        return []
+
+    CHUNK_BATCH = 96
+    for i in range(0, len(chunks), CHUNK_BATCH):
+        batch = chunks[i:i+CHUNK_BATCH]
+        
+        # Extract text from each chunk dictionary in the batch
+        texts_to_embed = [c.get("text", "") for c in batch]
+        
+        # Filter out empty texts to avoid errors with the embedding API
+        non_empty_texts = [text for text in texts_to_embed if text.strip()]
+        
+        if not non_empty_texts:
+            continue
+
+        resp = openai.embeddings.create(
+            input=non_empty_texts,
+            model="text-embedding-ada-002"
+        )
+        
+        # Assign embeddings back to the corresponding chunks
+        embedding_index = 0
+        for j, text in enumerate(texts_to_embed):
+            if text.strip():
+                batch[j]["embedding_vector"] = resp.data[embedding_index].embedding
+                embedding_index += 1
+            else:
+                batch[j]["embedding_vector"] = None
+
+    return chunks

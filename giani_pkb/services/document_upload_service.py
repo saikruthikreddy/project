@@ -24,6 +24,8 @@ from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
 from giani_pkb.services.summarization import SummarizationService
 from giani_pkb.services.service_bus_sender import document_service_bus
+from giani_pkb.services.summarychunking import SummaryChunkingService
+from giani_pkb.services.rag.embed_chunks import embed_summary_chunks
 from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 from giani_pkb.services.storage_factory import storage_service
 
@@ -41,20 +43,16 @@ class DocumentUploadService:
         self.processed_folder = "data/uploaded_documents"
         self.max_file_size = 50 * 1024 * 1024  # 50MB
         self.allowed_extensions = {
-            "pdf",
-            "docx",
-            "doc",
-            "txt",
-            "csv",
-            "xlsx",
-            "xls",
-            "pptx",
-            "ppt",
+            "pdf", "docx", "doc", "txt", "csv", "xlsx", "xls", "pptx", "ppt",
         }
 
         self.storage_service = storage_service
         logger.info(f"Using storage service: {type(self.storage_service).__name__}")
         self.document_service_bus = document_service_bus
+
+        # Initialize batch processing attributes
+        self._processing_lock = threading.Lock()
+        self.batch_status = {}
 
         # Initialize services with error handling
         try:
