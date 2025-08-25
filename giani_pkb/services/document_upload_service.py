@@ -813,6 +813,11 @@ class DocumentUploadService:
             # === Send docs to the processing queue ===
             tasks = []
             for doc in valid_documents:
+                # Update status to IN PROCESSING
+                self.db_manager.update_temp_document_status(
+                    temp_document_id=doc['temp_document_id'],
+                    status='IN PROCESSING'
+                )
                 task = {
                     "batch_id": batch_id,
                     "project_id": project_id,

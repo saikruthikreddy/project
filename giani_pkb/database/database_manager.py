@@ -1306,6 +1306,32 @@ class DatabaseManager:
             logger.error(f"Unexpected error counting temp documents: {e}")
             return 0
 
+    def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
+        """Update the status of a temporary document."""
+        try:
+            with self.get_session() as session:
+                from giani_pkb.models.database_models import TempDocument
+
+                temp_document = session.query(TempDocument).filter(
+                    TempDocument.temp_document_id == temp_document_id
+                ).first()
+
+                if not temp_document:
+                    logger.warning(f"Temp document {temp_document_id} not found for status update.")
+                    return False
+
+                temp_document.status = status
+                if error_message:
+                    temp_document.error_message = error_message
+                
+                session.flush()
+                logger.info(f"Updated temp document {temp_document_id} status to {status}")
+                return True
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error updating temp document status: {e}")
+            return False
+
     # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:
         """Create a new document with enhanced validation."""
