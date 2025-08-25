@@ -19,12 +19,12 @@ from llama_index.core.schema import TextNode
 
 # Refactored imports
 from query_orchestrator import QueryOrchestrator, OrchestrationResult
-from azure_functions.services.rag.retrieval_service import UnifiedRetrievalService as Retriever
+from services.rag.retrieval_service import UnifiedRetrievalService as Retriever
 
-from azure_functions.services.rag.embed_chunk import embed_chunks_for_project
+from services.rag.embed_chunk import embed_chunks_for_project
 
 from index_builder import RAGIndexer
-from azure_functions.services.rag.config_loader import load_orchestration_config as get_config
+from services.rag.config_loader import load_orchestration_config as get_config
 
 
 
@@ -90,7 +90,7 @@ class RAGPipeline:
         try:
             # For initialization, we might need a "default" index.
             # You will need to decide which project_id to use, or if the service can start without one.
-            default_project_id_for_init = 1 
+            default_project_id_for_init = 1
             primary_index = self.indexer.get_index_for_project(default_project_id_for_init)
             if not primary_index:
                  primary_index = self.indexer.build_index_for_project(default_project_id_for_init)
@@ -114,7 +114,7 @@ class RAGPipeline:
         start_time = time.time()
         query_id = str(uuid.uuid4())
         project_id = user.project_id
-        
+
         log_context = {"query_id": query_id, "project_id": project_id, "user_id": user.user_id}
         logger.info("Starting RAG pipeline execution", **log_context)
 
@@ -133,7 +133,7 @@ class RAGPipeline:
                 PIPELINE_SUCCESS.labels(has_partial_results=str(result.partial_results)).inc()
             else:
                 PIPELINE_DURATION.labels(stage="complete", result_type="failure").observe(total_duration)
-            
+
             logger.info("RAG pipeline finished", **log_context, total_duration=total_duration, success=result.success)
             return self._format_response(result)
 
@@ -162,7 +162,7 @@ class RAGPipeline:
     def _ensure_data_is_ready(self, project_id: int, query_id: str):
         """Ensures embeddings and index are available before querying."""
         log_context = {"query_id": query_id, "project_id": project_id}
-        
+
         with PIPELINE_DURATION.labels(stage="embedding_check", result_type="n/a").time():
             try:
                 # This can spawn a background task or run synchronously based on your needs
@@ -182,7 +182,7 @@ class RAGPipeline:
                 # This is a critical failure, as we can't query without an index.
                 logger.error("Failed to build or load index.", **log_context, error=str(e))
                 raise RuntimeError(f"Could not ensure index availability for project {project_id}") from e
-    
+
     def _format_response(self, result: OrchestrationResult) -> Dict[str, Any]:
         """Formats the final API response from the orchestration result."""
         return asdict(result)
