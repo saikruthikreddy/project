@@ -4,8 +4,8 @@ import os
 import io
 import docx
 import zipfile
-
 from typing import Union
+
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import ResourceExistsError, AzureError
@@ -245,30 +245,10 @@ class BlobStorageService(StorageServiceBase):
                     blob_client = self.blob_service_client.get_blob_client(
                         container=container_name, blob=blob_name
                     )
-                elif "blob_name" in blob_reference:
-                    # Search in common containers if container not specified
-                    blob_name = blob_reference["blob_name"]
-
-                    for container in self.containers:
-                        temp_client = self.blob_service_client.get_blob_client(
-                            container=container, blob=blob_name
-                        )
-                        if temp_client.exists():
-                            blob_client = temp_client
-                            container_name = container
-                            break
-
-                    if not blob_client:
-                        return {
-                            "exists": False,
-                            "error": f"Blob not found in any checked containers: {blob_name}",
-                            "blob_name": blob_name,
-                            "containers_checked": self.containers,
-                        }
                 else:
                     return {
                         "exists": False,
-                        "error": "Dict must contain 'file_url', 'blob_name' with 'container_name', or just 'blob_name'",
+                        "error": "Dict must contain 'file_url' or 'blob_name' with 'container_name'",
                     }
             else:
                 return {
@@ -368,10 +348,8 @@ class BlobStorageService(StorageServiceBase):
     def _format_file_size(self, size_bytes: int) -> str:
         """
         Convert file size in bytes to human readable format.
-
         Args:
             size_bytes: Size in bytes
-
         Returns:
             str: Human readable size (e.g., "1.2 MB", "345 KB")
         """
@@ -452,7 +430,7 @@ class BlobStorageService(StorageServiceBase):
             # For most cases, copy is immediate, but we should check status
             if copy_properties.copy.status == "success":
                 # Delete source blob after successful copy (commented out in original)
-                # source_blob_client.delete_blob()
+                source_blob_client.delete_blob()
                 logger.info(
                     f"Successfully moved file from {source_container} to {dest_container}"
                 )
@@ -470,7 +448,7 @@ class BlobStorageService(StorageServiceBase):
                 time.sleep(1)
                 copy_properties = dest_blob_client.get_blob_properties()
                 if copy_properties.copy.status == "success":
-                    # source_blob_client.delete_blob()
+                    source_blob_client.delete_blob()
                     logger.info(
                         f"Successfully moved file from {source_container} to {dest_container}"
                     )
@@ -518,7 +496,7 @@ class BlobStorageService(StorageServiceBase):
         Args:
             file_reference: Can be either:
                 - A full blob URL string
-                - A dict with 'blob_name' key (userid/projectid/name.ext format)
+                - A dict with 'blob_name' (userid/projectid/name.ext format) and 'container_name' key
                 - A dict with 'file_url' key (full blob URL)
 
         Returns:
@@ -543,30 +521,25 @@ class BlobStorageService(StorageServiceBase):
                     blob_client = BlobClient.from_blob_url(file_reference["file_url"])
                     blob_path = blob_client.blob_name
                     container_name = blob_client.container_name
-                elif "blob_name" in file_reference:
+                elif "blob_name" in file_reference and "container_name" in file_reference:
                     # Blob name provided, need to determine container
                     blob_path = file_reference["blob_name"]
+                    container_name = file_reference["container_name"]
 
-                    for container in self.containers:
-                        temp_client = self.blob_service_client.get_blob_client(
-                            container=container, blob=blob_path
-                        )
-                        if temp_client.exists():
-                            blob_client = temp_client
-                            container_name = container
-                            break
-
+                    # for container in self.containers:
+                    blob_client = self.blob_service_client.get_blob_client(
+                        container=container_name, blob=blob_path
+                    )
                     if not blob_client:
                         return {
                             "exists": False,
-                            "error": f"File not found in any checked containers: {blob_path}",
+                            "error": f"File not found in {container_name} container: {blob_path}",
                             "blob_path": blob_path,
-                            "containers_checked": self.containers,
                         }
                 else:
                     return {
                         "exists": False,
-                        "error": "Invalid file_reference format. Expected 'file_url' or 'blob_name' key.",
+                        "error": "Invalid file_reference format. Expected 'file_url' or 'blob_name' and 'container_name' key.",
                     }
             else:
                 return {

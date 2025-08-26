@@ -24,6 +24,8 @@ from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
 from giani_pkb.services.summarization import SummarizationService
 from giani_pkb.services.service_bus_sender import document_service_bus
+from giani_pkb.services.summarychunking import SummaryChunkingService
+from giani_pkb.services.rag.embed_chunks import embed_summary_chunks
 from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 from giani_pkb.services.storage_factory import storage_service
 
@@ -41,20 +43,16 @@ class DocumentUploadService:
         self.processed_folder = "data/uploaded_documents"
         self.max_file_size = 50 * 1024 * 1024  # 50MB
         self.allowed_extensions = {
-            "pdf",
-            "docx",
-            "doc",
-            "txt",
-            "csv",
-            "xlsx",
-            "xls",
-            "pptx",
-            "ppt",
+            "pdf", "docx", "doc", "txt", "csv", "xlsx", "xls", "pptx", "ppt",
         }
 
         self.storage_service = storage_service
         logger.info(f"Using storage service: {type(self.storage_service).__name__}")
         self.document_service_bus = document_service_bus
+
+        # Initialize batch processing attributes
+        self._processing_lock = threading.Lock()
+        self.batch_status = {}
 
         # Initialize services with error handling
         try:
@@ -81,8 +79,6 @@ class DocumentUploadService:
             logger.error(f"Error initializing services: {e}")
             raise
 
-        # Ensure directories exist
-        self._ensure_directories()
 
     def _ensure_directories(self):
         """Ensure all required directories exist with proper permissions."""
@@ -257,6 +253,35 @@ class DocumentUploadService:
                 filepath=file_path,
             )
 
+    def extract_text_preview_light(self, file_path: str, max_chars: int = 5000) -> str:
+        """
+        Extract text preview using lightweight parsing (no heavy models).
+        
+        Args:
+            file_path: Path to the file
+            max_chars: Maximum characters to extract
+            
+        Returns:
+            Text preview string
+        """
+        try:
+            if not file_path:
+                return "File path not provided for text extraction"
+
+                
+            # Use the lightweight processor
+            preview_text = self.document_processor.process_file_light(file_path, max_chars)
+            
+            if preview_text and preview_text.strip():
+                return preview_text.strip()
+            else:
+                return "No readable text found"
+                
+        except Exception as e:
+            logger.error(f"Light text extraction failed for {file_path}: {e}")
+            return f"Text preview unavailable: {str(e)}"
+
+    
     def _fallback_text_extraction(self, file_path: str, max_chars: int) -> str:
         """Fallback text extraction for simple file types."""
         try:
@@ -507,10 +532,10 @@ class DocumentUploadService:
 
             # Extract text preview with error handling
             try:
-                text_preview = self.extract_text_preview(file_path)
+                text_preview = self.extract_text_preview_light(file_path)
             except Exception as e:
                 logger.warning(
-                    f"Failed to extract text preview for {original_filename}: {e}"
+                    f"Failed to extract light text preview for {original_filename}: {e}"
                 )
                 text_preview = f"Text preview unavailable: {str(e)}"
 

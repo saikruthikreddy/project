@@ -67,6 +67,7 @@ class Project(Base):
     # Relationships
     owner: Mapped["User"] = relationship("User", back_populates="projects")
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="project")
+    onboarding_guide: Mapped["OnboardingGuide"] = relationship("OnboardingGuide", back_populates="project", uselist=False, cascade="all, delete-orphan")
 
     def to_dict(self):
         """Convert project to dictionary for JSON serialization."""
@@ -96,6 +97,18 @@ class Project(Base):
             'created_at': self.created_at.isoformat() if hasattr(self, 'created_at') and self.created_at else None,
             'updated_at': self.updated_at.isoformat() if hasattr(self, 'updated_at') and self.updated_at else None,
         }
+
+class OnboardingGuide(Base):
+    __tablename__ = "onboarding_guides"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, unique=True)
+    content = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    project: Mapped["Project"] = relationship("Project", back_populates="onboarding_guide")
 
 class Document(Base):
     """Document model for storing document metadata and information."""
@@ -200,82 +213,145 @@ class DocumentSummary(Base):
     id = Column(Integer, primary_key=True, index=True)
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
 
-    # Core LLM Analysis - stores the complete structured response
-    llm_analysis = Column(JSON, nullable=False)
+    # Core LLM Analysis - stores both summarization and metadata responses
+    summarization_analysis = Column(JSON, nullable=False)  # Contains summarization response
+    metadata_analysis = Column(JSON, nullable=False)      # Contains metadata extraction response
 
-    # Document context (extracted from summary_data)
+    # Document context
     document_filename = Column(String(255))
     document_category = Column(String(100), index=True)
     document_group = Column(String(50), index=True)
     user_note_purpose = Column(Text)
-    source=Column(String(50), nullable=False)
+    source = Column(String(50), nullable=False)
 
     # Processing metadata
     processing_timestamp = Column(DateTime(timezone=True), server_default=func.now())
-    llm_model_used = Column(String(100))  # Extracted from llm_analysis.llm_used_for_processing
+    summarization_llm_model = Column(String(100))  # Model used for summarization
+    metadata_llm_model = Column(String(100))       # Model used for metadata extraction
 
     # File storage
-    summary_storage_path = Column(String(500))  # Path to JSON file with full summary
+    summary_storage_path = Column(String(500))
 
-    # Extracted fields for easy querying (denormalized from llm_analysis)
-    narrative_summary = Column(JSON)  # ai_high_level_narrative_summary
-    key_themes = Column(JSON)  # ai_overall_key_themes_list
-    key_takeaways = Column(JSON)  # ai_key_takeaways_bullets
-    extracted_keywords = Column(JSON)  # extracted_keywords
+    # Extracted fields for easy querying (from summarization_analysis)
+    narrative_summary = Column(Text)           # ai_high_level_narrative_summary
+    key_themes = Column(JSON)                  # ai_overall_key_themes_list
+    key_takeaways = Column(JSON)               # ai_key_takeaways_bullets
+    tldr_key_finding = Column(Text)            # ai_tldr_key_finding
+    main_topics = Column(JSON)                 # ai_main_topics_with_summaries_list_of_objects
 
-    # Metadata for search and filtering
-    document_sentiment = Column(String(20))  # from extracted_metadata.document_overall_sentiment
-    suggested_title = Column(String(500))  # from extracted_metadata.suggested_document_title
-    implied_audience = Column(String(200))  # from extracted_metadata.implied_audience
-    geographical_focus = Column(String(200))  # from extracted_metadata.primary_geographical_focus
+    # Extracted fields for easy querying (from metadata_analysis)
+    extracted_keywords = Column(JSON)          # extracted_keywords
+    document_sentiment = Column(String(20))    # from intelligence_layer analysis
+    suggested_title = Column(String(500))      # from universal_metadata
+    implied_audience = Column(String(200))     # from universal_metadata
+    geographical_focus = Column(String(200))   # from universal_metadata
 
-    # Key entities (for future search/filtering capabilities)
-    key_people_mentioned = Column(JSON)  # from extracted_metadata.key_people_or_roles_mentioned
-    key_organizations_mentioned = Column(JSON)  # from extracted_metadata.key_companies_organizations_mentioned
-    key_dates_mentioned = Column(JSON)  # from extracted_metadata.key_dates_mentioned
+    # Intelligence layer data (from metadata_analysis)
+    strategy_objectives = Column(JSON)         # strategy_and_objectives
+    key_findings_data = Column(JSON)           # key_findings_and_data
+    risks_mitigations = Column(JSON)           # risks_and_mitigations
+    execution_actions = Column(JSON)           # execution_and_actions
+
+    # RAG specific data
+    potential_questions = Column(JSON)         # ai_generated_potential_questions_list
+
+    # Key entities
+    key_people_mentioned = Column(JSON)
+    key_organizations_mentioned = Column(JSON)
+    key_dates_mentioned = Column(JSON)
 
     # Performance tracking
-    processing_duration_seconds = Column(Float)
+    summarization_duration_seconds = Column(Float)
+    metadata_duration_seconds = Column(Float)
+    total_processing_duration_seconds = Column(Float)
+
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="summaries")
+    summary_chunks: Mapped[List["SummaryChunk"]] = relationship("SummaryChunk", back_populates="summary")
 
-    # Indexes for common queries
+    def to_dict(self):
+        """Convert DocumentSummary object to dictionary for JSON serialization."""
+        return {
+            'id': self.id,
+            'document_id': str(self.document_id),
+            'summarization_analysis': self.summarization_analysis,
+            'metadata_analysis': self.metadata_analysis,
+            'document_filename': self.document_filename,
+            'document_category': self.document_category,
+            'document_group': self.document_group,
+            'user_note_purpose': self.user_note_purpose,
+            'source': self.source,
+            'processing_timestamp': self.processing_timestamp.isoformat() if self.processing_timestamp else None,
+            'summarization_llm_model': self.summarization_llm_model,
+            'metadata_llm_model': self.metadata_llm_model,
+            'summary_storage_path': self.summary_storage_path,
+
+            # Denormalized fields from summarization_analysis
+            'narrative_summary': self.narrative_summary,
+            'key_themes': self.key_themes,
+            'key_takeaways': self.key_takeaways,
+            'tldr_key_finding': self.tldr_key_finding,
+            'main_topics': self.main_topics,
+
+            # Denormalized fields from metadata_analysis
+            'extracted_keywords': self.extracted_keywords,
+            'document_sentiment': self.document_sentiment,
+            'suggested_title': self.suggested_title,
+            'implied_audience': self.implied_audience,
+            'geographical_focus': self.geographical_focus,
+
+            # Intelligence layer data
+            'strategy_objectives': self.strategy_objectives,
+            'key_findings_data': self.key_findings_data,
+            'risks_mitigations': self.risks_mitigations,
+            'execution_actions': self.execution_actions,
+
+            # RAG specific data
+            'potential_questions': self.potential_questions,
+
+            # Key entities
+            'key_people_mentioned': self.key_people_mentioned,
+            'key_organizations_mentioned': self.key_organizations_mentioned,
+            'key_dates_mentioned': self.key_dates_mentioned,
+
+            # Performance tracking
+            'summarization_duration_seconds': self.summarization_duration_seconds,
+            'metadata_duration_seconds': self.metadata_duration_seconds,
+            'total_processing_duration_seconds': self.total_processing_duration_seconds
+        }
+
+class SummaryChunk(Base):
+    """Model for storing specialized chunks derived from document summaries."""
+    __tablename__ = "summary_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chunk_id = Column(String(100), unique=True, index=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    summary_id = Column(Integer, ForeignKey("document_summaries.id"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
+
+    # Content and type
+    chunk_text = Column(Text, nullable=False)
+    chunk_type = Column(String(50), nullable=False, index=True)  # e.g., 'overall_summary', 'faq', 'entities'
+
+    # Metadata
+    metadata_ = Column(JSON, default=dict)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Vectorization info
+    vector_id = Column(String(100), nullable=True)
+    embedding_model = Column(String(100), default="openai-embeddings")
+    embedding_vector = Column(JSONEncodedList, nullable=True)
+
+    # Relationships
+    summary: Mapped["DocumentSummary"] = relationship("DocumentSummary", back_populates="summary_chunks")
+    document: Mapped["Document"] = relationship("Document")
+
     __table_args__ = (
-        Index('idx_document_summary_doc_id', 'document_id'),
-        Index('idx_document_summary_category', 'document_category'),
-        Index('idx_document_summary_group', 'document_group'),
-        Index('idx_document_summary_timestamp', 'processing_timestamp'),
-        Index('idx_document_summary_sentiment', 'document_sentiment'),
+        Index('idx_summary_chunk_summary_id_type', 'summary_id', 'chunk_type'),
     )
-
-    def __repr__(self):
-        return f"<DocumentSummary(id={self.id}, document_id={self.document_id}, category={self.document_category})>"
-
-    @property
-    def main_topics(self) -> list:
-        """Extract main topics from llm_analysis."""
-        if self.llm_analysis and 'ai_main_topics_with_summaries_list_of_objects' in self.llm_analysis:
-            return self.llm_analysis['ai_main_topics_with_summaries_list_of_objects']
-        return []
-
-    @property
-    def key_data_points(self) -> list:
-        """Extract key data points from llm_analysis."""
-        if (self.llm_analysis and
-            'extracted_metadata' in self.llm_analysis and
-            'rag_specific_metadata' in self.llm_analysis['extracted_metadata']):
-            return self.llm_analysis['extracted_metadata']['rag_specific_metadata'].get('key_data_points_or_statistics_list', [])
-        return []
-
-    @property
-    def key_recommendations(self) -> list:
-        """Extract key recommendations from llm_analysis."""
-        if (self.llm_analysis and
-            'extracted_metadata' in self.llm_analysis and
-            'cluster_a_specific_metadata' in self.llm_analysis['extracted_metadata']):
-            return self.llm_analysis['extracted_metadata']['cluster_a_specific_metadata'].get('key_recommendations_or_proposals_list', [])
-        return []
 
 
 class APICallLog(Base):
