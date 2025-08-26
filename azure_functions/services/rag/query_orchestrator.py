@@ -180,6 +180,7 @@ class QueryOrchestrator:
             prompt_styles = self.config.get('synthesis', {}).get('prompt_styles', {})
             prompt_template = prompt_styles.get(plan.prompt_style, prompt_styles.get('default', '{context_str}\n\n{query_str}'))
 
+            # TODO: synthesize_answer is not present in the LLMService
             answer = await self.llm_service.synthesize_answer(
                 query=plan.original_query, context_chunks=packed_context, prompt_template=prompt_template
             )

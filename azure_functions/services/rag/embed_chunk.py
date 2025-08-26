@@ -39,7 +39,7 @@ def generate_structural_header(chunk: DocumentChunk, document: Document) -> str:
     """
     header_parts = []
     # Determine chunk type based on available metadata
-    if hasattr(chunk, 'table_caption') and chunk.table_caption:
+    if hasattr(chunk, 'table_caption') and chunk.table_caption: # TODO: "table_caption" is not present in the DocumentChunk model
         chunk_type = "TABLE"
         header_parts.append(f'caption="{chunk.table_caption}"')
         if hasattr(chunk, 'table_columns') and chunk.table_columns:
@@ -169,7 +169,7 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
         prepared_text, text_hash = prepare_chunk_text(chunk, document)
         # Skip if hash matches existing embedding
         if (hasattr(chunk, 'embedding_hash') and
-            chunk.embedding_hash == text_hash and
+            chunk.embedding_hash == text_hash and # TODO: "embedding_hash" is not present in the DocumentChunk
             chunk.embedding_vector is not None):
             stats['skipped_unchanged'] += 1
             continue

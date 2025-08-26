@@ -39,219 +39,183 @@ A modern, modular Flask application for managing project knowledge and document 
 
 ```
 projectknowledge/
-├── main.py                    # Main application entry point
-├── run.py                     # Development server runner
-├── wsgi.py                    # Production WSGI entry point
-├── manage.py                  # Database management CLI tool
-├── requirements.txt           # Python dependencies
-├── requirements-azure.txt     # Azure-specific dependencies
-├── Dockerfile                 # Main application container
-├── base.Dockerfile            # Base image with dependencies
-├── entrypoint.sh              # Container startup script
-├── alembic.ini               # Database migration configuration
-├── migrations/                # Database migration files
-│   ├── env.py
-│   ├── script.py.mako
+├── main.py                       # Flask app factory, CORS, middleware, blueprints
+├── run.py                        # Dev server (http://localhost:8000)
+├── wsgi.py                       # WSGI entry (production)
+├── manage.py                     # DB CLI (alembic wrappers: status, apply, create-migration)
+├── requirements.txt              # Core dependencies
+├── requirements-azure.txt        # Azure/production dependencies
+├── Dockerfile                    # App container build
+├── base.Dockerfile               # Base image build stage
+├── entrypoint.sh                 # Container entrypoint script
+├── alembic.ini                   # Alembic configuration
+├── migrations/                   # Alembic migrations
+│   ├── env.py                    # Alembic environment & DB connection setup
+│   ├── script.py.mako            # Migration file template
 │   └── versions/
-├── API_ROUTES_ORGANIZATION.md # API routes documentation
+│       ├── 2025_07_28_1748-..._initial_database_schema.py          # Initial schema
+│       └── 2025_08_04_0828-..._add_source_column_to_documentsummary_.py # Adds column
+├── API_ROUTES_ORGANIZATION.md    # API routes overview
 │
-├── azure_functions/           # Azure Functions for background processing
-│   ├── DocumentProcessor/     # Document processing function
-│   │   ├── __init__.py
-│   │   └── function.json
-│   ├── OnboardingProcessor/   # Onboarding guide generation function
-│   │   ├── __init__.py
-│   │   └── function.json
-│   ├── host.json              # Azure Functions host configuration
-│   ├── local.settings.example.json
-│   ├── requirements.txt       # Function-specific dependencies
-│   ├── Dockerfile             # Functions container
-│   ├── .dockerignore          # Docker ignore file
-│   ├── .funcignore            # Functions ignore file
-│   │
-│   ├── services/              # Business logic services
-│   │   ├── document_upload_service.py # Document upload handling
-│   │   ├── blob_storage_service.py # Azure Blob Storage service
-│   │   ├── storage_service_base.py # Common storage service interface
-│   │   ├── service_bus_sender.py # Azure Service Bus integration
-│   │   ├── onboarding_guide_service.py # Onboarding guide generation
-│   │   ├── summarization.py # Document summarization logic
-│   │   ├── metadata_manager.py # Metadata management
-│   │   └── classification.py # AI classification logic
-│   │
-│   ├── utils/                 # Utilities and helpers
-│   │   ├── config.py          # Configuration management
-│   │   ├── database.py        # Database connection utilities
-│   │   ├── gemini_client.py   # Gemini AI client
-│   │   ├── prompt_loader.py   # Prompt loading utilities
-│   │   ├── prompt_generators.py # Prompt generation helpers
-│   │   ├── api_tracker.py     # API usage tracking
-│   │   ├── summarization.py   # Summarization utilities
-│   │   ├── classification_utils.py # Classification helpers
-│   │   ├── classification.py  # Classification logic
-│   │   ├── constants.py       # Project constants
-│   │   └── exceptions.py      # Custom exception classes
-│   │
-│   ├── models/                # Data models
-│   │   ├── database_models.py # SQLAlchemy ORM models
-│   │   └── document.py        # Document model helpers
-│   │
-│   ├── database/              # Database layer
-│   │   └── database_manager.py # Database operations and management
-│   │
-│   ├── preprocessing/         # Document processing
-│   │   ├── document_processor.py # Main orchestrator
-│   │   ├── pdf_processor.py   # PDF processing
-│   │   ├── docx_processor.py  # Word document processing
-│   │   ├── pptx_processor.py  # PowerPoint processing
-│   │   ├── csv_processor.py   # CSV/Excel processing
-│   │   ├── image_processor.py # Image processing with OCR
-│   │   └── chunking/          # Document chunking strategies
-│   │       ├── strategies.py  # Chunking algorithms
-│   │       ├── token_counter.py # Token counting utilities
-│   │       ├── nlp_processor.py # NLP processing utilities
-│   │       └── models.py      # Chunking models
-│   │
-│   ├── prompts/               # Prompt templates
-│   │   ├── __init__.py
-│   │   ├── summarization_group_a_prompt.txt
-│   │   ├── summarization_group_b_prompt.txt
-│   │   ├── summarization_group_c_prompt.txt
-│   │   ├── summarization_group_d_prompt.txt
-│   │   ├── csv_analysis_prompt.txt
-│   │   ├── file_classification_prompt.txt
-│   │   ├── mission_and_approach_prompt.txt
-│   │   ├── priority_reading_list_prompt.txt
-│   │   ├── strategic_intelligence_readout_prompt.txt
-│   │   ├── knowledge_base_faq_prompt.txt
-│   │   └── ppt_addin_prompts/ # PowerPoint add-in specific prompts
-│   │       ├── first_slide_prompt.txt
-│   │       ├── title_generation_prompt.txt
-│   │       ├── title_refine_prompt.txt
-│   │       ├── title_regeneration_prompt.txt
-│   │       ├── Parallelize_content_prompt.txt
-│   │       ├── slide_review_prompt.txt
-│   │       ├── slide_structure_prompt.txt
-│   │       └── Slide_structure_regenerate_prompt.txt
-│   │
-│   ├── data/                  # Data storage
-│   ├── logs/                  # Function execution logs
-│   └── venv/                  # Python virtual environment
+├── azure_functions/              # Azure Functions workers
+│   ├── DocumentProcessor/
+│   │   ├── __init__.py           # Function entry for document processing
+│   │   └── function.json         # Trigger/bindings configuration
+│   ├── OnboardingProcessor/
+│   │   ├── __init__.py           # Function entry for onboarding processing
+│   │   └── function.json         # Trigger/bindings configuration
+│   ├── database/
+│   │   └── database_manager.py   # DB utilities for functions runtime
+│   ├── models/
+│   │   ├── database_models.py    # ORM models (functions scope)
+│   │   └── document.py           # Document helpers (functions scope)
+│   ├── preprocessing/
+│   │   ├── csv_processor.py      # CSV/Excel preprocessing
+│   │   ├── document_processor.py # Orchestrates preprocessing & metadata
+│   │   ├── docx_processor.py     # Word preprocessing
+│   │   ├── image_processor.py    # OCR for images
+│   │   ├── pdf_processor.py      # PDF extraction
+│   │   ├── pptx_processor.py     # PowerPoint preprocessing
+│   │   └── chunking/
+│   │       ├── __init__.py       # Package marker
+│   │       ├── chunking_config.py# Chunking defaults/config
+│   │       ├── models.py         # Chunk data structures
+│   │       ├── nlp_processor.py  # NLP utilities
+│   │       ├── strategies.py     # Chunking strategies
+│   │       ├── token_counter.py  # Token counting helpers
+│   │       └── validators.py     # Chunking validators
+│   ├── prompts/
+│   │   ├── *.txt                 # Prompt templates
+│   │   └── ppt_addin_prompts/*.txt # PPT add-in prompts
+│   ├── services/
+│   │   ├── blob_storage_service.py    # Azure Blob client
+│   │   ├── classification.py          # AI classification service
+│   │   ├── document_upload_service.py # Upload handling
+│   │   ├── metadata_manager.py        # Metadata extraction/management
+│   │   ├── onboarding_guide_service.py# Onboarding guide generation
+│   │   ├── rag/
+│   │   │   ├── answer_verifier.py     # Answer verification
+│   │   │   ├── citation_formatter.py  # Citation formatting
+│   │   │   ├── config_loader.py       # RAG config loader
+│   │   │   ├── csv_index_builder.py   # CSV indexing
+│   │   │   ├── embed_chunk.py         # Chunk embedding
+│   │   │   ├── fusion.py              # Fusion search
+│   │   │   ├── index_builder.py       # Index construction
+│   │   │   ├── intent_router.py       # Intent routing
+│   │   │   ├── llm_service.py         # LLM wrapper
+│   │   │   ├── node_converter.py      # Doc→node conversion
+│   │   │   ├── planner.py             # Query planning
+│   │   │   ├── post_retrieval.py      # Post-retrieval steps
+│   │   │   ├── query_engine.py        # Query engine (functions)
+│   │   │   ├── query_executor.py      # RAG execution
+│   │   │   ├── query_orchestrator.py  # High-level orchestrator
+│   │   │   ├── reranker.py            # Result re-ranking
+│   │   │   └── retrieval_service.py   # Retriever setup/search
+│   │   ├── service_bus_sender.py      # Azure Service Bus producer
+│   │   ├── storage_service_base.py    # Storage interface
+│   │   └── summarization.py           # Summarization helpers
+│   ├── utils/
+│   │   ├── api_tracker.py       # API usage tracking
+│   │   ├── auth_utils.py        # Token/cookie helpers
+│   │   ├── classification.py    # Classification helpers
+│   │   ├── classification_utils.py # Classification utilities
+│   │   ├── config.py            # Settings loader
+│   │   ├── constants.py         # Constants
+│   │   ├── database.py          # DB connections
+│   │   ├── exceptions.py        # Custom exceptions
+│   │   ├── gemini_client.py     # Gemini API client
+│   │   ├── logging.py           # Functions logging setup
+│   │   ├── prompt_generators.py # Dynamic prompt generation
+│   │   ├── prompt_loader.py     # Loads prompt templates
+│   │   └── summarization.py     # Summarization utilities
+│   ├── host.json                # Functions host config
+│   ├── local.settings.example.json # Local dev settings example
+│   ├── Dockerfile               # Functions container build
+│   └── data/, logs/, venv/      # Runtime data, logs, venv (local)
 │
-├── giani_pkb/                 # Main application package
-│   ├── __init__.py
-│   │
-│   ├── api/                   # API layer
-│   │   ├── __init__.py
-│   │   ├── auth_routes.py     # Authentication endpoints
-│   │   ├── project_routes.py  # Project management endpoints
-│   │   ├── user_routes.py     # User management endpoints
-│   │   ├── health_routes.py   # Health check endpoints
-│   │   ├── ppt_addin_routes.py # PowerPoint add-in endpoints
-│   │   ├── analytics_routes.py # Analytics and monitoring endpoints
-│   │   └── onboarding_guide_routes.py # Onboarding guide endpoints
-│   │
-│   ├── services/              # Business logic services
-│   │   ├── __init__.py
-│   │   ├── project_service.py # Project business logic
-│   │   ├── document_upload_service.py # Document upload handling
-│   │   ├── ppt_title_service.py # PPT title generation
-│   │   ├── ppt_title_refine_service.py # PPT title refinement
-│   │   ├── ppt_improve_selected_text_service.py # PPT text improvement
-│   │   ├── ppt_parallelize_content_service.py # PPT content parallelization
-│   │   ├── ppt_slide_structure.py # PPT slide structure
+├── giani_pkb/                    # Main Flask application
+│   ├── api/
+│   │   ├── analytics_routes.py  # Analytics endpoints
+│   │   ├── auth_routes.py       # /api/v1/auth (MSAL, sessions)
+│   │   ├── health_routes.py     # /api/v1/health
+│   │   ├── onboarding_guide_routes.py # Onboarding endpoints
+│   │   ├── ppt_addin_routes.py  # PPT add-in endpoints
+│   │   ├── project_routes.py    # Project CRUD/listing
+│   │   └── user_routes.py       # User profile endpoints
+│   ├── database/
+│   │   ├── database_initialize.py # Legacy/init helpers
+│   │   ├── database_manager.py  # DB ops & alembic wrappers
+│   │   └── database_migration.py# Migration helpers/rollback
+│   ├── middleware/
+│   │   ├── analytics_middleware.py # Request/session analytics
+│   │   └── auth_session_middleware.py # Client/session extraction
+│   ├── models/
+│   │   ├── database_models.py   # ORM models
+│   │   └── document.py          # Document helpers
+│   ├── preprocessing/
+│   │   ├── csv_processor.py     # CSV/Excel preprocessing
+│   │   ├── document_processor.py# Orchestrates preprocessing
+│   │   ├── docx_processor.py    # Word processing
+│   │   ├── image_processor.py   # OCR for images
+│   │   ├── pdf_processor.py     # PDF processing
+│   │   ├── pptx_processor.py    # PPTX processing
+│   │   └── chunking/
+│   │       ├── __init__.py      # Package marker
+│   │       ├── models.py        # Chunk models
+│   │       ├── nlp_processor.py # NLP utils
+│   │       ├── strategies.py    # Chunking strategies
+│   │       └── token_counter.py # Token counting
+│   ├── prompts/                 # Prompt templates (mirrors functions)
+│   ├── services/
+│   │   ├── analytics_service.py # Aggregates analytics
+│   │   ├── auth_service.py      # Tokens/sessions lifecycle
+│   │   ├── blob_storage_service.py # Azure Blob client
+│   │   ├── classification.py    # Classification logic
+│   │   ├── document_upload_service.py # Upload handling
+│   │   ├── local_storage_service.py   # Local storage backend
+│   │   ├── metadata_manager.py  # Metadata extraction/management
+│   │   ├── onboarding_guide_service.py # Onboarding generation
+│   │   ├── ppt_improve_selected_text_service.py # Improve selected text
+│   │   ├── ppt_parallelize_content_service.py   # Parallelize content
+│   │   ├── ppt_slide_structure.py # Slide structure ops
+│   │   ├── ppt_title_refine_service.py # Title refinement
+│   │   ├── ppt_title_service.py  # Title generation
+│   │   ├── project_service.py    # Project operations
+│   │   ├── rag/
+│   │   │   ├── citation_formatter.py # Citation formatting (API)
+│   │   │   ├── csv_index_builder.py  # CSV indexing (API)
+│   │   │   ├── embed_chunks.py       # Chunk embedding (API)
+│   │   │   ├── index_builder.py      # Vector index build (API)
+│   │   │   ├── node_converter.py     # Doc→node conversion (API)
+│   │   │   ├── query_engine.py       # Query engine (API)
+│   │   │   ├── query_executor.py     # Retrieval + synthesis (API)
+│   │   │   └── retriever_service.py  # Retriever setup/search (API)
+│   │   ├── service_bus_sender.py # Azure Service Bus sender
 │   │   ├── slide_review_service.py # Slide review
-│   │   ├── summarization.py # Summarization logic
-│   │   ├── metadata_manager.py # Metadata management
-│   │   ├── classification.py # AI classification logic
-│   │   ├── analytics_service.py # User activity analytics
-│   │   ├── onboarding_guide_service.py # Onboarding guide generation
-│   │   ├── storage_factory.py # Dynamic storage service selection
-│   │   ├── blob_storage_service.py # Azure Blob Storage service
-│   │   ├── local_storage_service.py # Local storage service
-│   │   └── rag/               # RAG (Retrieval-Augmented Generation) services
-│   │       ├── query_engine.py # Query engine configuration
-│   │       ├── retriever_service.py # Document retrieval service
-│   │       ├── index_builder.py # Vector index building
-│   │       ├── embed_chunks.py # Document chunk embedding
-│   │       ├── node_converter.py # Document node conversion
-│   │       ├── citation_formatter.py # Citation formatting
-│   │       └── csv_index_builder.py # CSV-specific indexing
-│   │
-│   ├── models/                # Data models
-│   │   ├── __init__.py
-│   │   ├── database_models.py # SQLAlchemy ORM models
-│   │   └── document.py        # Document model helpers
-│   │
-│   ├── database/              # Database layer
-│   │   ├── __init__.py
-│   │   ├── database_manager.py # Unified database operations
-│   │   ├── database_initialize.py # Database initialization
-│   │   └── database_migration.py # Database migration logic
-│   │
-│   ├── middleware/            # Application middleware
-│   │   ├── __init__.py
-│   │   ├── auth_session_middleware.py # Authentication session management
-│   │   └── analytics_middleware.py # Automatic analytics tracking
-│   │
-│   ├── preprocessing/         # Document processing
-│   │   ├── __init__.py
-│   │   ├── document_processor.py # Main orchestrator
-│   │   ├── pdf_processor.py   # PDF processing
-│   │   ├── docx_processor.py  # Word document processing
-│   │   ├── pptx_processor.py  # PowerPoint processing
-│   │   ├── csv_processor.py   # CSV/Excel processing
-│   │   ├── image_processor.py # Image processing with OCR
-│   │   ├── test_chunking_strategies.py # Chunking tests
-│   │   ├── test_processing.py # Processing tests
-│   │   └── chunking/          # Document chunking strategies
-│   │       ├── __init__.py
-│   │       ├── strategies.py  # Chunking algorithms
-│   │       ├── token_counter.py # Token counting utilities
-│   │       ├── nlp_processor.py # NLP processing utilities
-│   │       └── models.py      # Chunking models
-│   │
-│   ├── utils/                 # Utilities and helpers
-│   │   ├── __init__.py
-│   │   ├── config.py          # Configuration management
-│   │   ├── auth_utils.py      # Authentication utilities
-│   │   ├── response_utils.py  # API response formatting
-│   │   ├── exceptions.py      # Custom exception classes
-│   │   ├── database.py        # Database connection utilities
-│   │   ├── database_utils.py  # Database utility functions
-│   │   ├── constants.py       # Project constants
-│   │   ├── prompt_generators.py # Prompt generation helpers
-│   │   ├── prompt_loader.py   # Prompt loading utilities
-│   │   ├── gemini_client.py   # Gemini AI client
-│   │   ├── api_tracker.py     # API usage tracking
-│   │   └── classification_utils.py # Classification helpers
-│   │
-│   ├── ui/                    # UI applications
-│   │   ├── __init__.py
-│   │   ├── file_upload_app.py # File upload UI
-│   │   └── summarization_app.py # Summarization UI
-│   │
-│   └── prompts/               # Prompt templates
-│       ├── __init__.py
-│       ├── summarization_group_a_prompt.txt
-│       ├── summarization_group_b_prompt.txt
-│       ├── summarization_group_c_prompt.txt
-│       ├── summarization_group_d_prompt.txt
-│       ├── csv_analysis_prompt.txt
-│       ├── file_classification_prompt.txt
-│       ├── mission_and_approach_prompt.txt
-│       ├── priority_reading_list_prompt.txt
-│       ├── strategic_intelligence_readout_prompt.txt
-│       └── ppt_addin_prompts/ # PowerPoint add-in specific prompts
-│           ├── first_slide_prompt.txt
-│           ├── title_generation_prompt.txt
-│           ├── title_refine_prompt.txt
-│           ├── title_regeneration_prompt.txt
-│           ├── Parallelize_content_prompt.txt
-│           ├── slide_review_prompt.txt
-│           ├── slide_structure_prompt.txt
-│           ├── Slide_structure_regenerate_prompt.txt
-│           └── improveSelectedText_prompt.txt
+│   │   ├── storage_factory.py   # Chooses storage backend
+│   │   ├── storage_service_base.py # Storage interface
+│   │   ├── summarization.py     # Summarization logic
+│   │   └── summarychunking.py   # Summary chunking for long texts
+│   ├── ui/
+│   │   ├── file_upload_app.py   # Minimal upload UI
+│   │   └── summarization_app.py # Minimal summarization UI
+│   └── utils/
+│       ├── api_tracker.py       # API usage tracking
+│       ├── auth_utils.py        # Hashing/JWT/cookie helpers
+│       ├── classification_utils.py # Classification utilities
+│       ├── config.py            # App config & env (requires GEMINI_API_KEY)
+│       ├── constants.py         # Constants
+│       ├── database.py          # DB session utilities
+│       ├── database_utils.py    # DB helpers
+│       ├── exceptions.py        # Exception classes
+│       ├── gemini_client.py     # Gemini API client
+│       ├── prompt_generators.py # Programmatic prompts
+│       ├── prompt_loader.py     # Loads prompt templates
+│       └── response_utils.py    # Standard API responses
+├── README.md                    # This documentation
+├── MIGRATION.md                 # Migration guidelines/notes
+├── test_database.py             # DB tests
+└── temp_uploads/, data™, tmp/, venv/, venv_test/ # Local dirs/envs
 ```
 
 ## 🛠️ Technology Stack
@@ -429,6 +393,9 @@ docker build -t giani-ai .
 docker run -p 8000:8000 giani-ai
 ```
 
+```bash
+python run.py
+```
 The application will be available at:
 - **Local**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/api/v1
@@ -629,47 +596,231 @@ When modifying database models:
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+- Create a feature branch
+- Add tests and docs
+- Ensure formatting/linting passes
+- Open a PR
 
-### Development Guidelines
-- Follow PEP 8 style guidelines
-- Add type hints to function signatures
-- Write docstrings for all public functions
-- Add tests for new functionality
-- Update documentation for API changes
-- Use meaningful commit messages
+## 📄 File Reference (Brief Descriptions)
 
-## 📝 License
+Top-level
+- README.md: This documentation
+- API_ROUTES_ORGANIZATION.md: High-level map of API endpoints and groupings
+- alembic.ini: Alembic configuration for migrations
+- base.Dockerfile: Base image for multi-stage Docker builds
+- Dockerfile: Application Docker build recipe
+- entrypoint.sh: Container startup script
+- main.py: Flask app factory, CORS, middleware, and blueprint registration
+- manage.py: CLI wrapping Alembic operations and DB tasks
+- MIGRATION.md: Notes and guidance on database migrations
+- requirements.txt: Core Python dependencies
+- requirements-azure.txt: Azure deployment dependencies
+- requirements-2.txt: Auxiliary/legacy requirements (if used)
+- run.py: Development server launcher at port 8000
+- test_database.py: Database test harness
+- wsgi.py: Production WSGI entrypoint
+- sshd_config: SSH daemon configuration (if used in containers)
+- data/: Project data directory (runtime artifacts)
+- temp_uploads/: Temporary uploads during processing
+- tmp/: Temporary working directory
+- venv/, venv_test/: Local virtual environments (ignored in production)
 
-[Add your license information here]
+migrations/
+- __init__.py: Package marker
+- env.py: Alembic environment config (DB connection and setup)
+- script.py.mako: Template for autogenerated migration scripts
+- versions/__init__.py: Package marker
+- versions/2025_07_28_1748-fd1c410f9841_initial_database_schema.py: Initial DB schema
+- versions/2025_08_04_0828-d02dda149530_add_source_column_to_documentsummary_.py: Adds source column
 
-## 🆘 Support
+azure_functions/
+- Dockerfile: Azure Functions container build
+- host.json: Azure Functions host configuration
+- local.settings.example.json: Local dev settings example
 
-For issues and questions:
-1. Check the [Issues](https://github.com/your-repo/issues) page
-2. Create a new issue with detailed information
-3. Include error logs and steps to reproduce
+azure_functions/DocumentProcessor/
+- __init__.py: Entry for the document processing function
+- function.json: Trigger/binding configuration
 
-## 🔄 Changelog
+azure_functions/OnboardingProcessor/
+- __init__.py: Entry for the onboarding processor function
+- function.json: Trigger/binding configuration
 
-### Version 2.0.0 (Current)
-- Azure cloud deployment architecture
-- Azure Functions for background processing
-- RAG engine with LlamaIndex integration
-- Analytics and monitoring system
-- PowerPoint add-in integration
-- Onboarding guide generation
-- Multi-cloud storage support
-- Comprehensive API endpoints
+azure_functions/database/
+- database_manager.py: DB helper utilities for functions runtime
 
-### Version 1.0.0
-- Initial release
-- Document processing and classification
-- User authentication and project management
-- RESTful API with standardized responses
-- Health monitoring and system checks
+azure_functions/models/
+- database_models.py: SQLAlchemy ORM models shared in functions
+- document.py: Document model helpers for functions
+
+azure_functions/preprocessing/
+- csv_processor.py: CSV/Excel preprocessing pipeline for functions
+- document_processor.py: Orchestrates preprocessing and metadata extraction
+- docx_processor.py: Microsoft Word preprocessing
+- image_processor.py: OCR pipeline for image files
+- pdf_processor.py: PDF text and layout extraction
+- pptx_processor.py: PowerPoint preprocessing
+
+azure_functions/preprocessing/chunking/
+- __init__.py: Package marker
+- chunking_config.py: Chunking configuration and defaults
+- models.py: Data structures for chunks and metadata
+- nlp_processor.py: NLP utilities used during chunking
+- strategies.py: Chunking strategies implementations
+- token_counter.py: Tokenization and token counting helpers
+- validators.py: Validation helpers for chunking outputs
+
+azure_functions/prompts/
+- *.txt: Prompt templates used in function workflows
+- ppt_addin_prompts/*.txt: Add-in specific prompts for PPT operations
+
+azure_functions/services/
+- blob_storage_service.py: Azure Blob Storage client abstraction
+- classification.py: AI document classification service
+- document_upload_service.py: Handles intake and routing of uploads
+- metadata_manager.py: Metadata extraction and management
+- onboarding_guide_service.py: Creates onboarding guides from sources
+- service_bus_sender.py: Azure Service Bus producer utilities
+- storage_service_base.py: Storage service interface for pluggability
+- summarization.py: Summarization service helpers
+
+azure_functions/services/rag/
+- answer_verifier.py: Post-answer verification (consistency/grounding)
+- citation_formatter.py: Formats citations for answers
+- config_loader.py: Loads RAG configuration
+- csv_index_builder.py: Builds indices from CSVs
+- embed_chunk.py: Embeds chunks for vector stores
+- fusion.py: Fusion search utilities
+- index_builder.py: RAG index construction pipeline
+- intent_router.py: Intent detection and routing
+- llm_service.py: LLM wrapper for RAG steps
+- node_converter.py: Converts docs to RAG nodes
+- planner.py: Query planning for multi-step answers
+- post_retrieval.py: Post-retrieval augmentation steps
+- query_engine.py: Query engine configuration for functions
+- query_executor.py: Executes the RAG pipeline
+- query_orchestrator.py: High-level orchestrator for query flows
+- reranker.py: Re-ranking of retrieved results
+- retrieval_service.py: Retriever setup and search
+- test.py: Local test harness for RAG components
+
+azure_functions/utils/
+- api_tracker.py: API usage and quota tracking for functions
+- auth_utils.py: Auth helpers (tokens/cookies) for functions
+- classification.py: Shared classification helpers
+- classification_utils.py: Utilities for classification pipelines
+- config.py: Settings loader for functions
+- constants.py: Constants used in functions code
+- database.py: Database connection utilities for functions
+- exceptions.py: Custom exceptions for functions
+- gemini_client.py: Gemini API client wrapper for functions
+- logging.py: Logging configuration for functions
+- prompt_generators.py: Helpers to generate prompts dynamically
+- prompt_loader.py: Loads prompt templates
+- summarization.py: Summarization helpers for functions
+
+
+giani_pkb/
+- __init__.py: Package marker
+
+giani_pkb/api/
+- __init__.py: Blueprint factory exports
+- analytics_routes.py: Analytics endpoints (user/system metrics)
+- auth_routes.py: Auth endpoints (/api/v1/auth/*, MSAL, sessions)
+- health_routes.py: System and DB health endpoints
+- onboarding_guide_routes.py: Onboarding guide API endpoints
+- ppt_addin_routes.py: PowerPoint add-in endpoints
+- project_routes.py: Project-level CRUD and listing
+- user_routes.py: User profile and management endpoints
+
+giani_pkb/database/
+- __init__.py: Package marker
+- database_initialize.py: Legacy/utility DB initialization
+- database_manager.py: Unified DB operations and Alembic wrappers
+- database_migration.py: Helpers for migration management/rollback
+
+giani_pkb/middleware/
+- __init__.py: Package marker
+- analytics_middleware.py: Request/session analytics tracking
+- auth_session_middleware.py: Client/session extraction and auth helpers
+
+giani_pkb/models/
+- __init__.py: Package marker
+- database_models.py: SQLAlchemy ORM models (users, projects, docs, etc.)
+- document.py: Document model helper functions
+
+giani_pkb/preprocessing/
+- __init__.py: Package marker
+- csv_processor.py: CSV/Excel preprocessing for API side
+- document_processor.py: Orchestrates API-side preprocessing
+- docx_processor.py: Word document processing
+- image_processor.py: OCR for images
+- pdf_processor.py: PDF processing
+- pptx_processor.py: PowerPoint processing
+- test_chunking_strategies.py: Tests for chunking strategies
+- test_processing.py: Tests for processing pipelines
+
+giani_pkb/preprocessing/chunking/
+- __init__.py: Package marker
+- models.py: Chunk/segment data structures
+- nlp_processor.py: NLP utilities for chunking
+- strategies.py: Chunking strategies
+- token_counter.py: Token counting utilities
+
+giani_pkb/prompts/
+- __init__.py: Package marker
+- *.txt: Prompt templates (mirrors functions prompts)
+- ppt_addin_prompts/*.txt: PPT add-in prompt templates
+
+giani_pkb/services/
+- __init__.py: Package marker
+- analytics_service.py: Aggregates analytics data
+- auth_service.py: Token/session lifecycle and validation
+- blob_storage_service.py: Azure Blob client for API service
+- classification.py: Classification business logic
+- document_upload_service.py: API upload handling and dispatch
+- local_storage_service.py: Local filesystem storage implementation
+- metadata_manager.py: Document metadata extraction/management
+- onboarding_guide_service.py: Onboarding guide generation logic
+- ppt_improve_selected_text_service.py: Improves selected PPT text
+- ppt_parallelize_content_service.py: Parallelizes PPT content
+- ppt_slide_structure.py: Slide structure generation/refinement
+- ppt_title_refine_service.py: Refines PPT slide titles
+- ppt_title_service.py: Generates PPT slide titles
+- project_service.py: Project operations
+- service_bus_sender.py: Azure Service Bus sender for API
+- slide_review_service.py: Reviews slide content for quality
+- storage_factory.py: Chooses storage backend (local/blob)
+- storage_service_base.py: Storage interface base class
+- summarization.py: Summarization business logic
+- summarychunking.py: Summary chunking logic for long texts
+
+giani_pkb/services/rag/
+- citation_formatter.py: Formats citations for answers (API side)
+- csv_index_builder.py: Builds CSV indices (API side)
+- embed_chunks.py: Embeds chunks (API side)
+- index_builder.py: Builds vector indices (API side)
+- node_converter.py: Converts docs to RAG nodes (API side)
+- query_engine.py: Query engine configuration (API side)
+- query_executor.py: Executes retrieval and synthesis (API side)
+- retriever_service.py: Retriever setup and search (API side)
+
+giani_pkb/ui/
+- __init__.py: Package marker
+- file_upload_app.py: Minimal UI for uploading files
+- summarization_app.py: Minimal UI for text/document summarization
+
+giani_pkb/utils/
+- __init__.py: Package marker
+- api_tracker.py: API usage tracking utilities
+- auth_utils.py: Password hashing, JWT helper, cookie/token extraction
+- classification_utils.py: Classification utility functions
+- config.py: Application configuration and env loader (requires GEMINI_API_KEY)
+- constants.py: Project-wide constants
+- database.py: DB connection/session utilities
+- database_utils.py: DB utility helpers
+- exceptions.py: Common exception classes
+- gemini_client.py: Gemini API client wrapper
+- prompt_generators.py: Generates prompts programmatically
+- prompt_loader.py: Loads file-based prompt templates
+- response_utils.py: Standardized API response helpers
