@@ -1553,7 +1553,6 @@ class DatabaseManager:
             logger.error(f"Unexpected error saving chunks: {e}")
             return False
         
-
     def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
         """Update the status of a temporary document."""
         
