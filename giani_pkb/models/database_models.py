@@ -580,7 +580,7 @@ class ChatMessage(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     message_id = Column(Integer, nullable=False)
-    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    conversation_id = Column(UUID(as_uuid=True),ForeignKey("conversations.conversation_id"),nullable=False,index=True)
     message = Column(Text, nullable=False)
     sender_type = Column(String(50), nullable=False)  # "human" or "AI"
     created_at = Column(DateTime(timezone=True), server_default=func.now())
