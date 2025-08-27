@@ -294,7 +294,7 @@ class DatabaseManager:
                 logger.error("Batch ID cannot be empty")
                 return False
 
-            valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
+            valid_statuses = {'QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'}
             if status not in valid_statuses:
                 logger.error(f"Invalid status: {status}. Must be one of {valid_statuses}")
                 return False
