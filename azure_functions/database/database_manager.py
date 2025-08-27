@@ -1558,7 +1558,7 @@ class DatabaseManager:
         """Update the status of a temporary document."""
         
         # Define valid statuses (adjust as needed)
-        valid_statuses = ["FAILED", "PROCESSING", "COMPLETED", "SUCCESS", "PENDING"]
+        valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
         
         if status not in valid_statuses:
             logger.warning(f"Invalid status '{status}' for temp document {temp_document_id}")
