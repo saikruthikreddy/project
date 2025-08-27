@@ -2795,32 +2795,40 @@ class DatabaseManager:
         try:
             if isinstance(conversation_id, str):
                 conversation_uuid = uuid.UUID(conversation_id)
-
+            
             with self.get_session() as session:
                 from giani_pkb.models.database_models import Conversation, ChatMessage
-
-                conversation = session.query(Conversation).filter(Conversation.conversation_id == conversation_uuid).first()
+                
+                conversation = session.query(Conversation).filter(
+                    Conversation.conversation_id == conversation_uuid
+                ).first()
+                
                 if not conversation:
                     logger.error(f"Conversation with id {conversation_id} not found")
                     return None
-
-                # Determine the message_id by querying the existing messages for this conversation
-                last_message = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation.id).order_by(ChatMessage.message_id.desc()).first()
+                
+                last_message = session.query(ChatMessage).filter(
+                    ChatMessage.conversation_id == conversation.conversation_id
+                ).order_by(ChatMessage.message_id.desc()).first()
+                
                 message_id = (last_message.message_id + 1) if last_message else 1
-
+                
                 chat_message = ChatMessage(
-                    conversation_id=conversation.id,
+                    conversation_id=conversation.conversation_id,  # FIX: Use UUID field
                     message_id=message_id,
                     message=message,
                     sender_type=sender_type
                 )
+                
                 session.add(chat_message)
                 session.flush()
                 session.expunge(chat_message)
                 return chat_message
+                
         except Exception as e:
             logger.error(f"Error adding chat message: {e}")
             return None
+
 
     def get_user_conversations(self, project_id: int, user_id: Union[str, uuid.UUID]) -> List['Conversation']:
         """Get all conversations for a user in a project."""
