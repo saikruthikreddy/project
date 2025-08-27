@@ -721,6 +721,36 @@ def create_project_routes():
             logger.error(f"Unexpected error retrieving summary for document {document_id}: {e}")
             return api_internal_server_error('Failed to retrieve document summary', str(e))
 
+    @projects.route('/<project_id>/conversations', methods=['GET'])
+    def get_user_conversations(project_id):
+        """Get all conversations for a user in a project."""
+        try:
+            user_id = g.user_id
+
+            # Verify project access
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+
+            conversations = db_manager.get_user_conversations(project_id=project_id, user_id=user_id)
+
+            conversations_dict = [
+                {
+                    'conversation_id': str(c.conversation_id),
+                    'conversation_title': c.conversation_title,
+                    'created_at': c.created_at.isoformat(),
+                    'updated_at': c.updated_at.isoformat() if c.updated_at else None
+                } for c in conversations
+            ]
+
+            return api_success({
+                'conversations': conversations_dict,
+                'total': len(conversations_dict)
+            }, 'Conversations retrieved successfully')
+
+        except Exception as e:
+            logger.error(f"Error getting user conversations: {e}")
+            return api_internal_server_error('Failed to retrieve conversations', str(e))
+
     @projects.route('/<project_id>/query', methods=['POST'])  # Changed to POST
     def query_project(project_id):
         """Query a specific project with a user question."""
@@ -734,6 +764,24 @@ def create_project_routes():
                 return api_validation_error('Missing user_question in request body')
 
             user_question = data['user_question']
+            conversation_id = data.get('conversation_id')
+
+            # If no conversation_id is provided, create a new conversation
+            if not conversation_id:
+                # Generate a title from the first 20 words of the user's question
+                title = ' '.join(user_question.split()[:20])
+                if len(user_question.split()) > 20:
+                    title += '...'
+                
+                new_conversation = db_manager.create_conversation(
+                    project_id=project_id,
+                    user_id=user_id,
+                    conversation_title=title
+                )
+                if not new_conversation:
+                    return api_database_error('Failed to create a new conversation')
+                
+                conversation_id = str(new_conversation.conversation_id)
 
             # Optional parameters
             document_content_type = data.get('document_content_type', '')
@@ -747,9 +795,14 @@ def create_project_routes():
             retrieval_data = db_manager.query_project(
                 project_id=project_id,
                 user_question=user_question,
+                conversation_id=conversation_id,
                 document_content_type=document_content_type,
                 top_k=top_k
             )
+
+            # Add conversation_id to the response if it was newly created
+            if not data.get('conversation_id'):
+                retrieval_data['conversation_id'] = conversation_id
 
             print('Query result:', retrieval_data)
             return api_success(retrieval_data, 'Project query executed successfully')

@@ -13,14 +13,23 @@ def run_query(
     db: Session,
     project_id: int,
     user_question: str,
+    conversation_id: str = None,
     document_content_type: Optional[str] = None,
     top_k: int = 10,
     similarity_threshold: float = 0.7
 ) -> Dict[str, Any]:
     """Execute the RAG pipeline with improved error handling."""
     
+    from giani_pkb.database.database_manager import DatabaseManager
+    db_manager = DatabaseManager()
+
     try:
-        # ... existing validation code ...
+        if conversation_id:
+            db_manager.add_chat_message(
+                conversation_id=conversation_id,
+                message=user_question,
+                sender_type='human'
+            )
         
         logger.info(f"Starting RAG query for project {project_id}: {user_question[:100]}...")
 
@@ -73,6 +82,13 @@ def run_query(
                     "query_successful": False
                 }
             }
+
+        if conversation_id:
+            db_manager.add_chat_message(
+                conversation_id=conversation_id,
+                message=str(response),
+                sender_type='AI'
+            )
         
         # Step 4: Format citations
         sources = format_citations(response.source_nodes) if response.source_nodes else []

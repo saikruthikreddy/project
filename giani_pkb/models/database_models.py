@@ -44,6 +44,7 @@ class User(Base):
     # Relationships
     projects: Mapped[List["Project"]] = relationship("Project", back_populates="owner")
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="user")
+    conversations: Mapped[List["Conversation"]] = relationship("Conversation", back_populates="user")
 
 class Project(Base):
     """Project model for organizing documents and work."""
@@ -68,6 +69,7 @@ class Project(Base):
     owner: Mapped["User"] = relationship("User", back_populates="projects")
     documents: Mapped[List["Document"]] = relationship("Document", back_populates="project")
     onboarding_guide: Mapped["OnboardingGuide"] = relationship("OnboardingGuide", back_populates="project", uselist=False, cascade="all, delete-orphan")
+    conversations: Mapped[List["Conversation"]] = relationship("Conversation", back_populates="project")
 
     def to_dict(self):
         """Convert project to dictionary for JSON serialization."""
@@ -552,3 +554,36 @@ class UserSession(Base):
 
     def update_activity(self):
         self.last_activity_at = datetime.now(timezone.utc)
+
+class Conversation(Base):
+    """Model for storing conversations."""
+    __tablename__ = "conversations"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    conversation_title = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="conversations")
+    project: Mapped["Project"] = relationship("Project", back_populates="conversations")
+    chat_messages: Mapped[List["ChatMessage"]] = relationship("ChatMessage", back_populates="conversation", cascade="all, delete-orphan")
+
+class ChatMessage(Base):
+    """Model for storing chat messages."""
+    __tablename__ = "chat_messages"
+    __table_args__ = {'extend_existing': True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, nullable=False)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    sender_type = Column(String(50), nullable=False)  # "human" or "AI"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="chat_messages")
