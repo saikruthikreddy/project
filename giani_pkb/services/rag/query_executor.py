@@ -112,7 +112,7 @@ def run_query(
         if conversation_id:
             db_manager.add_chat_message(
                 conversation_id=conversation_id,
-                message=str(response.text),
+                message=str(response),
                 sender_type='AI'
             )
         
