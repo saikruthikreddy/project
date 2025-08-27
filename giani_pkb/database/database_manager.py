@@ -1308,10 +1308,16 @@ class DatabaseManager:
 
     def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
         """Update the status of a temporary document."""
+        
+        # Define valid statuses (adjust as needed)
+        valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
+        
+        if status not in valid_statuses:
+            logger.warning(f"Invalid status '{status}' for temp document {temp_document_id}")
+            return False
+        
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
-
                 temp_document = session.query(TempDocument).filter(
                     TempDocument.temp_document_id == temp_document_id
                 ).first()
@@ -1324,12 +1330,13 @@ class DatabaseManager:
                 if error_message:
                     temp_document.error_message = error_message
                 
-                session.flush()
+                session.commit()  # Explicit commit
                 logger.info(f"Updated temp document {temp_document_id} status to {status}")
                 return True
 
         except SQLAlchemyError as e:
             logger.error(f"Database error updating temp document status: {e}")
+            session.rollback()  # Explicit rollback on error
             return False
 
     # Document Operations (Enhanced)

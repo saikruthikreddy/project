@@ -816,7 +816,7 @@ class DocumentUploadService:
                 # Update status to IN PROCESSING
                 self.db_manager.update_temp_document_status(
                     temp_document_id=doc['temp_document_id'],
-                    status='IN PROCESSING'
+                    status='PROCESSING'
                 )
                 task = {
                     "batch_id": batch_id,
