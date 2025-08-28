@@ -136,7 +136,7 @@ class RAGIndexer:
         )
 
         # Use identical text|model|version formula as embedder
-        from services.rag.embed_chunks import (
+        from services.rag.embed_chunk import (
             generate_structural_header,
             canonicalize_numbers,
             PRIMARY_EMBEDDING_MODEL
