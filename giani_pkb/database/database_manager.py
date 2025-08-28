@@ -13,7 +13,7 @@ import re
 from giani_pkb.utils.config import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk, TempDocument
+    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk, TempDocument, Conversation, ChatMessage
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
@@ -1459,6 +1459,87 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Database error getting project documents: {e}")
             return []
+    
+    def create_conversation(self, project_id: int, user_id: uuid.UUID) -> Optional[Conversation]:
+        """Create a new conversation."""
+        try:
+            with self.get_session() as session:
+                conversation = Conversation(
+                    project_id=project_id,
+                    user_id=user_id,
+                )
+                session.add(conversation)
+                session.flush()
+                session.expunge(conversation)
+                logger.info(f"Created conversation {conversation.id} for project {project_id} and user {user_id}")
+                return conversation
+        except SQLAlchemyError as e:
+            logger.error(f"Database error creating conversation: {e}")
+            return None
+
+    def add_chat_message(self, conversation_id: uuid.UUID, message_index: int, sender_type: str, content: str) -> Optional[ChatMessage]:
+        """Add a new message to a conversation."""
+        try:
+            with self.get_session() as session:
+                message = ChatMessage(
+                    conversation_id=conversation_id,
+                    message_index=message_index,
+                    sender_type=sender_type,
+                    content=content,
+                )
+                session.add(message)
+                session.flush()
+                session.expunge(message)
+                logger.info(f"Added message to conversation {conversation_id}")
+                return message
+        except SQLAlchemyError as e:
+            logger.error(f"Database error adding message to conversation: {e}")
+            return None
+
+    def update_conversation_title(self, conversation_id: uuid.UUID, title: str) -> bool:
+        """Update the title of a conversation."""
+        try:
+            with self.get_session() as session:
+                conversation = session.query(Conversation).filter(Conversation.id == conversation_id).first()
+                if not conversation:
+                    logger.warning(f"Conversation {conversation_id} not found for title update.")
+                    return False
+                conversation.title = title
+                session.flush()
+                logger.info(f"Updated title for conversation {conversation_id}")
+                return True
+        except SQLAlchemyError as e:
+            logger.error(f"Database error updating conversation title: {e}")
+            return False
+
+    def get_conversation_history(self, conversation_id: uuid.UUID) -> List[ChatMessage]:
+        """Get the chat history for a conversation."""
+        try:
+            with self.get_session() as session:
+                messages = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation_id).order_by(ChatMessage.message_index).all()
+                for message in messages:
+                    session.expunge(message)
+                return messages
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting conversation history: {e}")
+            return []
+
+    def get_project_conversations(self, project_id: int, user_id: uuid.UUID) -> List[Conversation]:
+        """Get all conversations for a project and user."""
+        try:
+            with self.get_session() as session:
+                conversations = session.query(Conversation).filter(
+                    and_(
+                        Conversation.project_id == project_id,
+                        Conversation.user_id == user_id
+                    )
+                ).order_by(desc(Conversation.created_at)).all()
+                for conversation in conversations:
+                    session.expunge(conversation)
+                return conversations
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting project conversations: {e}")
+            return []
 
     def search_documents(self, search_term: str, user_id: Union[str, uuid.UUID] = None) -> List[Document]:
         """Search documents with optimized full-text search and enhanced validation."""
@@ -2762,67 +2843,7 @@ class DatabaseManager:
             logger.error(f"Failed to execute RAG query for project {project_id}: {str(e)}")
             raise
 
-    def create_conversation(self, project_id: int, user_id: Union[str, uuid.UUID], conversation_title: str) -> Optional['Conversation']:
-        """Create a new conversation."""
-        try:
-            if isinstance(user_id, str):
-                user_id = uuid.UUID(user_id)
-
-            with self.get_session() as session:
-                from giani_pkb.models.database_models import Conversation
-                
-                conversation = Conversation(
-                    project_id=project_id,
-                    user_id=user_id,
-                    conversation_title=conversation_title
-                )
-                session.add(conversation)
-                session.flush()
-                session.expunge(conversation)
-                return conversation
-        except Exception as e:
-            logger.error(f"Error creating conversation: {e}")
-            return None
-
-    def add_chat_message(self, conversation_id: str, message: str, sender_type: str) -> Optional['ChatMessage']:
-        """Add a new chat message to a conversation."""
-        try:
-            if isinstance(conversation_id, str):
-                conversation_uuid = uuid.UUID(conversation_id)
-            
-            with self.get_session() as session:
-                from giani_pkb.models.database_models import Conversation, ChatMessage
-                
-                conversation = session.query(Conversation).filter(
-                    Conversation.conversation_id == conversation_uuid
-                ).first()
-                
-                if not conversation:
-                    logger.error(f"Conversation with id {conversation_id} not found")
-                    return None
-                
-                last_message = session.query(ChatMessage).filter(
-                    ChatMessage.conversation_id == conversation.conversation_id
-                ).order_by(ChatMessage.message_id.desc()).first()
-                
-                message_id = (last_message.message_id + 1) if last_message else 1
-                
-                chat_message = ChatMessage(
-                    conversation_id=conversation.conversation_id,  # FIX: Use UUID field
-                    message_id=message_id,
-                    message=message,
-                    sender_type=sender_type
-                )
-                
-                session.add(chat_message)
-                session.flush()
-                session.expunge(chat_message)
-                return chat_message
-                
-        except Exception as e:
-            logger.error(f"Error adding chat message: {e}")
-            return None
-
+    
 
     def get_user_conversations(self, project_id: int, user_id: Union[str, uuid.UUID]) -> List['Conversation']:
         """Get all conversations for a user in a project."""
