@@ -24,13 +24,14 @@ from prometheus_client import Histogram, Counter, Gauge
 
 from services.rag.config_loader import load_orchestration_config as get_config
 
-from core.auth.user_context import UserContext
+from services.rag.core.auth.user_context import UserContext
+
 from services.rag.llm_service import LLMService
 
 from models.database_models import DocumentChunk
 from services.rag.planner import route_and_plan, QueryPlan
+from services.rag.fusion import fusion_pipeline, FusionEngine
 
-from services.rag.fusion import FusionEngine
 
 # Import UnifiedRetrievalService without alias for cleaner type hints
 from services.rag.retrieval_service import UnifiedRetrievalService
@@ -180,7 +181,6 @@ class QueryOrchestrator:
             prompt_styles = self.config.get('synthesis', {}).get('prompt_styles', {})
             prompt_template = prompt_styles.get(plan.prompt_style, prompt_styles.get('default', '{context_str}\n\n{query_str}'))
 
-            # TODO: synthesize_answer is not present in the LLMService
             answer = await self.llm_service.synthesize_answer(
                 query=plan.original_query, context_chunks=packed_context, prompt_template=prompt_template
             )

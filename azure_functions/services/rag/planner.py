@@ -9,11 +9,8 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 
 from services.rag.config_loader import load_orchestration_config as get_config
-
 from services.rag.intent_router import IntentRouter, PlanDraft, SubQuery, INTENTS
-
 from services.rag.llm_service import LLMService
-
 
 logger = logging.getLogger(__name__)
 

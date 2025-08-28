@@ -72,6 +72,17 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
 
     except Exception as e:
         logger.error(f"Error processing document: {e}", exc_info=True)
+        
+        # Get temp_document_id from task_data if available
+        temp_document_id = None
+        try:
+            message_body = msg.get_body().decode("utf-8")
+            task_data = json.loads(message_body)
+            temp_document_id = task_data.get("temp_document_id")
+        except Exception as parse_error:
+            logger.error(f"Could not parse message body to get temp_document_id: {parse_error}")
+            
+
         if batch_id and context.retry_context and (context.retry_context.retry_count == context.retry_context.max_retry_count):
             logger.error(f"Message for batch {batch_id} has reached max retries. Marking as failed.")
             # Only call db_manager if it was successfully initialized
@@ -82,6 +93,15 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
                     logger.error(f"Failed to update batch progress in exception handler: {db_error}", exc_info=True)
             else:
                 logger.error(f"Cannot update batch progress - db_manager was not initialized")
+
+            try:
+                db_manager.update_temp_document_status(
+                    temp_document_id=temp_document_id,
+                    status='FAILED',
+                    error_message=str(e)
+                )
+            except Exception as db_error:
+                logger.error(f"Failed to update temp document status to FAILED: {db_error}", exc_info=True)
 
         # The message will be automatically dead-lettered by Azure Functions on failure
         raise

@@ -13,7 +13,7 @@ import re
 from giani_pkb.utils.config import config
 from giani_pkb.utils.database import SessionLocal, engine
 from giani_pkb.models.database_models import (
-    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk
+    User, Project, Document, DocumentChunk, DocumentSummary, APICallLog, SummaryChunk, TempDocument
 )
 from giani_pkb.utils.exceptions import DatabaseError, ValidationError, NotFoundError
 from giani_pkb.utils.auth_utils import hash_password, verify_password
@@ -702,7 +702,6 @@ class DatabaseManager:
                 return False
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
 
                 # Convert user_id to UUID if provided and is string
                 if user_id:
@@ -987,8 +986,6 @@ class DatabaseManager:
                     raise ValidationError(f"Required field '{field}' is missing or empty")
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
-
                 # Convert user_id to UUID if it's a string
                 user_id = kwargs.get('user_id')
                 if isinstance(user_id, str):
@@ -1101,7 +1098,6 @@ class DatabaseManager:
                 return None
 
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1181,7 +1177,6 @@ class DatabaseManager:
         """List all temporary documents for a given project and user with optional filtering."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1263,7 +1258,6 @@ class DatabaseManager:
         """Get count of temporary documents for a given project and user."""
         try:
             with self.get_session() as session:
-                from giani_pkb.models.database_models import TempDocument
 
                 # Convert user_id to UUID if it's a string
                 if isinstance(user_id, str):
@@ -1305,6 +1299,39 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error counting temp documents: {e}")
             return 0
+
+    def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
+        """Update the status of a temporary document."""
+        
+        # Define valid statuses (adjust as needed)
+        valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
+        
+        if status not in valid_statuses:
+            logger.warning(f"Invalid status '{status}' for temp document {temp_document_id}")
+            return False
+        
+        try:
+            with self.get_session() as session:
+                temp_document = session.query(TempDocument).filter(
+                    TempDocument.temp_document_id == temp_document_id
+                ).first()
+
+                if not temp_document:
+                    logger.warning(f"Temp document {temp_document_id} not found for status update.")
+                    return False
+
+                temp_document.status = status
+                if error_message:
+                    temp_document.error_message = error_message
+                
+                session.commit()  # Explicit commit
+                logger.info(f"Updated temp document {temp_document_id} status to {status}")
+                return True
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error updating temp document status: {e}")
+            session.rollback()  # Explicit rollback on error
+            return False
 
     # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:

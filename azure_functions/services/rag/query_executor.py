@@ -18,17 +18,12 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import TextNode
 
 # Refactored imports
-from query_orchestrator import QueryOrchestrator, OrchestrationResult
-from services.rag.retrieval_service import UnifiedRetrievalService as Retriever
-
+from services.rag.query_orchestrator import QueryOrchestrator, OrchestrationResult
+from services.rag.retrieval_service import UnifiedRetrievalService
 from services.rag.embed_chunk import embed_chunks_for_project
-
-from index_builder import RAGIndexer
+from services.rag.index_builder import RAGIndexer
 from services.rag.config_loader import load_orchestration_config as get_config
-
-
-
-from core.auth.user_context import UserContext
+from services.rag.core.auth.user_context import UserContext
 
 # Configure structured logging
 structlog.configure(
