@@ -15,10 +15,10 @@ from llama_index.core.schema import NodeWithScore
 from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from prometheus_client import Counter, Gauge, Histogram
 
-from services.rag.config_loader import OrchestrationConfig, load_orchestration_config
+from azure_functions.services.rag.config_loader import OrchestrationConfig, load_orchestration_config
 
 from .post_retrieval import build_resilient_postprocessors, process_postretrieval_pipeline
-from services.rag.reranker import CrossEncoderReranker
+from azure_functions.services.rag.reranker import CrossEncoderReranker
 
 
 # --- Configuration and Logging ---

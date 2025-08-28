@@ -6,8 +6,8 @@ from typing import List, Tuple, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from openai import OpenAI
 from sqlalchemy.orm import Session
-from models.database_models import DocumentChunk, Document
-from utils.config import config
+from giani_pkb.models.database_models import DocumentChunk, Document
+from giani_pkb.utils.config import config
 # Initialize OpenAI client and tokenizer
 openai = OpenAI(api_key=config.OPENAI_API_KEY)
 tokenizer = tiktoken.encoding_for_model("text-embedding-3-small")
@@ -39,7 +39,7 @@ def generate_structural_header(chunk: DocumentChunk, document: Document) -> str:
     """
     header_parts = []
     # Determine chunk type based on available metadata
-    if hasattr(chunk, 'table_caption') and chunk.table_caption: # TODO: "table_caption" is not present in the DocumentChunk model
+    if hasattr(chunk, 'table_caption') and chunk.table_caption:
         chunk_type = "TABLE"
         header_parts.append(f'caption="{chunk.table_caption}"')
         if hasattr(chunk, 'table_columns') and chunk.table_columns:
@@ -169,7 +169,7 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
         prepared_text, text_hash = prepare_chunk_text(chunk, document)
         # Skip if hash matches existing embedding
         if (hasattr(chunk, 'embedding_hash') and
-            chunk.embedding_hash == text_hash and # TODO: "embedding_hash" is not present in the DocumentChunk
+            chunk.embedding_hash == text_hash and
             chunk.embedding_vector is not None):
             stats['skipped_unchanged'] += 1
             continue

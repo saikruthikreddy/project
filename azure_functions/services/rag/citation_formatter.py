@@ -1,3 +1,5 @@
+# File: giani_pkb/services/rag/citation_formatter.py
+
 from __future__ import annotations
 
 import os
@@ -155,7 +157,7 @@ def _normalize_page_numbers(pages: Any) -> Optional[List[int]]:
                 # Handle ranges like "5-7" by taking the first number
                 if '-' in p_str:
                     p_str = p_str.split('-')[0].strip()
-
+                
                 val = int(float(p_str))  # Handle floats that represent integers
                 if val > 0:
                     out.append(val)
@@ -201,13 +203,13 @@ def _extract_comprehensive_page_info(meta: Dict[str, Any]) -> Optional[List[int]
         'pageNumber',    # CamelCase variant
         'pageNumbers',   # CamelCase plural
     ]
-
+    
     for field in page_fields:
         if field in meta and meta[field] is not None:
             normalized = _normalize_page_numbers(meta[field])
             if normalized:  # Only return if we got valid page numbers
                 return normalized
-
+    
     # Try to extract from filename or path if available
     filename_fields = ['filename', 'file_name', 'original_filename', 'source_path', 'source']
     for field in filename_fields:
@@ -230,7 +232,7 @@ def _extract_comprehensive_page_info(meta: Dict[str, Any]) -> Optional[List[int]
                             return [page_num]
                     except ValueError:
                         continue
-
+    
     return None
 
 

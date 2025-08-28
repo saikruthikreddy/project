@@ -17,10 +17,10 @@ import structlog
 import pandas as pd
 
 # --- Project imports ---
-from services.rag.planner import route_and_plan, QueryPlan
-from services.rag.config_loader import load_orchestration_config
-from services.rag.retrieval_service import UnifiedRetrievalService
-from services.rag.fusion import FusionEngine
+from azure_functions.services.rag.planner import route_and_plan, QueryPlan
+from azure_functions.services.rag.config_loader import load_orchestration_config
+from azure_functions.services.rag.retrieval_service import UnifiedRetrievalService
+from azure_functions.services.rag.fusion import FusionEngine
 
 # --- LlamaIndex imports ---
 from llama_index.core import VectorStoreIndex
@@ -160,7 +160,7 @@ def build_index_from_prechunked_json(json_file_path: str) -> VectorStoreIndex:
     print("--- Building VectorStoreIndex from pre-chunked nodes ---")
     embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
     index = VectorStoreIndex(nodes=text_nodes, embed_model=embed_model)
-
+    
     print(f"--- Index built successfully with {len(index.docstore.docs)} nodes! ---")
     return index
 
@@ -205,7 +205,7 @@ def main() -> int:
         print(f"   {i+1}. ID: {doc_id}")
         print(f"      Text preview: {doc.text[:100]}...")
         print(f"      Metadata: {doc.metadata}")
-
+    
     # Test a simple query directly on the index
     print("\n🔍 DEBUG: Testing direct index query...")
     try:

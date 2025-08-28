@@ -25,7 +25,8 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import QueryBundle, NodeWithScore
 from llama_index.core.base.response.schema import Response
 
-from rag.retriever_service import build_metadata_filtered_retriever
+from azure_functions.services.rag.retrieval_service import build_metadata_filtered_retriever
+
 from rag.post_retrieval import build_postprocessors
 from rag.reranker import CrossEncoderReranker  # NEW: cross-encoder reranker
 
