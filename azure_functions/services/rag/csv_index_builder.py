@@ -3,7 +3,7 @@
 import pandas as pd
 from typing import Optional
 from llama_index.core import VectorStoreIndex
-from giani_pkb.services.rag.node_converter import convert_row_to_node
+from services.rag.node_converter import convert_row_to_node
 
 def build_index_from_csv(csv_path: str, project_id: int, document_content_type: Optional[str] = None) -> VectorStoreIndex:
     df = pd.read_csv(csv_path)

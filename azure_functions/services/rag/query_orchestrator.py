@@ -22,24 +22,24 @@ from dataclasses import dataclass
 import structlog
 from prometheus_client import Histogram, Counter, Gauge
 
-from azure_functions.services.rag.config_loader import load_orchestration_config as get_config
+from services.rag.config_loader import load_orchestration_config as get_config
 
-from azure_functions.services.rag.core.auth.user_context import UserContext
+from services.rag.core.auth.user_context import UserContext
 
-from azure_functions.services.rag.llm_service import LLMService
+from services.rag.llm_service import LLMService
 
-from giani_pkb.models.database_models import DocumentChunk
-from azure_functions.services.rag.planner import route_and_plan, QueryPlan
-from azure_functions.services.rag.fusion import fusion_pipeline, FusionEngine
+from models.database_models import DocumentChunk
+from services.rag.planner import route_and_plan, QueryPlan
+from services.rag.fusion import fusion_pipeline, FusionEngine
 
 
 # Import UnifiedRetrievalService without alias for cleaner type hints
-from azure_functions.services.rag.retrieval_service import UnifiedRetrievalService
+from services.rag.retrieval_service import UnifiedRetrievalService
 # You can still create an alias for backwards compatibility if needed
 Retriever = UnifiedRetrievalService
 
 # Import RetrieverResult for type hints
-from azure_functions.services.rag.retrieval_service import RetrieverResult
+from services.rag.retrieval_service import RetrieverResult
 
 # ... rest of your imports
 
@@ -85,24 +85,24 @@ class QueryOrchestrator:
         log_context = {"query_id": query_id, "user_id": user.user_id}
         logger.info("Starting query orchestration", **log_context)
         CONCURRENT_QUERIES.inc()
-        
+
         try:
             plan = await self._plan_stage(query_text, {"project_id": user.project_id}, query_id)
-            
+
             retrieval_results = await self._retrieval_stage(plan, user, query_id)
-            
+
             successful_results = [r for r in retrieval_results if r.success]
             if not successful_results:
                 raise RuntimeError("All subquery retrievals failed.")
-            
+
             answer, sources, metadata = await self._synthesis_stage(plan, successful_results, query_id)
 
             total_duration = time.time() - start_time
             has_partial = len(successful_results) < len(plan.subqueries)
-            
+
             QUERY_DURATION.labels(stage="complete", intent=plan.intent, result_type="partial" if has_partial else "complete").observe(total_duration)
             QUERY_SUCCESS.labels(intent=plan.intent, has_partial_results=str(has_partial)).inc()
-            
+
             metadata.update({
                 "query_id": query_id,
                 "execution_time": total_duration,
@@ -156,7 +156,7 @@ class QueryOrchestrator:
     async def _synthesis_stage(self, plan: QueryPlan, results: List[RetrieverResult], query_id: str) -> (str, List[Dict], Dict):
         with QUERY_DURATION.labels(stage=ExecutionStage.SYNTHESIS, intent=plan.intent, result_type='n/a').time():
             fusion_config = self.config.get('fusion', {})
-            
+
             def fetch_sources_by_ids(ids: List[str]) -> List[Dict[str, Any]]:
                 if not ids: return []
                 logger.info(f"Fetching {len(ids)} source chunks...", query_id=query_id)
@@ -177,16 +177,16 @@ class QueryOrchestrator:
                 token_budget=fusion_config.get('context_packing', {}).get('token_budget', 3500),
                 return_stats=True
             )
-            
+
             prompt_styles = self.config.get('synthesis', {}).get('prompt_styles', {})
             prompt_template = prompt_styles.get(plan.prompt_style, prompt_styles.get('default', '{context_str}\n\n{query_str}'))
-            
+
             answer = await self.llm_service.synthesize_answer(
                 query=plan.original_query, context_chunks=packed_context, prompt_template=prompt_template
             )
 
             final_answer = await self._run_post_answer_checks(answer, packed_context, plan)
-            
+
             return final_answer, packed_context, {"fusion_stats": stats.to_dict()}
 
     def _extract_numerics_with_units(self, text: str) -> set:
@@ -206,7 +206,7 @@ class QueryOrchestrator:
         """
         with QUERY_DURATION.labels(stage=ExecutionStage.POST_PROCESSING, intent=plan.intent, result_type='n/a').time():
             logger.info("Running post-answer checks", query_id=plan.query_id)
-            
+
             # --- FIX: Implemented Numeric Consistency Check ---
             if plan.intent == "METRIC_LOOKUP":
                 try:
@@ -216,15 +216,15 @@ class QueryOrchestrator:
 
                     source_text_combined = " ".join([source.get('text', '') for source in sources])
                     source_numerics = self._extract_numerics_with_units(source_text_combined)
-                    
+
                     inconsistent_numerics = [num for num in answer_numerics if num not in source_numerics]
-                    
+
                     # Trigger fallback if a significant number of inconsistencies are found
                     if len(inconsistent_numerics) >= 2:
-                        logger.warning("Numeric inconsistency detected. Rebuilding answer from snippets.", 
+                        logger.warning("Numeric inconsistency detected. Rebuilding answer from snippets.",
                                        query_id=plan.query_id, inconsistent_count=len(inconsistent_numerics),
                                        details=inconsistent_numerics)
-                        
+
                         fallback_text = "Based on the available data:\n\n"
                         for i, source in enumerate(sources[:3]): # Use top 3 sources for fallback
                             fallback_text += f"- Source [{i+1}]: {source.get('text', '')}\n"
@@ -235,13 +235,13 @@ class QueryOrchestrator:
             # --- TODO: Implement other checks like citation validation here ---
             # if check_citations(answer, sources) is False:
             #    logger.warning("Invalid citations detected", query_id=plan.query_id)
-            
+
             return answer
 
     def _build_error_result(self, query_id: str, error: Exception, duration: float) -> OrchestrationResult:
         logger.error("Query orchestration failed", query_id=query_id, error=str(error), traceback=traceback.format_exc())
         return OrchestrationResult(
-            query_id=query_id, success=False, 
+            query_id=query_id, success=False,
             answer="I encountered an issue processing your request. Please try again.",
             sources=[], metadata={}, execution_time=duration,
             error={"message": str(error), "type": type(error).__name__}
