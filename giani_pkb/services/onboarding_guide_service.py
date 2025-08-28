@@ -3,6 +3,7 @@ Service for generating the Project Onboarding Guide.
 Improved version with parallel processing, better error handling, and optimized database queries.
 Updated to return document UUIDs instead of integer IDs.
 Updated to work with new DocumentSummary model structure.
+Fixed to handle None values in list fields properly.
 """
 import logging
 import json
@@ -65,6 +66,18 @@ class OnboardingGuideGenerator:
         # Load prompts from files
         self.prompts = self._load_prompts()
     
+    def _safe_get_list(self, data: Dict[str, Any], key: str, default: List = None) -> List:
+        """Safely get a list value from a dictionary, handling None values."""
+        if default is None:
+            default = []
+        value = data.get(key, default)
+        return value if value is not None else default
+    
+    def _safe_get_string(self, data: Dict[str, Any], key: str, default: str = "") -> str:
+        """Safely get a string value from a dictionary, handling None values."""
+        value = data.get(key, default)
+        return value if value is not None else default
+    
     def _load_prompts(self) -> Dict[str, str]:
         """Load prompts from the prompts directory."""
         prompts = {}
@@ -121,9 +134,9 @@ class OnboardingGuideGenerator:
         
         # Remove markdown code blocks if present
         if cleaned.startswith('```json'):
-            cleaned = cleaned.replace('```json', '').replace('```','')
+            cleaned = cleaned.replace('```json', '').replace('```', '').strip()
         elif cleaned.startswith('```'):
-            cleaned = cleaned.replace('```','')
+            cleaned = cleaned.replace('```', '').strip()
         
         # Remove leading quotes if present and not part of JSON structure
         if cleaned.startswith('"') and not cleaned.startswith('{"'):
@@ -185,25 +198,32 @@ class OnboardingGuideGenerator:
             priority_reading = synthesis_results.get("priority_reading_list", {})
             knowledge_faq = synthesis_results.get("knowledge_base_faq", {})
             
+            # Safe theme extraction with None handling
+            all_themes = set()
+            for s in document_summaries:
+                if s is not None:
+                    themes = self._safe_get_list(s, "key_themes")
+                    all_themes.update(themes)
+            
             onboarding_guide = {
                 "projectName": project_context.get("name", "Unknown Project"),
                 "lastSynthesized": datetime.utcnow().isoformat() + "Z",
                 "missionAndApproach": {
                     "projectMandate": mission_and_approach.get("projectMandate", ""),
-                    "keyProjectPhases": mission_and_approach.get("keyProjectPhases", []),
-                    "coreAnalyticalWorkstreams": mission_and_approach.get("strategicApproach", [])  # Fixed mapping
+                    "keyProjectPhases": self._safe_get_list(mission_and_approach, "keyProjectPhases"),
+                    "coreAnalyticalWorkstreams": self._safe_get_list(mission_and_approach, "strategicApproach")
                 },
                 "knowledgeAtAGlance": {
-                    "documentsProcessed": len(document_summaries),
-                    "keyThemesIdentified": len(set(theme for s in document_summaries for theme in s.get("key_themes", []))),
-                    "mustReadDocuments": len(priority_reading.get("priorityReadingList", {}).get("highPriority", [])),
+                    "documentsProcessed": len([s for s in document_summaries if s is not None]),
+                    "keyThemesIdentified": len(all_themes),
+                    "mustReadDocuments": len(self._safe_get_list(priority_reading.get("priorityReadingList", {}), "highPriority")),
                     "distributionBySource": self._get_distribution_by_source(document_summaries),
                 },
                 "strategicIntelligenceReadout": self._format_strategic_intelligence_readout(
                     synthesis_results.get("strategic_intelligence_readout", {})
                 ),
                 "priorityReadingList": priority_reading.get("priorityReadingList", {"highPriority": [], "mediumPriority": []}),
-                "knowledgeFAQ": knowledge_faq.get("knowledgeFAQ", []),
+                "knowledgeFAQ": self._safe_get_list(knowledge_faq, "knowledgeFAQ"),
             }
             
             # Add synthesis status for debugging
@@ -297,12 +317,13 @@ class OnboardingGuideGenerator:
         """
         formatted_readout = []
         for source_type, data in strategic_intelligence_readout.items():
-            formatted_readout.append({
-                "sourceType": source_type,
-                "comprehensiveSummary": data.get("comprehensiveSummary", ""),
-                "keyTakeaways": data.get("keyTakeaways", []),
-                "keyThemes": data.get("keyThemes", [])  # Added keyThemes from LLM output
-            })
+            if data is not None:
+                formatted_readout.append({
+                    "sourceType": source_type,
+                    "comprehensiveSummary": self._safe_get_string(data, "comprehensiveSummary"),
+                    "keyTakeaways": self._safe_get_list(data, "keyTakeaways"),
+                    "keyThemes": self._safe_get_list(data, "keyThemes")
+                })
         return formatted_readout
     
     def _create_empty_guide(self, project_context: Dict[str, Any]) -> Dict[str, Any]:
@@ -360,6 +381,9 @@ class OnboardingGuideGenerator:
             # Convert summaries to dict format and ensure document_id is UUID string
             formatted_summaries = []
             for summary in summaries:
+                if summary is None:
+                    continue
+                    
                 if hasattr(summary, 'to_dict'):
                     summary_dict = summary.to_dict()
                 else:
@@ -372,6 +396,15 @@ class OnboardingGuideGenerator:
                     # Convert to string if it's a UUID object
                     summary_dict['document_id'] = str(summary_dict['document_id'])
                 
+                # Ensure all list fields are never None
+                list_fields = ['key_themes', 'key_takeaways', 'extracted_keywords', 
+                              'key_people_mentioned', 'key_organizations_mentioned', 
+                              'key_dates_mentioned']
+                
+                for field in list_fields:
+                    if summary_dict.get(field) is None:
+                        summary_dict[field] = []
+                
                 formatted_summaries.append(summary_dict)
             
             return formatted_summaries
@@ -383,9 +416,9 @@ class OnboardingGuideGenerator:
     def _get_metadata_field(self, summary: Dict[str, Any], field_path: str, default_value=None):
         """Helper method to safely extract fields from metadata_analysis JSON."""
         try:
-            metadata_analysis = summary.get('metadata_analysis', {})
+            metadata_analysis = summary.get('metadata_analysis')
             if not metadata_analysis:
-                return default_value
+                return default_value if default_value is not None else []
             
             # Navigate nested path (e.g., "universal_metadata.stated_client_problem_summary")
             parts = field_path.split('.')
@@ -394,16 +427,22 @@ class OnboardingGuideGenerator:
                 if isinstance(current, dict) and part in current:
                     current = current[part]
                 else:
-                    return default_value
-            return current
-        except Exception:
-            return default_value
+                    return default_value if default_value is not None else []
+            
+            # Ensure lists are not None
+            if isinstance(current, list):
+                return current if current is not None else []
+            return current if current is not None else (default_value if default_value is not None else [])
+            
+        except Exception as e:
+            self.logger.debug(f"Error extracting metadata field {field_path}: {e}")
+            return default_value if default_value is not None else []
     
     def _create_lean_context_for_mission(self, project_context: Dict[str, Any], document_summaries: List[Dict[str, Any]]) -> str:
         """Creates a lean context string for mission and approach synthesis."""
         sow_and_proposal_summaries = [
             s for s in document_summaries
-            if s.get("source") in ["SoW / Proposal Document", "Project Plan"]
+            if s is not None and s.get("source") in ["SoW / Proposal Document", "Project Plan"]
         ]
         
         if not sow_and_proposal_summaries:
@@ -415,8 +454,8 @@ class OnboardingGuideGenerator:
         for summary in sow_and_proposal_summaries:
             # Use new denormalized fields and metadata_analysis for nested data
             doc_context = f"""
-Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
-Category: {summary.get('document_category', 'Unknown')}
+Document: {self._safe_get_string(summary, 'document_filename', 'Unknown')} (ID: {self._safe_get_string(summary, 'document_id', 'Unknown')})
+Category: {self._safe_get_string(summary, 'document_category', 'Unknown')}
 Problem Summary: {self._get_metadata_field(summary, 'project_specific.stated_client_problem_summary', 'N/A')}
 Objectives: {self._get_metadata_field(summary, 'project_specific.project_objectives_stated_list', [])}
 Timeline: {self._get_metadata_field(summary, 'project_specific.project_phases_timeline_summary', 'N/A')}
@@ -432,11 +471,14 @@ Deliverables: {self._get_metadata_field(summary, 'project_specific.key_deliverab
         """Creates a lean context string for strategic intelligence readout."""
         context_parts = []
         for summary in summaries_for_type:
+            if summary is None:
+                continue
+                
             # Use denormalized fields from the new model
             doc_context = f"""
-Document: {summary.get('document_filename', 'Unknown')} (ID: {summary.get('document_id', 'Unknown')})
-Narrative: {summary.get('narrative_summary', 'N/A')}
-Key Takeaways: {summary.get('key_takeaways', [])}
+Document: {self._safe_get_string(summary, 'document_filename', 'Unknown')} (ID: {self._safe_get_string(summary, 'document_id', 'Unknown')})
+Narrative: {self._safe_get_string(summary, 'narrative_summary', 'N/A')}
+Key Takeaways: {self._safe_get_list(summary, 'key_takeaways')}
 Objectives: {self._get_metadata_field(summary, 'project_specific.project_objectives_stated_list', [])}
 Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_requirements_or_pain_points_expressed_list', [])}
 """
@@ -469,9 +511,13 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
             # Use safe JSON parsing
             result = self._safe_json_parse(response.text)
             
-            # Validate the structure
-            if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
-                raise ValueError("LLM response missing required keys")
+            # Validate the structure and ensure lists are not None
+            required_keys = ['projectMandate', 'keyProjectPhases', 'strategicApproach']
+            for key in required_keys:
+                if key not in result:
+                    result[key] = [] if key != 'projectMandate' else "Unable to determine project mandate"
+                elif key != 'projectMandate' and result[key] is None:
+                    result[key] = []
             
             return result
             
@@ -482,8 +528,15 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
                 response = self.fallback_model.generate_content(prompt)
                 self.logger.info(f"Mission & Approach Fallback LLM Response: {response.text}")
                 result = self._safe_json_parse(response.text)
-                if not all(key in result for key in ['projectMandate', 'keyProjectPhases', 'strategicApproach']):
-                    raise ValueError("Fallback LLM response missing required keys")
+                
+                # Validate fallback response
+                required_keys = ['projectMandate', 'keyProjectPhases', 'strategicApproach']
+                for key in required_keys:
+                    if key not in result:
+                        result[key] = [] if key != 'projectMandate' else "Unable to determine project mandate"
+                    elif key != 'projectMandate' and result[key] is None:
+                        result[key] = []
+                        
                 return result
             except Exception as fallback_error:
                 self.logger.error(f"Fallback model also failed: {fallback_error}")
@@ -498,9 +551,11 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         """Synthesizes the 'Strategic Intelligence Readout' section of the onboarding guide."""
         self.logger.info("Synthesizing 'Strategic Intelligence Readout' section")
         
-        # Group summaries by source type
+        # Group summaries by source type, filtering out None values
         summaries_by_source_type = {}
         for summary in document_summaries:
+            if summary is None:
+                continue
             source_type = summary.get("source", "Unknown")
             if source_type not in summaries_by_source_type:
                 summaries_by_source_type[source_type] = []
@@ -522,9 +577,16 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
                 self.logger.info(f"Strategic Intelligence Readout LLM Response for {source_type}: {response.text}")
                 result = self._safe_json_parse(response.text)
                 
-                # Validate structure
-                if not all(key in result for key in ['comprehensiveSummary', 'keyTakeaways', 'keyThemes']):
-                    raise ValueError("LLM response missing required keys")
+                # Validate structure and ensure lists are not None
+                required_keys = ['comprehensiveSummary', 'keyTakeaways', 'keyThemes']
+                for key in required_keys:
+                    if key not in result:
+                        if key == 'comprehensiveSummary':
+                            result[key] = f"Unable to synthesize intelligence for {source_type} documents."
+                        else:
+                            result[key] = []
+                    elif key != 'comprehensiveSummary' and result[key] is None:
+                        result[key] = []
                 
                 strategic_intelligence_readout[source_type] = result
                 
@@ -542,16 +604,22 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         """Identifies the 'Priority Reading List' section of the onboarding guide."""
         self.logger.info("Identifying 'Priority Reading List' section")
         
-        # Create lean document list for prompt with UUID document IDs
+        # Create lean document list for prompt with UUID document IDs, filtering None values
         document_context = ""
         for i, s in enumerate(document_summaries):
-            # Use denormalized fields
+            if s is None:
+                continue
+                
+            # Use denormalized fields and safe accessors
+            key_themes_list = self._safe_get_list(s, "key_themes")
+            narrative_summary = self._safe_get_string(s, "narrative_summary")
+            
             doc_info = f"""
-- Document ID: {s.get("document_id", "Unknown")}
-- Filename: {s.get("document_filename", "Unknown")}
-- Source Type: {s.get("source", "Unknown")}
-- Summary: {(s.get("narrative_summary", "") or "")[:200]}
-- Key Themes: {", ".join((s.get("key_themes", []) or [])[:5])}  # Limit to first 5 themes
+- Document ID: {self._safe_get_string(s, "document_id", "Unknown")}
+- Filename: {self._safe_get_string(s, "document_filename", "Unknown")}
+- Source Type: {self._safe_get_string(s, "source", "Unknown")}
+- Summary: {narrative_summary[:200] if narrative_summary else "No summary available"}
+- Key Themes: {", ".join(key_themes_list[:5]) if key_themes_list else "No themes identified"}
 """
             document_context += doc_info
         
@@ -569,17 +637,23 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
                 raise ValueError("LLM response missing priorityReadingList key")
             
             reading_list = result["priorityReadingList"]
-            if not all(key in reading_list for key in ['highPriority', 'mediumPriority']):
-                raise ValueError("priorityReadingList missing required keys")
+            if not isinstance(reading_list, dict):
+                reading_list = {"highPriority": [], "mediumPriority": []}
+            
+            # Ensure required keys exist and are lists
+            for priority_level in ['highPriority', 'mediumPriority']:
+                if priority_level not in reading_list or reading_list[priority_level] is None:
+                    reading_list[priority_level] = []
             
             # Ensure document IDs in the reading list are UUIDs
             for priority_level in ['highPriority', 'mediumPriority']:
-                if priority_level in reading_list:
+                if priority_level in reading_list and isinstance(reading_list[priority_level], list):
                     for doc in reading_list[priority_level]:
-                        if 'documentId' in doc:
+                        if isinstance(doc, dict) and 'documentId' in doc:
                             # Ensure it's a string representation of UUID
                             doc['documentId'] = str(doc['documentId'])
             
+            result["priorityReadingList"] = reading_list
             return result
             
         except Exception as e:
@@ -591,66 +665,69 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
         self.logger.info("Generating 'Knowledge Base FAQ' section")
         
         # Create curated insights using the denormalized fields from DocumentSummary
+        # Filter out None values and use safe list accessors
+        valid_summaries = [s for s in document_summaries if s is not None]
+        
         curated_insights = {
             "narrativeSummaries": [
-                s.get("narrative_summary") for s in document_summaries
-                if s.get("narrative_summary")
+                self._safe_get_string(s, "narrative_summary") for s in valid_summaries
+                if self._safe_get_string(s, "narrative_summary")
             ][:10],
             "keyThemes": list(set(
-                theme for s in document_summaries
-                for theme in (s.get("key_themes") or [])
+                theme for s in valid_summaries
+                for theme in self._safe_get_list(s, "key_themes")
             ))[:10],
             "keyTakeaways": [
-                takeaway for s in document_summaries
-                for takeaway in (s.get("key_takeaways") or [])
+                takeaway for s in valid_summaries
+                for takeaway in self._safe_get_list(s, "key_takeaways")
             ][:15],
             "extractedKeywords": list(set(
-                keyword for s in document_summaries
-                for keyword in (s.get("extracted_keywords") or [])
+                keyword for s in valid_summaries
+                for keyword in self._safe_get_list(s, "extracted_keywords")
             ))[:20],
             "documentCategories": list(set(
-                s.get("document_category") for s in document_summaries
-                if s.get("document_category")
+                self._safe_get_string(s, "document_category") for s in valid_summaries
+                if self._safe_get_string(s, "document_category")
             )),
             "documentGroups": list(set(
-                s.get("document_group") for s in document_summaries
-                if s.get("document_group")
+                self._safe_get_string(s, "document_group") for s in valid_summaries
+                if self._safe_get_string(s, "document_group")
             )),
             "suggestedTitles": [
-                s.get("suggested_title") for s in document_summaries
-                if s.get("suggested_title")
+                self._safe_get_string(s, "suggested_title") for s in valid_summaries
+                if self._safe_get_string(s, "suggested_title")
             ][:10],
             "impliedAudiences": list(set(
-                s.get("implied_audience") for s in document_summaries
-                if s.get("implied_audience")
+                self._safe_get_string(s, "implied_audience") for s in valid_summaries
+                if self._safe_get_string(s, "implied_audience")
             )),
             "geographicalFocus": list(set(
-                s.get("geographical_focus") for s in document_summaries
-                if s.get("geographical_focus")
+                self._safe_get_string(s, "geographical_focus") for s in valid_summaries
+                if self._safe_get_string(s, "geographical_focus")
             )),
             "keyPeople": list(set(
-                person for s in document_summaries
-                for person in (s.get("key_people_mentioned") or [])
+                person for s in valid_summaries
+                for person in self._safe_get_list(s, "key_people_mentioned")
             ))[:15],
             "keyOrganizations": list(set(
-                org for s in document_summaries
-                for org in (s.get("key_organizations_mentioned") or [])
+                org for s in valid_summaries
+                for org in self._safe_get_list(s, "key_organizations_mentioned")
             ))[:15],
             "keyDates": list(set(
-                date for s in document_summaries
-                for date in (s.get("key_dates_mentioned") or [])
+                date for s in valid_summaries
+                for date in self._safe_get_list(s, "key_dates_mentioned")
             ))[:10],
             "documentSentiments": list(set(
-                s.get("document_sentiment") for s in document_summaries
-                if s.get("document_sentiment")
+                self._safe_get_string(s, "document_sentiment") for s in valid_summaries
+                if self._safe_get_string(s, "document_sentiment")
             )),
             "userNotePurposes": [
-                s.get("user_note_purpose") for s in document_summaries
-                if s.get("user_note_purpose")
+                self._safe_get_string(s, "user_note_purpose") for s in valid_summaries
+                if self._safe_get_string(s, "user_note_purpose")
             ][:10],
             "documentIds": [
-                s.get("document_id") for s in document_summaries
-                if s.get("document_id")
+                self._safe_get_string(s, "document_id") for s in valid_summaries
+                if self._safe_get_string(s, "document_id")
             ]  # Include document UUIDs for reference
         }
         
@@ -674,10 +751,18 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
             if "knowledgeFAQ" not in result:
                 raise ValueError("LLM response missing knowledgeFAQ key")
             
+            # Ensure knowledgeFAQ is a list
+            if not isinstance(result["knowledgeFAQ"], list):
+                result["knowledgeFAQ"] = []
+            
             # Ensure any document references in FAQ answers use UUID format
             for faq_item in result.get("knowledgeFAQ", []):
-                if 'relatedDocuments' in faq_item:
-                    faq_item['relatedDocuments'] = [str(doc_id) for doc_id in faq_item['relatedDocuments']]
+                if isinstance(faq_item, dict) and 'relatedDocuments' in faq_item:
+                    related_docs = faq_item['relatedDocuments']
+                    if isinstance(related_docs, list):
+                        faq_item['relatedDocuments'] = [str(doc_id) for doc_id in related_docs if doc_id is not None]
+                    elif related_docs is None:
+                        faq_item['relatedDocuments'] = []
             
             return result
             
@@ -687,12 +772,21 @@ Client Concerns: {self._get_metadata_field(summary, 'project_specific.client_req
     
     def _get_distribution_by_source(self, document_summaries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Calculates the distribution of documents by source type."""
+        if not document_summaries:
+            return []
+            
+        # Filter out None values
+        valid_summaries = [s for s in document_summaries if s is not None]
+        
+        if not valid_summaries:
+            return []
+            
         source_counts = {}
-        for summary in document_summaries:
-            source_type = summary.get("source", "Unknown")
+        for summary in valid_summaries:
+            source_type = self._safe_get_string(summary, "source", "Unknown")
             source_counts[source_type] = source_counts.get(source_type, 0) + 1
         
-        total_documents = len(document_summaries)
+        total_documents = len(valid_summaries)
         if total_documents == 0:
             return []
         

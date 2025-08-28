@@ -3,14 +3,15 @@ import time
 import logging
 import uuid
 from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import wraps
 
 import structlog
 from prometheus_client import Histogram, Counter
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from pydantic import PrivateAttr
 
-from llama_index.core.schema import NodeWithScore
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.core.postprocessor.types import BaseNodePostprocessor
 from llama_index.core.postprocessor import SimilarityPostprocessor
 from llama_index.core.postprocessor import SentenceTransformerRerank
@@ -60,7 +61,7 @@ NUMERIC = re.compile(r"(\d[\d,\.]*\s?%|\$?\s?\d[\d,\.]*\b|\b\d+\s?[xX]\b)")
 class PostProcessorConfig:
     max_docs_to_rerank: int = 100
     max_docs_to_expand: int = 50
-    similarity_cutoff: float = 0.70
+    similarity_cutoff: float = 0.15  # Changed from 0.70 to 0.15
     min_overlap_terms: int = 1
     enable_metrics: bool = True
     enable_logging: bool = True
@@ -214,14 +215,14 @@ class ResilientContextTwinExpander(BaseNodePostprocessor):
                 nodes = self._docstore.get_nodes_by_metadata({"same_table_group_id": gid}) or []
                 # defensive filtering
                 proj = group_filter.get("project_id")
-                doctype = group_filter.get("document_type")
+                doctype = group_filter.get("document_content_type")
                 if proj or doctype:
                     out = []
                     for n in nodes:
                         meta = getattr(n, "metadata", {}) or {}
                         if proj and str(meta.get("project_id")) != str(proj):
                             continue
-                        if doctype and str(meta.get("document_type")) != str(doctype):
+                        if doctype and str(meta.get("document_content_type")) != str(doctype):
                             continue
                         out.append(n)
                     return out
@@ -234,7 +235,7 @@ class ResilientContextTwinExpander(BaseNodePostprocessor):
         if hasattr(self._docstore, "get_all_nodes"):
             scanned = 0
             proj = group_filter.get("project_id")
-            doctype = group_filter.get("document_type")
+            doctype = group_filter.get("document_content_type")
             try:
                 for node in self._docstore.get_all_nodes().values():
                     scanned += 1
@@ -246,7 +247,7 @@ class ResilientContextTwinExpander(BaseNodePostprocessor):
                         continue
                     if proj and str(meta.get("project_id")) != str(proj):
                         continue
-                    if doctype and str(meta.get("document_type")) != str(doctype):
+                    if doctype and str(meta.get("document_content_type")) != str(doctype):
                         continue
                     out_nodes.append(node)
             except Exception as e:
@@ -271,7 +272,7 @@ class ResilientContextTwinExpander(BaseNodePostprocessor):
             if gid is not None:
                 group_ids.add(gid)
                 if gid not in group_filters:
-                    group_filters[gid] = {"project_id": meta.get("project_id"), "document_type": meta.get("document_type")}
+                    group_filters[gid] = {"project_id": meta.get("project_id"), "document_content_type": meta.get("document_content_type")}
 
         if not group_ids:
             return nodes_to_process
@@ -311,9 +312,25 @@ class ResilientContextTwinExpander(BaseNodePostprocessor):
         return self._postprocess_nodes(nodes, query_str)
 
 class ResilientQueryTermFilter(BaseNodePostprocessor):
-    def __init__(self, min_overlap_terms: int = 1, config: Optional[PostProcessorConfig] = None):
-        self.min_overlap_terms = min_overlap_terms
+    _min_overlap_terms: int = PrivateAttr(default=1)
+    _config: PostProcessorConfig = PrivateAttr()
+
+    def __init__(self, min_overlap_terms: int = 1, config: Optional[PostProcessorConfig] = None, **data):
+        super().__init__(**data)
+        self._min_overlap_terms = int(min_overlap_terms)
         self._config = config or PostProcessorConfig()
+        
+        # Debug log confirming _min_overlap_terms value
+        logger.debug("ResilientQueryTermFilter initialized", min_overlap_terms=self._min_overlap_terms)
+
+    @property
+    def config(self) -> PostProcessorConfig:
+        """Property for framework compatibility that reads .config"""
+        return self._config
+
+    def __repr__(self) -> str:
+        """Safe repr for debugging and logging"""
+        return f"ResilientQueryTermFilter(min_overlap_terms={self._min_overlap_terms})"
 
     @safe_postprocessor("query_term_filter")
     def _postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None, query_id: Optional[str] = None) -> List[NodeWithScore]:
@@ -321,6 +338,7 @@ class ResilientQueryTermFilter(BaseNodePostprocessor):
             return nodes
 
         try:
+            # Sanitize query terms: extract meaningful words (3+ chars, alpha-numeric)
             q_terms = set([t.lower() for t in re.findall(r"[A-Za-z]\w{2,}", query_str)])
             if not q_terms:
                 return nodes
@@ -335,7 +353,7 @@ class ResilientQueryTermFilter(BaseNodePostprocessor):
             try:
                 text = (n.get_content() or "").lower()
                 overlap = sum(1 for t in q_terms if t in text)
-                if overlap >= self.min_overlap_terms:
+                if overlap >= self._min_overlap_terms:
                     kept.append(n)
             except Exception as e:
                 logger.warning("Error filtering node", query_id=query_id, node_id=getattr(n, "node_id", "unknown"), error=str(e))
@@ -348,14 +366,41 @@ class ResilientQueryTermFilter(BaseNodePostprocessor):
         return self._postprocess_nodes(nodes, query_str)
 
 class ResilientSimilarityPostprocessor(BaseNodePostprocessor):
-    def __init__(self, similarity_cutoff: float = 0.70, config: Optional[PostProcessorConfig] = None):
+    def __init__(
+        self,
+        similarity_cutoff: float = 0.15,
+        min_keep: int = 3,
+        fail_open_on_empty: bool = True,
+        config: Optional[PostProcessorConfig] = None,
+    ):
         self._similarity_cutoff = similarity_cutoff
+        self._min_keep = min_keep
+        self._fail_open_on_empty = fail_open_on_empty
         self._config = config or PostProcessorConfig()
         self._processor = SimilarityPostprocessor(similarity_cutoff=similarity_cutoff)
 
     @safe_postprocessor("similarity_filter")
-    def _postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None, query_id: Optional[str] = None) -> List[NodeWithScore]:
-        return self._processor.postprocess_nodes(nodes, query_str)
+    def _postprocess_nodes(
+        self, nodes: List[NodeWithScore], query_str: Optional[str] = None, query_id: Optional[str] = None
+    ) -> List[NodeWithScore]:
+        if not nodes:
+            return nodes
+
+        out = self._processor.postprocess_nodes(nodes, query_str)
+        out = out or []
+
+        if not out and self._fail_open_on_empty:
+            keep_n = min(self._config.max_docs_to_rerank, max(self._min_keep, len(nodes)))
+            logger.warning(
+                "Similarity filter produced empty set; failing open",
+                query_id=query_id,
+                cutoff=self._similarity_cutoff,
+                input_docs=len(nodes),
+                keep_n=keep_n,
+            )
+            return nodes[:keep_n]
+
+        return out
 
     def postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None) -> List[NodeWithScore]:
         return self._postprocess_nodes(nodes, query_str)
@@ -371,28 +416,55 @@ class ResilientSentenceTransformerRerank(BaseNodePostprocessor):
         wait=wait_exponential(multiplier=2, max=10),
         retry=retry_if_exception_type((ConnectionError, TimeoutError))
     )
-    def _rerank_with_retry(self, nodes: List[NodeWithScore], query_str: str) -> List[NodeWithScore]:
-        return self._processor.postprocess_nodes(nodes, query_str)
+    def _rerank_with_retry(self, nodes: List[NodeWithScore], query_bundle: QueryBundle) -> List[NodeWithScore]:
+        """Retry wrapper for reranking with proper QueryBundle handling."""
+        return self._processor.postprocess_nodes(nodes, query_bundle)
 
     @safe_postprocessor("sentence_transformer_rerank")
     def _postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None, query_id: Optional[str] = None) -> List[NodeWithScore]:
         if not nodes or not query_str:
+            if self._config.enable_logging:
+                logger.debug("Skipping reranking - empty nodes or query", query_id=query_id, 
+                           has_nodes=bool(nodes), has_query=bool(query_str))
             return nodes
 
+        # Limit nodes to rerank for performance
         nodes_to_rerank = nodes[: self._config.max_docs_to_rerank]
         remaining_nodes = nodes[self._config.max_docs_to_rerank :]
 
-        if remaining_nodes:
-            logger.info("Limiting reranking", query_id=query_id, original_count=len(nodes), rerank_count=len(nodes_to_rerank))
+        if remaining_nodes and self._config.enable_logging:
+            logger.info("Limiting reranking for performance", query_id=query_id, 
+                       original_count=len(nodes), rerank_count=len(nodes_to_rerank))
 
         try:
-            reranked = self._rerank_with_retry(nodes_to_rerank, query_str)
-            return reranked + remaining_nodes
+            # Convert query_str to QueryBundle if it's a string
+            query_bundle = QueryBundle(query_str) if isinstance(query_str, str) else query_str
+            
+            if self._config.enable_logging:
+                logger.debug("Starting reranking", query_id=query_id, 
+                           nodes_count=len(nodes_to_rerank), model=getattr(self._processor, 'model', 'unknown'))
+            
+            reranked = self._rerank_with_retry(nodes_to_rerank, query_bundle)
+            
+            if self._config.enable_logging:
+                logger.debug("Reranking completed successfully", query_id=query_id, 
+                           reranked_count=len(reranked) if reranked else 0)
+            
+            # Combine reranked nodes with any remaining nodes
+            final_result = (reranked or []) + remaining_nodes
+            return final_result
+            
         except Exception as e:
-            logger.error("Reranking failed after retries", query_id=query_id, error=str(e))
+            error_type = type(e).__name__
+            logger.error("Reranking failed after retries - falling back to original nodes", 
+                        query_id=query_id, error=str(e), error_type=error_type, 
+                        fallback_nodes=len(nodes_to_rerank))
+            
+            # Fail-open: return original nodes to keep pipeline running
             return nodes_to_rerank + remaining_nodes
 
     def postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None) -> List[NodeWithScore]:
+        """Main entry point for postprocessing nodes with reranking."""
         return self._postprocess_nodes(nodes, query_str)
 
 # ---------------------------------------------------------------------
@@ -402,32 +474,56 @@ def build_resilient_postprocessors(query: str, top_k: int, index, config: Option
     if config is None:
         config = PostProcessorConfig()
 
+    qtf = ResilientQueryTermFilter(min_overlap_terms=config.min_overlap_terms, config=config)
+
+    logger.debug(
+        "QueryTermFilter constructed",
+        cls=type(qtf).__name__,
+        has_attr=hasattr(qtf, "_min_overlap_terms"),
+        value=getattr(qtf, "_min_overlap_terms", None),
+        module=getattr(type(qtf), "__module__", None)
+    )
+
     return [
         ResilientIntentBiasPostprocessor(query, config),
-        ResilientSimilarityPostprocessor(similarity_cutoff=config.similarity_cutoff, config=config),
         ResilientSentenceTransformerRerank(model="cross-encoder/ms-marco-MiniLM-L-6-v2", top_n=top_k, config=config),
+        ResilientSimilarityPostprocessor(similarity_cutoff=config.similarity_cutoff, min_keep=3, fail_open_on_empty=True, config=config),
         ResilientSameGroupDeduper(config),
         ResilientContextTwinExpander(index, config),
-        ResilientQueryTermFilter(min_overlap_terms=config.min_overlap_terms, config=config),
+        qtf,
     ]
 
 def process_postretrieval_pipeline(nodes: List[NodeWithScore], query_str: str, postprocessors: List[BaseNodePostprocessor], query_id: Optional[str] = None) -> List[NodeWithScore]:
     if query_id is None:
         query_id = str(uuid.uuid4())
 
+    # Early return for empty nodes - avoid unnecessary processor construction/iteration
+    if not nodes:
+        logger.info("Empty node list provided, returning early", query_id=query_id)
+        return []
+
     logger.info("Starting post-retrieval pipeline", query_id=query_id, initial_nodes=len(nodes), processors=len(postprocessors))
-    current_nodes = nodes or []
+    current_nodes = nodes
 
     for i, processor in enumerate(postprocessors):
         try:
             processor_name = type(processor).__name__
             logger.debug("Applying processor", query_id=query_id, processor=processor_name, input_nodes=len(current_nodes))
+            
+            # Store previous nodes for fail-open behavior
+            prev_nodes = current_nodes
             processed = processor.postprocess_nodes(current_nodes, query_str)
             current_nodes = processed if processed is not None else current_nodes
+            
+            # Optional guard: restore previous non-empty list if processor emptied results
+            if not current_nodes and prev_nodes:
+                logger.warning("Processor emptied results; keeping previous list", processor=processor_name, query_id=query_id)
+                current_nodes = prev_nodes
+            
             logger.debug("Completed processor", query_id=query_id, processor=processor_name, output_nodes=len(current_nodes))
         except Exception as e:
             logger.error("Post-processor failed", query_id=query_id, processor=type(processor).__name__, error=str(e), error_type=type(e).__name__)
-            # Continue using current_nodes
+            # Continue using current_nodes - fail-open behavior
             continue
 
     logger.info("Completed post-retrieval pipeline", query_id=query_id, final_nodes=len(current_nodes))

@@ -25,7 +25,8 @@ from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import QueryBundle, NodeWithScore
 from llama_index.core.base.response.schema import Response
 
-from rag.retriever_service import build_metadata_filtered_retriever
+from services.rag.retrieval_service import build_metadata_filtered_retriever
+
 from rag.post_retrieval import build_postprocessors
 from rag.reranker import CrossEncoderReranker  # NEW: cross-encoder reranker
 
@@ -431,9 +432,9 @@ class ResilientQueryEngine:
         with QueryMetrics("post_process", query_id, user_id, self.config):
             try:
                 postprocessors = build_postprocessors(
-                    query_text, 
-                    self.top_k, 
-                    self.index, 
+                    query_text,
+                    self.top_k,
+                    self.index,
                     self.config.similarity_cutoff
                 )
                 processed = nodes
@@ -574,10 +575,10 @@ def build_query_engine(
     """
     if config is None:
         config = QueryEngineConfig()
-    
+
     # Set similarity_cutoff in config if provided
     config.similarity_cutoff = similarity_cutoff
-    
+
     return ResilientQueryEngine(
         index=index,
         project_id=project_id,
