@@ -846,8 +846,6 @@ class DatabaseManager:
             logger.error(f"Unexpected error counting temp documents: {e}")
             return 0
 
-
-
     # Document Operations (Enhanced)
     def create_document(self, **kwargs) -> Document:
         """Create a new document with enhanced validation."""

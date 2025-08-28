@@ -161,6 +161,7 @@ class DocumentUploadService:
                     user_id=user_uuid,
                     project_id=project_int,
                     processed_content=task.get("user_purpose_note", ""),
+                    document_metadata=doc_meta,
                     date_added_to_giani=datetime.utcnow(),
                 )
 

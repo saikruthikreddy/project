@@ -93,3 +93,8 @@ class DependencyError(GianiBaseError):
     def __init__(self, message: str):
         self.message = message
         super().__init__(self.message)
+
+class SearchServiceError(GianiBaseError):
+    """Exception raised in Azure AI Search Service"""
+    def __init__(self, message: str) -> None:
+        super().__init__(message)

@@ -319,7 +319,7 @@ class ResilientQueryTermFilter(BaseNodePostprocessor):
         super().__init__(**data)
         self._min_overlap_terms = int(min_overlap_terms)
         self._config = config or PostProcessorConfig()
-        
+
         # Debug log confirming _min_overlap_terms value
         logger.debug("ResilientQueryTermFilter initialized", min_overlap_terms=self._min_overlap_terms)
 
@@ -424,7 +424,7 @@ class ResilientSentenceTransformerRerank(BaseNodePostprocessor):
     def _postprocess_nodes(self, nodes: List[NodeWithScore], query_str: Optional[str] = None, query_id: Optional[str] = None) -> List[NodeWithScore]:
         if not nodes or not query_str:
             if self._config.enable_logging:
-                logger.debug("Skipping reranking - empty nodes or query", query_id=query_id, 
+                logger.debug("Skipping reranking - empty nodes or query", query_id=query_id,
                            has_nodes=bool(nodes), has_query=bool(query_str))
             return nodes
 
@@ -433,33 +433,33 @@ class ResilientSentenceTransformerRerank(BaseNodePostprocessor):
         remaining_nodes = nodes[self._config.max_docs_to_rerank :]
 
         if remaining_nodes and self._config.enable_logging:
-            logger.info("Limiting reranking for performance", query_id=query_id, 
+            logger.info("Limiting reranking for performance", query_id=query_id,
                        original_count=len(nodes), rerank_count=len(nodes_to_rerank))
 
         try:
             # Convert query_str to QueryBundle if it's a string
             query_bundle = QueryBundle(query_str) if isinstance(query_str, str) else query_str
-            
+
             if self._config.enable_logging:
-                logger.debug("Starting reranking", query_id=query_id, 
+                logger.debug("Starting reranking", query_id=query_id,
                            nodes_count=len(nodes_to_rerank), model=getattr(self._processor, 'model', 'unknown'))
-            
+
             reranked = self._rerank_with_retry(nodes_to_rerank, query_bundle)
-            
+
             if self._config.enable_logging:
-                logger.debug("Reranking completed successfully", query_id=query_id, 
+                logger.debug("Reranking completed successfully", query_id=query_id,
                            reranked_count=len(reranked) if reranked else 0)
-            
+
             # Combine reranked nodes with any remaining nodes
             final_result = (reranked or []) + remaining_nodes
             return final_result
-            
+
         except Exception as e:
             error_type = type(e).__name__
-            logger.error("Reranking failed after retries - falling back to original nodes", 
-                        query_id=query_id, error=str(e), error_type=error_type, 
+            logger.error("Reranking failed after retries - falling back to original nodes",
+                        query_id=query_id, error=str(e), error_type=error_type,
                         fallback_nodes=len(nodes_to_rerank))
-            
+
             # Fail-open: return original nodes to keep pipeline running
             return nodes_to_rerank + remaining_nodes
 
@@ -509,17 +509,17 @@ def process_postretrieval_pipeline(nodes: List[NodeWithScore], query_str: str, p
         try:
             processor_name = type(processor).__name__
             logger.debug("Applying processor", query_id=query_id, processor=processor_name, input_nodes=len(current_nodes))
-            
+
             # Store previous nodes for fail-open behavior
             prev_nodes = current_nodes
             processed = processor.postprocess_nodes(current_nodes, query_str)
             current_nodes = processed if processed is not None else current_nodes
-            
+
             # Optional guard: restore previous non-empty list if processor emptied results
             if not current_nodes and prev_nodes:
                 logger.warning("Processor emptied results; keeping previous list", processor=processor_name, query_id=query_id)
                 current_nodes = prev_nodes
-            
+
             logger.debug("Completed processor", query_id=query_id, processor=processor_name, output_nodes=len(current_nodes))
         except Exception as e:
             logger.error("Post-processor failed", query_id=query_id, processor=type(processor).__name__, error=str(e), error_type=type(e).__name__)
