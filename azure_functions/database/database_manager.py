@@ -1289,9 +1289,74 @@ class DatabaseManager:
             raise DatabaseError(f"Unexpected error creating/updating onboarding guide: {e}")
 
 
-    # Statistics and Analytics (Enhanced)
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
-        """Save a document summary to the database."""
+        """Save a document summary to the database with separate summarization and metadata analysis."""
+        
+        def safe_extract(data, key, default=None):
+            """Safely extract a value from nested data structures with improved handling."""
+            if isinstance(data, dict):
+                value = data.get(key, default)
+                
+                # Handle cases where the value might be a dict with additional nesting
+                if isinstance(value, dict):
+                    # Priority order for extracting the actual value from nested dicts
+                    for extract_key in ['title', 'value', 'text', 'content']:
+                        if extract_key in value:
+                            extracted = value[extract_key]
+                            # Return the extracted value if it's not another complex dict
+                            if not isinstance(extracted, (dict, list)):
+                                return extracted
+                    
+                    # If no standard keys found, try to return a meaningful string
+                    if value:
+                        # If it's a non-empty dict, try to get the first string value
+                        for v in value.values():
+                            if isinstance(v, str) and v.strip():
+                                return v
+                    
+                    return default
+                
+                return value
+            return default
+
+        def safe_extract_list(data, key, default=None):
+            """Safely extract a list value, ensuring it's actually a list."""
+            value = safe_extract(data, key, default or [])
+            return value if isinstance(value, list) else (default or [])
+
+        def validate_and_convert_for_db(value, expected_type='string'):
+            """Validate and convert values for database storage with better null handling."""
+            if value is None or value == "":
+                return None
+            
+            if expected_type == 'string':
+                if isinstance(value, dict):
+                    # Try to extract a meaningful string representation
+                    if 'title' in value and value['title']:
+                        return str(value['title'])
+                    elif 'value' in value and value['value']:
+                        return str(value['value'])
+                    elif 'text' in value and value['text']:
+                        return str(value['text'])
+                    else:
+                        # Get first non-empty string value
+                        for v in value.values():
+                            if isinstance(v, str) and v.strip():
+                                return v
+                        return None  # Don't convert empty dicts to strings
+                
+                result = str(value) if value is not None else None
+                return result if result and result.strip() else None
+            
+            elif expected_type == 'list':
+                if isinstance(value, list):
+                    return value if value else []  # Return empty list instead of None
+                elif isinstance(value, dict):
+                    return []  # Return empty list for dicts when list expected
+                return []
+            
+            return value
+
         try:
             # Convert string to UUID if necessary
             if isinstance(document_id, str):
@@ -1308,16 +1373,39 @@ class DatabaseManager:
                 logger.error(f"Cannot save summary: document_id {document_id} does not exist")
                 return False
 
-            # Extract llm_analysis for easier access
-            llm_analysis = summary_data.get("llm_analysis", {})
-            extracted_metadata = llm_analysis.get("extracted_metadata", {})
+            # Extract both analysis types
+            summarization_analysis = summary_data.get("summarization_analysis", {})
+            metadata_analysis = summary_data.get("metadata_analysis", {})
+            
+            # Validate that both analyses are present
+            if not summarization_analysis:
+                logger.warning(f"No summarization_analysis found for document {document_id}")
+            if not metadata_analysis:
+                logger.warning(f"No metadata_analysis found for document {document_id}")
+            
+            # Extract nested structures with fallbacks and better handling
+            extracted_metadata = metadata_analysis.get("extracted_metadata", {})
+            intelligence_layer = extracted_metadata.get("intelligence_layer", {})
+            universal_metadata = extracted_metadata.get("universal_metadata", {})
+            rag_specific = extracted_metadata.get("rag_specific_metadata", {})
+            group_specific = extracted_metadata.get("group_specific", {})
 
             with self.get_session() as session:
+                # Calculate duration values with defaults
+                summarization_duration = summary_data.get("summarization_duration_seconds")
+                metadata_duration = summary_data.get("metadata_duration_seconds") 
+                total_duration = summary_data.get("processing_duration_seconds")
+                
+                # If metadata_duration is missing but we have total and summarization, calculate it
+                if metadata_duration is None and summarization_duration is not None and total_duration is not None:
+                    metadata_duration = max(0, total_duration - summarization_duration)
+
                 summary = DocumentSummary(
                     document_id=document_uuid,
-                    # llm_analysis=llm_analysis,
-                    summarization_analysis=summary_data.get("summarization_analysis"),
-                    metadata_analysis=summary_data.get("metadata_analysis"),
+                    
+                    # Core LLM Analysis - separate columns for each type
+                    summarization_analysis=summarization_analysis,
+                    metadata_analysis=metadata_analysis,
 
                     # Document context
                     document_filename=summary_data.get("document_filename"),
@@ -1328,29 +1416,63 @@ class DatabaseManager:
 
                     # Processing metadata
                     processing_timestamp=datetime.now(timezone.utc),
-                    summarization_llm_model=summary_data.get("summarization_llm_model", ""),
+                    summarization_llm_model=summarization_analysis.get("llm_used_for_processing"),
+                    metadata_llm_model=metadata_analysis.get("llm_used_for_processing"),
                     summary_storage_path=summary_data.get("summaryStoragePath"),
 
-                    # Extracted fields for easy querying
-                    narrative_summary=summary_data.get("ai_high_level_narrative_summary"),
-                    key_themes=summary_data.get("ai_overall_key_themes_list"),
-                    key_takeaways=summary_data.get("ai_key_takeaways_bullets"),
-                    extracted_keywords=summary_data.get("extracted_keywords"),
+                    # Extracted fields for easy querying (from summarization_analysis)
+                    narrative_summary=safe_extract(summarization_analysis, "ai_high_level_narrative_summary"),
+                    key_themes=safe_extract_list(summarization_analysis, "ai_overall_key_themes_list"),
+                    key_takeaways=safe_extract_list(summarization_analysis, "ai_key_takeaways_bullets"),
+                    tldr_key_finding=safe_extract(summarization_analysis, "ai_tldr_key_finding"),
+                    main_topics=safe_extract_list(summarization_analysis, "ai_main_topics_with_summaries_list_of_objects"),
 
-                    # Metadata for search and filtering
-                    document_sentiment=extracted_metadata.get("document_overall_sentiment"),
-                    suggested_title=extracted_metadata.get("suggested_document_title"),
-                    implied_audience=extracted_metadata.get("implied_audience"),
-                    geographical_focus=extracted_metadata.get("primary_geographical_focus"),
+                    # Extracted fields for easy querying (from metadata_analysis) - improved extraction
+                    extracted_keywords=safe_extract_list(metadata_analysis, "extracted_keywords"),
+                    
+                    # Extract from universal_metadata with better handling
+                    suggested_title=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "suggested_document_title"), 
+                        'string'
+                    ),
+                    implied_audience=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "implied_audience"), 
+                        'string'
+                    ),
+                    geographical_focus=validate_and_convert_for_db(
+                        safe_extract(universal_metadata, "primary_geographical_focus"), 
+                        'string'
+                    ),
 
-                    # Key entities
-                    key_people_mentioned=extracted_metadata.get("key_people_or_roles_mentioned"),
-                    key_organizations_mentioned=extracted_metadata.get("key_companies_organizations_mentioned"),
-                    key_dates_mentioned=extracted_metadata.get("key_dates_mentioned"),
+                    # Intelligence layer data (from metadata_analysis)
+                    strategy_objectives=safe_extract_list(intelligence_layer, "strategy_and_objectives"),
+                    key_findings_data=safe_extract_list(intelligence_layer, "key_findings_and_data"),
+                    risks_mitigations=safe_extract_list(intelligence_layer, "risks_and_mitigations"),
+                    execution_actions=safe_extract_list(intelligence_layer, "execution_and_actions"),
+
+                    # RAG specific data
+                    potential_questions=safe_extract_list(rag_specific, "ai_generated_potential_questions_list"),
+
+                    # Key entities (try group_specific first, then universal_metadata)
+                    key_people_mentioned=(
+                        safe_extract_list(group_specific, "key_attendees_or_participants_list") or
+                        safe_extract_list(universal_metadata, "key_people_or_roles_mentioned") or
+                        []
+                    ),
+                    key_organizations_mentioned=safe_extract_list(universal_metadata, "key_companies_organizations_mentioned"),
+                    key_dates_mentioned=safe_extract_list(universal_metadata, "key_dates_mentioned"),
+
+                    # Performance tracking with proper defaults
+                    summarization_duration_seconds=summarization_duration,
+                    metadata_duration_seconds=metadata_duration,
+                    total_processing_duration_seconds=total_duration,
                 )
+                
                 session.add(summary)
                 session.commit()
                 logger.info(f"Successfully saved summary for document {document_id}")
+                logger.debug(f"Summary saved with {len(safe_extract_list(summarization_analysis, 'ai_overall_key_themes_list'))} themes, "
+                            f"{len(safe_extract_list(intelligence_layer, 'strategy_and_objectives'))} strategy items")
                 return True
 
         except SQLAlchemyError as e:
@@ -1358,6 +1480,8 @@ class DatabaseManager:
             return False
         except Exception as e:
             logger.error(f"Unexpected error saving summary: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
     def _normalize_document_id(self, document_id: Union[str, uuid.UUID]) -> str:

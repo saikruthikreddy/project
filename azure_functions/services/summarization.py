@@ -293,11 +293,10 @@ class SummarizationService:
 
         raise APIError(f"{prompt_type} LLM API failed after retries")
 
-    def call_llm_apis_parallel(self, document_category: str, document_filename: str,
-                              user_purpose: str, combined_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        """Call both summarization and metadata LLM APIs in parallel."""
+    def call_llm_apis_parallel(self, document_category: str, document_filename: str, user_purpose: str, combined_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], float, float]:
+        """Call both summarization and metadata LLM APIs in parallel and return individual durations."""
         self.logger.info(f"Starting parallel LLM API calls for category: {document_category}")
-
+        
         try:
             # Get both prompts using the existing prompt generators
             summarization_prompt, metadata_prompt = get_both_prompts(
@@ -307,38 +306,45 @@ class SummarizationService:
                 user_purpose,
                 combined_text
             )
-
             self.logger.debug("Successfully generated both prompts")
-
         except Exception as e:
             self.logger.error(f"Failed to generate prompts: {e}")
             raise e
 
         summarization_result = None
         metadata_result = None
-
+        summarization_duration = 0
+        metadata_duration = 0
+        
         # Use ThreadPoolExecutor for parallel execution
         with ThreadPoolExecutor(max_workers=2) as executor:
-            # Submit both tasks
+            # Submit both tasks with timing
+            summarization_start = time.time()
             future_summarization = executor.submit(self.call_llm_api, summarization_prompt, "summarization")
+            
+            metadata_start = time.time()
             future_metadata = executor.submit(self.call_llm_api, metadata_prompt, "metadata")
-
+            
             # Collect results as they complete
             for future in as_completed([future_summarization, future_metadata]):
                 try:
                     if future == future_summarization:
                         summarization_result = future.result()
-                        self.logger.info("Summarization API call completed")
+                        summarization_duration = time.time() - summarization_start
+                        self.logger.info(f"Summarization API call completed in {summarization_duration:.2f}s")
                     elif future == future_metadata:
                         metadata_result = future.result()
-                        self.logger.info("Metadata API call completed")
+                        metadata_duration = time.time() - metadata_start
+                        self.logger.info(f"Metadata API call completed in {metadata_duration:.2f}s")
                 except Exception as e:
                     if future == future_summarization:
                         self.logger.error(f"Summarization API call failed: {e}")
+                        summarization_duration = time.time() - summarization_start
                     elif future == future_metadata:
                         self.logger.error(f"Metadata API call failed: {e}")
+                        metadata_duration = time.time() - metadata_start
 
-        return summarization_result, metadata_result
+        return summarization_result, metadata_result, summarization_duration, metadata_duration
 
     def _normalize_chunks(self, chunks: List[Any]) -> List[Dict[str, Any]]:
         """
@@ -399,18 +405,15 @@ class SummarizationService:
         """
         Summarize a document using pre-processed chunks with parallel processing.
         This method runs both summarization and metadata extraction in parallel.
-
         Args:
             document: DocumentMetadata object containing document information
             chunks: Pre-processed chunks from the document (supports multiple formats)
-
         Returns:
             Dictionary containing both summarization and metadata results or None if failed
         """
         self.logger.info(f"Starting parallel summarization from pre-processed chunks for: {document.originalFilename}")
-
         start_time = time.time()
-
+        
         try:
             if not chunks:
                 self.logger.warning("No chunks provided for summarization")
@@ -418,7 +421,6 @@ class SummarizationService:
 
             # Normalize chunks to dictionary format
             processed_chunks = self._normalize_chunks(chunks)
-
             if not processed_chunks:
                 self.logger.warning("No valid chunks found after normalization")
                 return None
@@ -429,22 +431,19 @@ class SummarizationService:
             combined_text = "\n\n".join(
                 chunk.get("text", "") for chunk in processed_chunks if chunk.get("text", "").strip()
             )
-
             self.logger.debug(f"Combined text from {len(processed_chunks)} chunks, length: {len(combined_text)} characters")
 
             if not combined_text.strip():
                 self.logger.warning("No text found in provided chunks")
                 return None
 
-            # Call both APIs in parallel
-            summarization_start = time.time()
-            summarization_result, metadata_result = self.call_llm_apis_parallel(
+            # Call both APIs in parallel and get individual durations
+            summarization_result, metadata_result, summarization_duration, metadata_duration = self.call_llm_apis_parallel(
                 document.finalCategory,
                 document.originalFilename,
                 document.finalPurpose,
                 combined_text
             )
-            summarization_duration = time.time() - summarization_start
 
             if not summarization_result or not metadata_result:
                 self.logger.error("One or both LLM API calls failed")
@@ -452,7 +451,7 @@ class SummarizationService:
 
             self.logger.info("Both LLM API calls completed successfully")
 
-            # Prepare final result
+            # Prepare final result with proper duration tracking
             total_duration = time.time() - start_time
             result = {
                 "document_id": document.id,
@@ -469,7 +468,8 @@ class SummarizationService:
                 "original_chunks_count": len(chunks),
                 "chunks_normalized": len(chunks) - len(processed_chunks),
                 "processing_duration_seconds": total_duration,
-                "summarization_duration_seconds": summarization_duration
+                "summarization_duration_seconds": summarization_duration,
+                "metadata_duration_seconds": metadata_duration
             }
 
             self.logger.info(f"Successfully completed parallel summarization for: {document.originalFilename}")
