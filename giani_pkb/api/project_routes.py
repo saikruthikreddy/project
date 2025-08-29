@@ -347,6 +347,89 @@ def create_project_routes():
             logger.error(f"Error getting project documents: {e}")
             return api_internal_server_error('Failed to retrieve project documents', str(e))
 
+    @projects.route('/<project_id>/conversations', methods=['POST'])
+    def create_conversation(project_id):
+        """Create a new conversation."""
+        try:
+            user_id = g.user_id
+
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+
+            conversation = db_manager.create_conversation(project_id, user_id)
+
+            if not conversation:
+                return api_database_error('Failed to create conversation')
+
+            return api_success(
+                {'conversation_id': str(conversation.id)},
+                'Conversation created successfully',
+                201
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating conversation: {e}")
+            return api_internal_server_error('Failed to create conversation', str(e))
+
+    @projects.route('/<project_id>/conversations/<conversation_id>', methods=['GET'])
+    def get_conversation_history(project_id, conversation_id):
+        """Get the chat history for a conversation."""
+        try:
+            user_id = g.user_id
+
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+
+            history = db_manager.get_conversation_history(conversation_id)
+
+            # Convert messages to dictionaries
+            history_dict = [
+                {
+                    'message_index': msg.message_index,
+                    'sender_type': msg.sender_type,
+                    'content': msg.content,
+                    'timestamp': msg.timestamp.isoformat()
+                } for msg in history
+            ]
+
+            return api_success({
+                'history': history_dict,
+                'total': len(history_dict)
+            }, 'Conversation history retrieved successfully')
+
+        except Exception as e:
+            logger.error(f"Error getting conversation history: {e}")
+            return api_internal_server_error('Failed to retrieve conversation history', str(e))
+
+    @projects.route('/<project_id>/conversations', methods=['GET'])
+    def get_project_conversations(project_id):
+        """Get all conversations for a project."""
+        try:
+            user_id = g.user_id
+
+            if not db_utils.verify_project_access(project_id, user_id):
+                return api_not_found_error('Project not found or access denied')
+
+            conversations = db_manager.get_project_conversations(project_id, user_id)
+
+            # Convert conversations to dictionaries
+            conversations_dict = [
+                {
+                    'id': str(conv.id),
+                    'title': conv.title,
+                    'created_at': conv.created_at.isoformat()
+                } for conv in conversations
+            ]
+
+            return api_success({
+                'conversations': conversations_dict,
+                'total': len(conversations_dict)
+            }, 'Project conversations retrieved successfully')
+
+        except Exception as e:
+            logger.error(f"Error getting project conversations: {e}")
+            return api_internal_server_error('Failed to retrieve project conversations', str(e))
+
     @projects.route('/<int:project_id>/documents/<document_id>', methods=['PUT'])
     def update_document(project_id, document_id):
         """Update a processed document's metadata and properties."""
@@ -725,25 +808,39 @@ def create_project_routes():
     def query_project(project_id):
         """Query a specific project with a user question."""
         try:
-            print('inside query_project endpoint')
             user_id = g.user_id
-
-            # Get JSON data from request body
             data = request.get_json()
             if not data or 'user_question' not in data:
                 return api_validation_error('Missing user_question in request body')
 
             user_question = data['user_question']
-
-            # Optional parameters
-            document_content_type = data.get('document_content_type', '')
-            top_k = data.get('top_k', 10)
+            conversation_id = data.get('conversation_id')
 
             # Verify project access
             if not db_utils.verify_project_access(project_id, user_id):
                 return api_not_found_error('Project not found or access denied')
 
-            # Execute query using the db_manager method
+            # If no conversation_id, create a new conversation
+            if not conversation_id:
+                conversation = db_manager.create_conversation(project_id, user_id)
+                if not conversation:
+                    return api_database_error('Failed to create conversation')
+                conversation_id = conversation.id
+                
+                # Generate title from first message
+                title = user_question[:50] # Simple truncation for now
+                db_manager.update_conversation_title(conversation_id, title)
+
+            # Get message index
+            history = db_manager.get_conversation_history(conversation_id)
+            message_index = len(history) + 1
+
+            # Store user message
+            db_manager.add_chat_message(conversation_id, message_index, 'human', user_question)
+
+            # Execute query
+            document_content_type = data.get('document_content_type', '')
+            top_k = data.get('top_k', 10)
             retrieval_data = db_manager.query_project(
                 project_id=project_id,
                 user_question=user_question,
@@ -751,7 +848,11 @@ def create_project_routes():
                 top_k=top_k
             )
 
-            print('Query result:', retrieval_data)
+            # Store AI response
+            db_manager.add_chat_message(conversation_id, message_index + 1, 'AI', retrieval_data.get('answer', ''))
+
+            retrieval_data['conversation_id'] = str(conversation_id)
+
             return api_success(retrieval_data, 'Project query executed successfully')
 
         except ValueError as e:
