@@ -1,6 +1,8 @@
 import logging
 from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
+import google.generativeai as genai
+from giani_pkb.utils.config import GEMINI_FLASH_MODEL
 from llama_index.core import VectorStoreIndex
 from giani_pkb.services.rag.index_builder import RAGIndexer
 from giani_pkb.services.rag.query_engine import build_query_engine
@@ -13,14 +15,23 @@ def run_query(
     db: Session,
     project_id: int,
     user_question: str,
+    conversation_id: str = None,
     document_content_type: Optional[str] = None,
     top_k: int = 10,
     similarity_threshold: float = 0.7
 ) -> Dict[str, Any]:
     """Execute the RAG pipeline with improved error handling."""
     
+    from giani_pkb.database.database_manager import DatabaseManager
+    db_manager = DatabaseManager()
+
     try:
-        # ... existing validation code ...
+        if conversation_id:
+            db_manager.add_chat_message(
+                conversation_id=conversation_id,
+                message=user_question,
+                sender_type='human'
+            )
         
         logger.info(f"Starting RAG query for project {project_id}: {user_question[:100]}...")
 
@@ -30,11 +41,35 @@ def run_query(
         indexer = RAGIndexer(db)
         logger.debug('Indexer initialized')
         
-        index: VectorStoreIndex = indexer.build_index_for_project(
-            project_id=project_id,
-            document_content_type=document_content_type
-        )
-        
+        try:
+            index: VectorStoreIndex = indexer.build_index_for_project(
+                project_id=project_id,
+                document_content_type=document_content_type
+            )
+        except ValueError as e:
+            if str(e) == "No chunks with embeddings for that project":
+                logger.warning("No chunks with embeddings found for the project. Falling back to direct LLM call.")
+                model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
+                response = model.generate_content(user_question)
+                db_manager.add_chat_message(
+                    conversation_id=conversation_id,
+                    message=str(response.text),
+                    sender_type='AI'
+                )
+                return {
+                    "answer": response.text,
+                    "sources": [],
+                    "metadata": {
+                        "chunks_retrieved": 0,
+                        "query_successful": True,
+                        "fallback_llm": True,
+                        "project_id": project_id,
+                        "document_type_filter": document_content_type
+                    }
+                }
+            else:
+                raise e
+
         if not index:
             raise ValueError(f"Failed to build index for project {project_id}")
         
@@ -73,6 +108,13 @@ def run_query(
                     "query_successful": False
                 }
             }
+
+        if conversation_id:
+            db_manager.add_chat_message(
+                conversation_id=conversation_id,
+                message=str(response),
+                sender_type='AI'
+            )
         
         # Step 4: Format citations
         sources = format_citations(response.source_nodes) if response.source_nodes else []
