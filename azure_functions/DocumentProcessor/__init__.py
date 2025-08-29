@@ -31,7 +31,7 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
         user_id = task_data.get("user_id")
 
         upload_service = DocumentUploadService()
-        db_manager = DatabaseManager()  # Initialize db_manager here
+        db_manager = DatabaseManager()
 
         batch = db_manager.get_processing_batch(batch_id)
         if not batch:
@@ -72,7 +72,7 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
 
     except Exception as e:
         logger.error(f"Error processing document: {e}", exc_info=True)
-        
+
         # Get temp_document_id from task_data if available
         temp_document_id = None
         try:
@@ -81,7 +81,7 @@ def main(msg: func.ServiceBusMessage, context: func.Context):
             temp_document_id = task_data.get("temp_document_id")
         except Exception as parse_error:
             logger.error(f"Could not parse message body to get temp_document_id: {parse_error}")
-            
+
 
         if batch_id and context.retry_context and (context.retry_context.retry_count == context.retry_context.max_retry_count):
             logger.error(f"Message for batch {batch_id} has reached max retries. Marking as failed.")

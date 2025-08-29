@@ -1143,6 +1143,16 @@ class DatabaseManager:
             logger.error(f"Database error creating document chunk: {e}")
             raise DatabaseError(f"Failed to create document chunk: {e}")
 
+    def get_project_document_chunks(self, project_id: int) -> List[DocumentChunk]:
+        """Fetch all document chunks for a given project"""
+        try:
+            with self.get_session() as session:
+                chunks = session.query(DocumentChunk).join(Document, Document.id == DocumentChunk.document_id).filter(Document.project_id == project_id).all()
+                return chunks
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in getting document chunks: {e}")
+            raise DatabaseError(f"Failed to get document chunks: {e}")
+
     # Document Summary Operations (Enhanced)
     def create_document_summary(self, **kwargs) -> DocumentSummary:
         """Create a new document summary with enhanced validation."""
@@ -1550,17 +1560,17 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Unexpected error saving chunks: {e}")
             return False
-        
+
     def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
         """Update the status of a temporary document."""
-        
+
         # Define valid statuses (adjust as needed)
         valid_statuses = {'UPLOADED', 'PROCESSING', 'PROCESSED', 'FAILED'}
-        
+
         if status not in valid_statuses:
             logger.warning(f"Invalid status '{status}' for temp document {temp_document_id}")
             return False
-        
+
         try:
             with self.get_session() as session:
                 temp_document = session.query(TempDocument).filter(
@@ -1574,7 +1584,7 @@ class DatabaseManager:
                 temp_document.status = status
                 if error_message:
                     temp_document.error_message = error_message
-                
+
                 session.commit()  # Explicit commit
                 logger.info(f"Updated temp document {temp_document_id} status to {status}")
                 return True

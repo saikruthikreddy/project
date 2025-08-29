@@ -19,6 +19,7 @@ from utils.config import config
 from utils.exceptions import FileProcessingError
 from services.summarization import SummarizationService
 from services.blob_storage_service import blob_storage_service
+from services.ai_search_service import AzureSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class DocumentUploadService:
             self.db_manager = DatabaseManager()
             self.metadata_manager = MetadataManagerService()
             self.classification_service = ClassificationService()
+            self.ai_search_service = AzureSearchService()
 
             # Get API keys from config with validation
             api_keys = {
@@ -228,6 +230,13 @@ class DocumentUploadService:
                         logger.info(
                             f"Successfully chunked and saved {len(chunks)} chunks for document: {original_filename}"
                         )
+
+                        # Send chunks for indexing
+                        try:
+                            self.ai_search_service.index_document_chunks(chunks=chunks)
+                        except Exception as e:
+                            logger.error(f"Error during indexing of chunks: {e}")
+
                     else:
                         logger.warning(
                             f"No chunks generated for document: {original_filename}"

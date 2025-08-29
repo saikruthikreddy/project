@@ -32,6 +32,8 @@ from azure.search.documents.indexes.models import (
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import ResourceNotFoundError
 
+from models.database_models import DocumentChunk
+
 from ..utils.config import Config
 from ..utils.exceptions import SearchServiceError
 from ..utils.gemini_client import initialize_gemini_client
@@ -297,14 +299,7 @@ class AzureSearchService:
             self.logger.error(f"Error indexing document chunk: {str(e)}")
             raise SearchServiceError(f"Failed to index document chunk: {str(e)}")
 
-    async def index_document_chunks(
-        self,
-        project_id: str,
-        document_id: str,
-        document_name: str,
-        chunks: List[Dict[str, Any]],
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
+    async def index_document_chunks(self, chunks: List[DocumentChunk]) -> bool:
         """
         Index multiple document chunks in batch.
         """
@@ -313,45 +308,54 @@ class AzureSearchService:
                 await self.initialize_index()
             now = datetime.utcnow().isoformat()
             search_documents = []
+
             for chunk in chunks:
+                metadata = chunk.get("metadata_", {})
+                structural_metadata = metadata.get("structural_metadata", {})
+
                 doc = {
                     "id": str(uuid.uuid4()),
-                    "project_id": project_id,
-                    "document_id": document_id,
+                    "project_id": metadata.get("project_id"),
+                    "document_id": chunk.get("document_id"),
                     "chunk_id": chunk.get("chunk_id", ""),
-                    "chunk_type": chunk.get("chunk_type", ""),
                     "chunk_index": chunk.get("chunk_index", 0),
-                    "slide_number": chunk.get("slide_number"),
-                    "same_table_group_id": chunk.get("same_table_group_id"),
-                    "source_page_numbers": chunk.get("source_page_numbers", []),
-                    "speaker_attribution": chunk.get("speaker_attribution"),
-                    "previous_chunk_id": chunk.get("previous_chunk_id"),
-                    "slide_context_id": chunk.get("slide_context_id"),
-                    "semantic_similarity_score": chunk.get("semantic_similarity_score"),
-                    "role": chunk.get("role"),
-                    "element_type": chunk.get("element_type"),
-                    "region_type": chunk.get("region_type"),
-                    "subtype": chunk.get("subtype"),
-                    "caption": chunk.get("caption"),
-                    "section": chunk.get("section"),
-                    "column_names": chunk.get("column_names", []),
-                    "slide_range": chunk.get("slide_range", []),
-                    "bbox": chunk.get("bbox"),
-                    "label_bbox": chunk.get("label_bbox"),
-                    "structural_metadata_raw": json.dumps(chunk.get("structural_metadata_raw", {})),
-                    "text": chunk.get("text", ""),
                     "embedding_model": chunk.get("embedding_model", ""),
                     "embedding_checksum": chunk.get("embedding_checksum", ""),
+                    "vector": chunk.get("embedding_vector", []),
+                    "text": chunk.get("chunk_text", ""),
+
+                    # Chunk metadata
+                    "chunk_type": metadata.get("chunk_type", ""),
+                    "slide_number": metadata.get("slide_number"),
+                    "same_table_group_id": metadata.get("same_table_group_id"),
+                    "source_page_numbers": metadata.get("source_page_numbers", []),
+                    "speaker_attribution": metadata.get("speaker_attribution"),
+                    "previous_chunk_id": metadata.get("previous_chunk_id"),
+                    "slide_context_id": metadata.get("slide_context_id"),
+                    "semantic_similarity_score": metadata.get("semantic_similarity_score"),
+
+                    # Structural metadata
+                    "role": structural_metadata.get("role"),
+                    "element_type": structural_metadata.get("element_type"),
+                    "region_type": structural_metadata.get("region_type"),
+                    "subtype": structural_metadata.get("subtype"),
+                    "caption": structural_metadata.get("caption"),
+                    "section": structural_metadata.get("section"),
+                    "column_names": structural_metadata.get("column_names", []),
+                    "slide_range": structural_metadata.get("slide_range", []),
+                    "bbox": structural_metadata.get("bbox"),
+                    "label_bbox": structural_metadata.get("label_bbox"),
+                    "structural_metadata_raw": json.dumps(structural_metadata),
+
                     "created_at": now,
                     "updated_at": now,
-                    #
-                    "vector": chunk.get("embedding_vector", []),
                 }
                 search_documents.append(doc)
+
             results = self.search_client.upload_documents(search_documents)
             successful = sum(1 for res in results if res.succeeded)
             if successful == len(results):
-                self.logger.info(f"Successfully indexed {successful}/{len(results)} chunks for document {document_id}")
+                self.logger.info(f"Successfully indexed {successful}/{len(results)} chunks for project {document_id}")
                 return True
             else:
                 self.logger.warning(f"Indexed {successful}/{len(results)} chunks for document {document_id}")
