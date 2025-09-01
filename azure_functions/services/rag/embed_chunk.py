@@ -240,25 +240,35 @@ def embed_single_chunk_by_id(chunk_id: str) -> bool:
         return False
 
 def embed_single_chunk(chunk: DocumentChunk) -> bool:
-    """Embed a single chunk"""
+    """
+    Embed a single chunk (SQLAlchemy model).
+    This function modifies the chunk object in-place with embedding data.
+    """
     document = db_manager.get_document_by_id(chunk.document_id)
     if not document:
-        logger.warning("Document not found for the document id: {chunk.document_id}")
-        raise ValidationError("Document not found for the document id: {chunk.document_id}")
+        logger.warning(f"Document not found for the document id: {chunk.document_id}")
+        raise ValidationError(f"Document not found for the document id: {chunk.document_id}")
 
     try:
         prepared_text, text_hash = prepare_chunk_text(chunk, document)
+
         # Skip if already embedded with same hash
-        if (hasattr(chunk, 'embedding_checksum') and
-            chunk.embedding_checksum == text_hash and
+        if (chunk.embedding_checksum == text_hash and
             chunk.embedding_vector is not None):
+            logger.debug(f"Chunk {chunk.chunk_id} already has current embedding")
             return True
+
         embeddings = create_embeddings_with_retry([prepared_text])
+
+        # Update chunk with embedding data
         chunk.embedding_vector = embeddings[0]
         chunk.embedding_checksum = text_hash
         chunk.embedding_model = EMBEDDING_MODEL
         chunk.embedding_ts = datetime.utcnow()
+
+        logger.debug(f"Successfully embedded chunk {chunk.chunk_id}")
         return True
+
     except Exception as e:
-        print(f"Failed to embed chunk {chunk.chunk_id}: {e}")
+        logger.error(f"Failed to embed chunk {chunk.chunk_id}: {e}")
         return False

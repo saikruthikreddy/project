@@ -9,13 +9,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 
-from models.database_models import DocumentChunk
+from preprocessing.chunking.dto import ChunkDTO
 from .models import ChunkMetadata
 from .token_counter import TokenCounter
 from .nlp_processor import NLPProcessor
 from .chunking_config import CHUNKING_PARAMETERS
 from .validators import validate_blocks_for_chunking
-from services.rag.embed_chunk import embed_single_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -903,7 +902,11 @@ def chunk_document_adaptive(
     token_model: Optional[str] = None,
     embeddings=None,  # ✅ Accepts external embedding instance
     **kwargs
-) -> List[DocumentChunk]:
+) -> List[ChunkDTO]:
+    # Ensure document_id and project_id are strings (handle UUID objects)
+    document_id = str(document_id)
+    project_id = str(project_id)
+
     if token_model:
         set_token_model(token_model)
 
@@ -916,7 +919,7 @@ def chunk_document_adaptive(
         "formal": chunk_formal_document,
     }
 
-    chunks = []  # Initialize chunks list
+    chunks = []  # Initialize chunks list: (text, ChunkMetadata) tuples
 
     # ✅ NEW WIRING LOGIC STARTS HERE
     # This block intercepts relevant document types to run the metric pairing first.
@@ -962,22 +965,21 @@ def chunk_document_adaptive(
         if i > 0:
             meta.previous_chunk_id = chunks[i - 1][1].chunk_id
 
-    document_chunks: List[DocumentChunk] = []
-
+    chunk_dtos: List[ChunkDTO] = []
     for chunk_text, metadata in chunks:
-        doc_chunk = DocumentChunk(
+        chunk_dto = ChunkDTO(
             chunk_id=metadata.chunk_id,
-            document_id=metadata.document_id,
+            document_id=uuid.UUID(metadata.document_id),
             chunk_index=metadata.chunk_index,
             chunk_text=chunk_text,
-            source_page_number=metadata.source_page_numbers,
+            source_page_numbers=metadata.source_page_numbers or [],
             metadata_=metadata.to_dict(),
             embedding_vector=metadata.embedding_vector,
             embedding_model=metadata.embedding_model,
             embedding_checksum=metadata.embedding_checksum,
             embedding_ts=metadata.embedding_ts,
         )
-        embed_single_chunk(doc_chunk)
-        document_chunks.append(doc_chunk)
+        chunk_dtos.append(chunk_dto)
 
-    return document_chunks
+
+    return chunk_dtos

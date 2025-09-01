@@ -12,7 +12,7 @@ def convert_chunk_to_node(chunk: DocumentChunk, project_id: int) -> TextNode:
         "document_id": chunk.document_id,
         "project_id": project_id,
         "document_type": chunk.document.final_category if hasattr(chunk, "document") else None,
-        "source_page_number": chunk.source_page_number,
+        "source_page_numbers": chunk.source_page_numbers,
         "structural_metadata": chunk.metadata_ or {},
         "created_at": str(chunk.created_at),
     }

@@ -196,7 +196,7 @@ class DocumentChunk(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False)  # String, not UUID
     chunk_index = Column(Integer, nullable=True, default=0)
     chunk_text = Column(Text, nullable=False)
-    source_page_number = Column(JSON)
+    source_page_numbers = Column(JSON)
     metadata_ = Column(JSON, default=dict)
     vector_id = Column(String(100))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -207,40 +207,75 @@ class DocumentChunk(Base):
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert DocumentChunk to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "chunk_id": self.chunk_id,
-            "document_id": str(self.document_id) if self.document_id else None,
-            "chunk_index": self.chunk_index,
-            "chunk_text": self.chunk_text,
-            "source_page_number": self.source_page_number,
-            "metadata_": self.metadata_,
-            "vector_id": self.vector_id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "embedding_vector": self.embedding_vector,
-            "embedding_model": self.embedding_model,
-            "embedding_checksum": self.embedding_checksum,
-            "embedding_ts": self.embedding_ts.isoformat() if self.embedding_ts else None,
+    def to_dict(self, include_relationships: bool = False) -> Dict[str, Any]:
+        """Convert model to dictionary"""
+        result = {
+            'id': self.id,
+            'chunk_id': self.chunk_id,
+            'document_id': str(self.document_id),
+            'chunk_index': self.chunk_index,
+            'chunk_text': self.chunk_text,
+            'source_page_numbers': self.source_page_numbers,
+            'metadata_': self.metadata_ or {},
+            'vector_id': self.vector_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'embedding_vector': self.embedding_vector,
+            'embedding_model': self.embedding_model,
+            'embedding_checksum': self.embedding_checksum,
+            'embedding_ts': self.embedding_ts.isoformat() if self.embedding_ts else None,
         }
 
+        if include_relationships and self.document:
+            try:
+                result['document'] = self.document.to_dict() if hasattr(self.document, 'to_dict') else str(self.document)
+            except:
+                pass
+
+        return result
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DocumentChunk":
-        """Create a DocumentChunk instance from a dictionary."""
-        chunk = cls()
-        chunk.chunk_id = data.get("chunk_id")
-        chunk.document_id = data.get("document_id")
-        chunk.chunk_index = data.get("chunk_index")
-        chunk.chunk_text = data.get("chunk_text")
-        chunk.source_page_number = data.get("source_page_number")
-        chunk.metadata_ = data.get("metadata_", {})
-        chunk.vector_id = data.get("vector_id")
-        chunk.embedding_vector = data.get("embedding_vector")
-        chunk.embedding_model = data.get("embedding_model")
-        chunk.embedding_checksum = data.get("embedding_checksum")
-        chunk.embedding_ts = data.get("embedding_ts")
-        return chunk
+    def from_dict(cls, data: Dict[str, Any]) -> 'DocumentChunk':
+        """Create model instance from dictionary"""
+        # Remove non-model fields
+        model_data = {k: v for k, v in data.items()
+                     if k in cls.__table__.columns.keys()}
+
+        # Handle special conversions
+        if 'document_id' in model_data and isinstance(model_data['document_id'], str):
+            model_data['document_id'] = uuid.UUID(model_data['document_id'])
+
+        if 'created_at' in model_data and isinstance(model_data['created_at'], str):
+            model_data['created_at'] = datetime.fromisoformat(model_data['created_at'])
+
+        if 'embedding_ts' in model_data and isinstance(model_data['embedding_ts'], str):
+            model_data['embedding_ts'] = datetime.fromisoformat(model_data['embedding_ts'])
+
+        return cls(**model_data)
+
+    @classmethod
+    def from_chunk_dto(cls, dto: 'ChunkDTO') -> 'DocumentChunk':
+        """Create SQLAlchemy model from DTO"""
+        return cls(
+            chunk_id=dto.chunk_id,
+            document_id=dto.document_id,
+            chunk_index=dto.chunk_index,
+            chunk_text=dto.chunk_text,
+            source_page_numbers=dto.source_page_numbers,  # Note: field name diff
+            metadata_=dto.metadata_,
+            vector_id=dto.vector_id,
+            embedding_vector=dto.embedding_vector,
+            embedding_model=dto.embedding_model,
+            embedding_checksum=dto.embedding_checksum,
+            embedding_ts=dto.embedding_ts,
+        )
+
+    @staticmethod
+    def to_dict_list(chunks: List['DocumentChunk'], include_relationships: bool = False) -> List[Dict[str, Any]]:
+        """Convert list of models to list of dictionaries"""
+        return [chunk.to_dict(include_relationships=include_relationships) for chunk in chunks]
+
+    def __repr__(self):
+        return f"<DocumentChunk(id={self.id}, chunk_id='{self.chunk_id}', document_id='{self.document_id}')>"
 
 class DocumentSummary(Base):
     """Model for storing document summaries generated by AI."""
