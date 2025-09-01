@@ -65,6 +65,7 @@ class SummarizationService:
 
     def extract_document_chunks(self, document_path: str) -> List[Dict[str, Any]]:
         """Extracts text chunks from a document."""
+        # TODO: Update this method to use blob storage
         self.logger.info(f"Starting chunk extraction for: {document_path}")
 
         if not os.path.isabs(document_path):
@@ -362,61 +363,6 @@ class SummarizationService:
 
         return summarization_result, metadata_result, summarization_duration, metadata_duration
 
-    def _normalize_chunks(self, chunks: List[Any]) -> List[Dict[str, Any]]:
-        """
-        Normalize chunks to dictionary format regardless of input format.
-
-        Args:
-            chunks: List of chunks in various formats (tuples, dicts, etc.)
-
-        Returns:
-            List of normalized chunk dictionaries
-        """
-        processed_chunks = []
-
-        for i, chunk in enumerate(chunks):
-            if isinstance(chunk, tuple):
-                # Handle tuple format (raw output from chunk_document_adaptive)
-                processed_chunk = {
-                    "text": chunk[0] if len(chunk) > 0 else "",
-                    "metadata": chunk[1] if len(chunk) > 1 else {},
-                    "chunk_id": str(uuid.uuid4()),
-                    "chunk_index": i,
-                    "vector_id": chunk[2] if len(chunk) > 2 else None,
-                    "embedding_checksum": chunk[3] if len(chunk) > 3 else None
-                }
-                processed_chunks.append(processed_chunk)
-
-            elif isinstance(chunk, dict):
-                # Handle dictionary format - ensure required fields exist
-                normalized_chunk = {
-                    "text": chunk.get("text", ""),
-                    "metadata": chunk.get("metadata", {}),
-                    "chunk_id": chunk.get("chunk_id", str(uuid.uuid4())),
-                    "chunk_index": chunk.get("chunk_index", i),
-                    "vector_id": chunk.get("vector_id"),
-                    "embedding_checksum": chunk.get("embedding_checksum")
-                }
-                processed_chunks.append(normalized_chunk)
-
-            elif isinstance(chunk, str):
-                # Handle plain text format
-                processed_chunk = {
-                    "text": chunk,
-                    "metadata": {},
-                    "chunk_id": str(uuid.uuid4()),
-                    "chunk_index": i,
-                    "vector_id": None,
-                    "embedding_checksum": None
-                }
-                processed_chunks.append(processed_chunk)
-
-            else:
-                self.logger.warning(f"Unknown chunk format at index {i}: {type(chunk)}, skipping")
-                continue
-
-        return processed_chunks
-
     def summarize_from_chunk_dtos(self, document: DocumentMetadata, chunk_dtos: List[ChunkDTO]) -> Optional[Dict[str, Any]]:
         """
         Summarize a document using ChunkDTO objects with parallel processing.
@@ -486,84 +432,6 @@ class SummarizationService:
         except Exception as exc:
             self.logger.error(f"Failed to summarize document from ChunkDTO objects {document.originalFilename}: {exc}")
             raise FileProcessingError(f"Failed to summarize document from ChunkDTO objects: {exc}", filepath=document.storagePath)
-
-    def summarize_from_chunks(self, document: DocumentMetadata, chunks: List[Any]) -> Optional[Dict[str, Any]]:
-        """
-        Summarize a document using pre-processed chunks with parallel processing.
-        This method runs both summarization and metadata extraction in parallel.
-        Args:
-            document: DocumentMetadata object containing document information
-            chunks: Pre-processed chunks from the document (supports multiple formats)
-        Returns:
-            Dictionary containing both summarization and metadata results or None if failed
-        """
-        self.logger.info(f"Starting parallel summarization from pre-processed chunks for: {document.originalFilename}")
-        start_time = time.time()
-
-        try:
-            if not chunks:
-                self.logger.warning("No chunks provided for summarization")
-                return None
-
-            # Normalize chunks to dictionary format
-            processed_chunks = self._normalize_chunks(chunks)
-            if not processed_chunks:
-                self.logger.warning("No valid chunks found after normalization")
-                return None
-
-            self.logger.debug(f"Normalized {len(chunks)} input chunks to {len(processed_chunks)} processed chunks")
-
-            # Extract text from processed chunks
-            combined_text = "\n\n".join(
-                chunk.get("text", "") for chunk in processed_chunks if chunk.get("text", "").strip()
-            )
-            self.logger.debug(f"Combined text from {len(processed_chunks)} chunks, length: {len(combined_text)} characters")
-
-            if not combined_text.strip():
-                self.logger.warning("No text found in provided chunks")
-                return None
-
-            # Call both APIs in parallel and get individual durations
-            summarization_result, metadata_result, summarization_duration, metadata_duration = self.call_llm_apis_parallel(
-                document.finalCategory,
-                document.originalFilename,
-                document.finalPurpose,
-                combined_text
-            )
-
-            if not summarization_result or not metadata_result:
-                self.logger.error("One or both LLM API calls failed")
-                return None
-
-            self.logger.info("Both LLM API calls completed successfully")
-
-            # Prepare final result with proper duration tracking
-            total_duration = time.time() - start_time
-            result = {
-                "document_id": document.id,
-                "document_filename": document.originalFilename,
-                "document_category": document.finalCategory,
-                "source": document.source,
-                "document_group": self.get_document_group(document.finalCategory).value,
-                "user_note_purpose": document.finalPurpose,
-                "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
-                "summarization_analysis": summarization_result,
-                "metadata_analysis": metadata_result,
-                "chunks_count": len(processed_chunks),
-                "processing_method": "from_pre_processed_chunks_parallel",
-                "original_chunks_count": len(chunks),
-                "chunks_normalized": len(chunks) - len(processed_chunks),
-                "processing_duration_seconds": total_duration,
-                "summarization_duration_seconds": summarization_duration,
-                "metadata_duration_seconds": metadata_duration
-            }
-
-            self.logger.info(f"Successfully completed parallel summarization for: {document.originalFilename}")
-            return result
-
-        except Exception as exc:
-            self.logger.error(f"Failed to summarize document from chunks {document.originalFilename}: {exc}")
-            raise FileProcessingError(f"Failed to summarize document from chunks: {exc}", filepath=document.storagePath)
 
     def summarize_document(self, document: DocumentMetadata) -> Optional[Dict[str, Any]]:
         """
