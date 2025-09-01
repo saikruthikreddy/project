@@ -163,7 +163,7 @@ class DocumentUploadService:
                     user_id=user_uuid,
                     project_id=project_int,
                     processed_content=task.get("user_purpose_note", ""),
-                    document_metadata=doc_meta,
+                    # document_metadata=doc_meta,
                     date_added_to_giani=datetime.utcnow(),
                 )
 
@@ -183,14 +183,6 @@ class DocumentUploadService:
                 )
 
                 # TODO: Cleanup destination file if database operation failed
-                # try:
-                #     if dest_path and os.path.exists(dest_path):
-                #         os.remove(dest_path)
-                #         logger.info(
-                #             f"Cleaned up destination file after database error: {dest_path}"
-                #         )
-                # except:
-                #     logger.warning(f"Failed to cleanup destination file: {dest_path}")
 
                 raise FileProcessingError(
                     f"Failed to save document metadata: {db_error}"
@@ -222,6 +214,12 @@ class DocumentUploadService:
                     )
 
                     if chunks:
+                        import asyncio
+                        try:
+                            asyncio.run(self.ai_search_service.index_document_chunks(chunks))
+                        except Exception as e:
+                            logger.error(f"Error during indexing of chunks: {e}")
+
                         # Save chunks to database
                         self.db_manager.save_chunks(
                             document_id=document_id,
@@ -230,12 +228,6 @@ class DocumentUploadService:
                         logger.info(
                             f"Successfully chunked and saved {len(chunks)} chunks for document: {original_filename}"
                         )
-
-                        # Send chunks for indexing
-                        try:
-                            self.ai_search_service.index_document_chunks(chunks=chunks)
-                        except Exception as e:
-                            logger.error(f"Error during indexing of chunks: {e}")
 
                     else:
                         logger.warning(

@@ -1,3 +1,4 @@
+import logging
 import re
 import hashlib
 import tiktoken
@@ -8,6 +9,10 @@ from openai import OpenAI
 from sqlalchemy.orm import Session
 from models.database_models import DocumentChunk, Document
 from utils.config import config
+from utils.exceptions import ValidationError
+from database.database_manager import DatabaseManager
+from preprocessing.chunking.models import ChunkMetadata
+
 # Initialize OpenAI client and tokenizer
 openai = OpenAI(api_key=config.OPENAI_API_KEY)
 tokenizer = tiktoken.encoding_for_model("text-embedding-3-small")
@@ -16,6 +21,10 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 MAX_TOKENS_PER_CHUNK = 7500
 MAX_TOKENS_PER_BATCH = 100000
 MAX_RETRIES = 5
+
+db_manager = DatabaseManager()
+logger = logging.getLogger(__name__)
+
 def canonicalize_numbers(text: str) -> str:
     """
     Convert various number formats to canonical form:
@@ -32,6 +41,7 @@ def canonicalize_numbers(text: str) -> str:
     # Remove currency symbols for standalone numbers
     text = re.sub(r'\$(\d+(?:\.\d+)?)', r'\1', text)
     return text
+
 def generate_structural_header(chunk: DocumentChunk, document: Document) -> str:
     """
     Generate a structural header for the chunk based on available metadata.
@@ -39,24 +49,25 @@ def generate_structural_header(chunk: DocumentChunk, document: Document) -> str:
     """
     header_parts = []
     # Determine chunk type based on available metadata
-    if hasattr(chunk, 'table_caption') and chunk.table_caption:
+    if hasattr(chunk, 'table_caption') and chunk.table_caption: # TODO: table_caption is not present in metadata_list.
         chunk_type = "TABLE"
         header_parts.append(f'caption="{chunk.table_caption}"')
         if hasattr(chunk, 'table_columns') and chunk.table_columns:
             header_parts.append(f'columns="{chunk.table_columns}"')
-    elif hasattr(chunk, 'page_number') and chunk.page_number:
+    elif hasattr(chunk, 'page_number') and chunk.page_number: # TODO: page_number is not present in chunk obj, rather it's in the structural metadata and not for pptx file (slide_number).
         chunk_type = "PAGE"
         header_parts.append(f'page={chunk.page_number}')
     else:
         chunk_type = "TEXT"
     # Add document-level metadata
-    if document.title:
-        header_parts.append(f'doc_title="{document.title}"')
+    # if document.title: # TODO: title is not present in document type.
+    #     header_parts.append(f'doc_title="{document.title}"')
     # Add chunk position if available
     if hasattr(chunk, 'chunk_index') and chunk.chunk_index is not None:
         header_parts.append(f'chunk={chunk.chunk_index}')
     header = f"[{chunk_type}] " + " ".join(header_parts)
     return header
+
 def trim_text_to_token_limit(text: str, max_tokens: int) -> str:
     """
     Trim text to fit within token limit while preserving structure.
@@ -73,15 +84,17 @@ def trim_text_to_token_limit(text: str, max_tokens: int) -> str:
         # Remove the last (potentially incomplete) sentence
         trimmed_text = '. '.join(sentences[:-1]) + '.'
     return trimmed_text
+
 def prepare_chunk_text(chunk: DocumentChunk, document: Document) -> Tuple[str, str]:
     """
     Prepare chunk text with header and normalization.
     Returns: (prepared_text, sha256_hash)
     """
+    chunk_dict = chunk.to_dict()
     # Generate structural header
     header = generate_structural_header(chunk, document)
     # Canonicalize numbers in chunk text
-    normalized_text = canonicalize_numbers(chunk.chunk_text)
+    normalized_text = canonicalize_numbers(chunk_dict["chunk_text"])
     # Combine header and text
     full_text = f"{header}\n{normalized_text}"
     # Ensure token limit
@@ -100,6 +113,7 @@ def prepare_chunk_text(chunk: DocumentChunk, document: Document) -> Tuple[str, s
     # Generate SHA-256 hash
     text_hash = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
     return full_text, text_hash
+
 def create_token_aware_batches(prepared_chunks: List[Tuple[DocumentChunk, str, str]]) -> List[List[Tuple[DocumentChunk, str, str]]]:
     """
     Create batches based on token count rather than chunk count.
@@ -122,6 +136,7 @@ def create_token_aware_batches(prepared_chunks: List[Tuple[DocumentChunk, str, s
     if current_batch:
         batches.append(current_batch)
     return batches
+
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=2, min=2, max=32),
@@ -136,7 +151,8 @@ def create_embeddings_with_retry(texts: List[str]) -> List[List[float]]:
         model=EMBEDDING_MODEL
     )
     return [embedding.embedding for embedding in response.data]
-def embed_chunks_for_project(db: Session, project_id: int) -> dict:
+
+def embed_chunks_for_project(project_id: int) -> dict:
     """
     Enhanced embedding function with all improvements applied.
     Returns statistics about the embedding process.
@@ -148,16 +164,8 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
         'failed_chunks': 0,
         'batches_processed': 0
     }
-    # Get documents for the project
-    documents = db.query(Document).filter(Document.project_id == project_id).all()
-    if not documents:
-        return stats
-    document_dict = {doc.id: doc for doc in documents}
-    document_ids = list(document_dict.keys())
-    # Get chunks that need embedding (no embedding_vector OR outdated hash)
-    chunks = (db.query(DocumentChunk)
-              .filter(DocumentChunk.document_id.in_(document_ids))
-              .all())
+    chunks = db_manager.get_project_document_chunks(project_id)
+    documents = db_manager.get_project_documents(project_id)
     stats['total_chunks'] = len(chunks)
     if not chunks:
         return stats
@@ -165,11 +173,11 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
     chunks_to_embed = []
     current_time = datetime.utcnow()
     for chunk in chunks:
-        document = document_dict[chunk.document_id]
+        document = documents[chunk.document_id]
         prepared_text, text_hash = prepare_chunk_text(chunk, document)
         # Skip if hash matches existing embedding
-        if (hasattr(chunk, 'embedding_hash') and
-            chunk.embedding_hash == text_hash and
+        if (hasattr(chunk, 'embedding_checksum') and
+            chunk.embedding_checksum == text_hash and
             chunk.embedding_vector is not None):
             stats['skipped_unchanged'] += 1
             continue
@@ -188,7 +196,7 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
             # Update database records
             for (chunk, text, text_hash), embedding in zip(batch, embeddings):
                 chunk.embedding_vector = embedding
-                chunk.embedding_hash = text_hash
+                chunk.embedding_checksum = text_hash
                 chunk.embedding_model = EMBEDDING_MODEL
                 chunk.embedding_ts = current_time
             stats['embedded_new'] += len(batch)
@@ -197,40 +205,60 @@ def embed_chunks_for_project(db: Session, project_id: int) -> dict:
             print(f"Failed to process batch: {e}")
             stats['failed_chunks'] += len(batch)
             continue
-    # Commit all changes
-    try:
-        db.commit()
-    except Exception as e:
-        print(f"Failed to commit changes: {e}")
-        db.rollback()
-        raise
     return stats
-def embed_single_chunk(db: Session, chunk_id: int) -> bool:
+
+def embed_single_chunk_by_id(chunk_id: str) -> bool:
     """
     Embed a single chunk - useful for testing or incremental updates.
     Returns True if successful, False otherwise.
     """
-    chunk = db.query(DocumentChunk).filter(DocumentChunk.id == chunk_id).first()
+    chunk = db_manager.get_chunk_by_id(chunk_id)
     if not chunk:
-        return False
-    document = db.query(Document).filter(Document.id == chunk.document_id).first()
+        logger.warning("Chunk not found for the provided chunk id: {chunk_id}")
+        raise ValidationError("Chunk not found for the provided chunk id: {chunk_id}")
+
+    document = db_manager.get_document_by_id(chunk.document_id)
     if not document:
-        return False
+        logger.warning("Document not found for the document id: {chunk.document_id}")
+        raise ValidationError("Document not found for the document id: {chunk_id.document_id}")
+
     try:
         prepared_text, text_hash = prepare_chunk_text(chunk, document)
         # Skip if already embedded with same hash
-        if (hasattr(chunk, 'embedding_hash') and
-            chunk.embedding_hash == text_hash and
+        if (hasattr(chunk, 'embedding_checksum') and
+            chunk.embedding_checksum == text_hash and
             chunk.embedding_vector is not None):
             return True
         embeddings = create_embeddings_with_retry([prepared_text])
         chunk.embedding_vector = embeddings[0]
-        chunk.embedding_hash = text_hash
+        chunk.embedding_checksum = text_hash
         chunk.embedding_model = EMBEDDING_MODEL
         chunk.embedding_ts = datetime.utcnow()
-        db.commit()
         return True
     except Exception as e:
         print(f"Failed to embed chunk {chunk_id}: {e}")
-        db.rollback()
+        return False
+
+def embed_single_chunk(chunk: DocumentChunk) -> bool:
+    """Embed a single chunk"""
+    document = db_manager.get_document_by_id(chunk.document_id)
+    if not document:
+        logger.warning("Document not found for the document id: {chunk.document_id}")
+        raise ValidationError("Document not found for the document id: {chunk.document_id}")
+
+    try:
+        prepared_text, text_hash = prepare_chunk_text(chunk, document)
+        # Skip if already embedded with same hash
+        if (hasattr(chunk, 'embedding_checksum') and
+            chunk.embedding_checksum == text_hash and
+            chunk.embedding_vector is not None):
+            return True
+        embeddings = create_embeddings_with_retry([prepared_text])
+        chunk.embedding_vector = embeddings[0]
+        chunk.embedding_checksum = text_hash
+        chunk.embedding_model = EMBEDDING_MODEL
+        chunk.embedding_ts = datetime.utcnow()
+        return True
+    except Exception as e:
+        print(f"Failed to embed chunk {chunk.chunk_id}: {e}")
         return False

@@ -8,7 +8,7 @@ searching, and retrieval with semantic capabilities.
 import os
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import uuid
 
@@ -32,12 +32,13 @@ from azure.search.documents.indexes.models import (
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import ResourceNotFoundError
 
+from preprocessing.chunking.models import ChunkMetadata
 from models.database_models import DocumentChunk
 
-from ..utils.config import Config
-from ..utils.exceptions import SearchServiceError
-from ..utils.gemini_client import initialize_gemini_client
-from .rag.embed_chunk import create_embeddings_with_retry
+from utils.config import Config
+from utils.exceptions import SearchServiceError
+from utils.gemini_client import initialize_gemini_client
+from services.rag.embed_chunk import create_embeddings_with_retry
 
 VECTOR_PROFILE_NAME = "giani-doc-chunks-vector"
 SEMANTIC_CONFIG_NAME = "giani-doc-chunks-semantic-config"
@@ -164,7 +165,7 @@ class AzureSearchService:
                     parameters={
                         "m": 20,
                         "efConstruction": 300,
-                        "efSearch": 80,
+                        "efSearch": 100,
                         "metric": "cosine"
                     },
                 )
@@ -238,14 +239,7 @@ class AzureSearchService:
             "highlights": record.get("@search.highlights", {}),
         }
 
-    async def index_document_chunk(
-        self,
-        project_id: str,
-        document_id: str,
-        document_name: str,
-        chunk_data: Dict[str, Any],
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
+    async def index_document_chunk(self, chunk: DocumentChunk) -> bool:
         """
         Index a single document chunk with full field support.
         """
@@ -253,43 +247,58 @@ class AzureSearchService:
             if not self.search_client:
                 await self.initialize_index()
 
-            now = datetime.utcnow().isoformat()
-            search_document = {
+            now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+            if hasattr(chunk, 'to_dict'):
+                chunk_dict = chunk.to_dict()
+            else:
+                chunk_dict = dict(chunk)
+
+            chunk_text = chunk_dict.get("chunk_text", "")
+            chunk_metadata = chunk_dict.get("metadata_", {})
+            structural_metadata = chunk_metadata.get("structural_metadata", {})
+
+            doc = {
                 "id": str(uuid.uuid4()),
-                "project_id": project_id,
-                "document_id": document_id,
-                "chunk_id": chunk_data.get("chunk_id", ""),
-                "chunk_type": chunk_data.get("chunk_type", ""),
-                "chunk_index": chunk_data.get("chunk_index", 0),
-                "slide_number": chunk_data.get("slide_number"),
-                "same_table_group_id": chunk_data.get("same_table_group_id"),
-                "source_page_numbers": chunk_data.get("source_page_numbers", []),
-                "speaker_attribution": chunk_data.get("speaker_attribution"),
-                "previous_chunk_id": chunk_data.get("previous_chunk_id"),
-                "slide_context_id": chunk_data.get("slide_context_id"),
-                "semantic_similarity_score": chunk_data.get("semantic_similarity_score"),
-                "role": chunk_data.get("role"),
-                "element_type": chunk_data.get("element_type"),
-                "region_type": chunk_data.get("region_type"),
-                "subtype": chunk_data.get("subtype"),
-                "caption": chunk_data.get("caption"),
-                "section": chunk_data.get("section"),
-                "column_names": chunk_data.get("column_names", []),
-                "slide_range": chunk_data.get("slide_range", []),
-                "bbox": chunk_data.get("bbox"),
-                "label_bbox": chunk_data.get("label_bbox"),
-                "structural_metadata_raw": json.dumps(chunk_data.get("structural_metadata_raw", {})),
-                "text": chunk_data.get("text", ""),
-                "embedding_model": chunk_data.get("embedding_model", ""),
-                "embedding_checksum": chunk_data.get("embedding_checksum", ""),
+                "project_id": chunk_metadata.get("project_id"),
+                "document_id": chunk_dict.get("document_id"),
+                "chunk_id": chunk_dict.get("chunk_id"),
+                "chunk_index": chunk_dict.get("chunk_index"),
+                "embedding_model": chunk_dict.get("embedding_model"),
+                "embedding_checksum": chunk_dict.get("embedding_checksum"),
+                "vector": chunk_dict.get("embedding_vector"),
+                "text": chunk_text,
+
+                # Chunk metadata
+                "chunk_type": chunk_metadata.get("chunk_type"),
+                "slide_number": chunk_metadata.get("slide_number"),
+                "same_table_group_id": chunk_metadata.get("same_table_group_id"),
+                "source_page_numbers": chunk_metadata.get("source_page_numbers", []),
+                "speaker_attribution": chunk_metadata.get("speaker_attribution"),
+                "previous_chunk_id": chunk_metadata.get("previous_chunk_id"),
+                "slide_context_id": chunk_metadata.get("slide_context_id"),
+                "semantic_similarity_score": chunk_metadata.get("semantic_similarity_score"),
+
+                # Structural metadata
+                "role": structural_metadata.get("role"),
+                "element_type": structural_metadata.get("element_type"),
+                "region_type": structural_metadata.get("region_type"),
+                "subtype": structural_metadata.get("subtype"),
+                "caption": structural_metadata.get("caption"),
+                "section": structural_metadata.get("section"),
+                "column_names": structural_metadata.get("column_names", []),
+                "slide_range": structural_metadata.get("slide_range", []),
+                "bbox": structural_metadata.get("bbox"),
+                "label_bbox": structural_metadata.get("label_bbox"),
+                "structural_metadata_raw": json.dumps(structural_metadata),
+
                 "created_at": now,
                 "updated_at": now,
-                # Embedding vector
-                "vector": chunk_data.get("embedding_vector", []),
             }
-            result = self.search_client.upload_documents([search_document])
+
+            result = self.search_client.upload_documents([doc])
             if result[0].succeeded:
-                self.logger.info(f"Successfully indexed chunk for document {document_id}")
+                self.logger.info(f"Successfully indexed chunk for document {chunk_dict.get('document_id')}")
                 return True
             else:
                 self.logger.error(f"Failed to index chunk: {result[0].error_message}")
@@ -302,37 +311,45 @@ class AzureSearchService:
     async def index_document_chunks(self, chunks: List[DocumentChunk]) -> bool:
         """
         Index multiple document chunks in batch.
+        Accepts a list of DocumentChunk ORM objects and serializes them as needed.
         """
         try:
             if not self.search_client:
                 await self.initialize_index()
-            now = datetime.utcnow().isoformat()
+
+            now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
             search_documents = []
 
-            for chunk in chunks:
-                metadata = chunk.get("metadata_", {})
-                structural_metadata = metadata.get("structural_metadata", {})
+            for i, chunk in enumerate(chunks):
+                if hasattr(chunk, 'to_dict'):
+                    chunk_dict = chunk.to_dict()
+                else:
+                    chunk_dict = dict(chunk)
+
+                chunk_text = chunk_dict.get("chunk_text", "")
+                chunk_metadata = chunk_dict.get("metadata_", {})
+                structural_metadata = chunk_metadata.get("structural_metadata", {})
 
                 doc = {
                     "id": str(uuid.uuid4()),
-                    "project_id": metadata.get("project_id"),
-                    "document_id": chunk.get("document_id"),
-                    "chunk_id": chunk.get("chunk_id", ""),
-                    "chunk_index": chunk.get("chunk_index", 0),
-                    "embedding_model": chunk.get("embedding_model", ""),
-                    "embedding_checksum": chunk.get("embedding_checksum", ""),
-                    "vector": chunk.get("embedding_vector", []),
-                    "text": chunk.get("chunk_text", ""),
+                    "project_id": chunk_metadata.get("project_id"),
+                    "document_id": chunk_dict.get("document_id"),
+                    "chunk_id": chunk_dict.get("chunk_id"),
+                    "chunk_index": chunk_dict.get("chunk_index"),
+                    "embedding_model": chunk_dict.get("embedding_model"),
+                    "embedding_checksum": chunk_dict.get("embedding_checksum"),
+                    "vector": chunk_dict.get("embedding_vector"),
+                    "text": chunk_text,
 
                     # Chunk metadata
-                    "chunk_type": metadata.get("chunk_type", ""),
-                    "slide_number": metadata.get("slide_number"),
-                    "same_table_group_id": metadata.get("same_table_group_id"),
-                    "source_page_numbers": metadata.get("source_page_numbers", []),
-                    "speaker_attribution": metadata.get("speaker_attribution"),
-                    "previous_chunk_id": metadata.get("previous_chunk_id"),
-                    "slide_context_id": metadata.get("slide_context_id"),
-                    "semantic_similarity_score": metadata.get("semantic_similarity_score"),
+                    "chunk_type": chunk_metadata.get("chunk_type"),
+                    "slide_number": chunk_metadata.get("slide_number"),
+                    "same_table_group_id": chunk_metadata.get("same_table_group_id"),
+                    "source_page_numbers": chunk_metadata.get("source_page_numbers", []),
+                    "speaker_attribution": chunk_metadata.get("speaker_attribution"),
+                    "previous_chunk_id": chunk_metadata.get("previous_chunk_id"),
+                    "slide_context_id": chunk_metadata.get("slide_context_id"),
+                    "semantic_similarity_score": chunk_metadata.get("semantic_similarity_score"),
 
                     # Structural metadata
                     "role": structural_metadata.get("role"),
@@ -354,8 +371,16 @@ class AzureSearchService:
 
             results = self.search_client.upload_documents(search_documents)
             successful = sum(1 for res in results if res.succeeded)
+
+            document_id = None
+            if chunks and hasattr(chunks, "to_dict"):
+                document_id = chunks.to_dict().get('document_id')
+            elif chunks and isinstance(chunks, dict):
+                document_id = chunks.get('document_id')
+            else:
+                document_id = "unknown"
             if successful == len(results):
-                self.logger.info(f"Successfully indexed {successful}/{len(results)} chunks for project {document_id}")
+                self.logger.info(f"Successfully indexed {successful}/{len(results)} chunks for document {document_id}")
                 return True
             else:
                 self.logger.warning(f"Indexed {successful}/{len(results)} chunks for document {document_id}")

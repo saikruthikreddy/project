@@ -5,10 +5,18 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 import uuid
 
+from sqlalchemy import DateTime
+
 @dataclass
 class ChunkMetadata:
     """Metadata structure for chunks"""
     # Required fields (no defaults) must come first
+
+    # MISSING
+    # text_chunk
+    # extraction_method
+    # token_count
+
     document_id: str
     project_id: str
     # Optional fields (with defaults) come after
@@ -17,13 +25,19 @@ class ChunkMetadata:
     structural_metadata: Dict[str, Any] = field(default_factory=dict) # E.g. {"heading_level": 1, "is_table": True, "list_item": True}
     chunk_type: str = "unknown" # E.g. "prose", "table", "heading", "list_item", "code_block", "dialogue_turn"
     speaker_attribution: Optional[str] = None
-    semantic_similarity_score: Optional[float] = None
-    slide_number: Optional[int] = None
     previous_chunk_id: Optional[str] = None
-    slide_context_id: Optional[str] = None
     same_table_group_id: Optional[str] = None
     chunk_index: Optional[int] = None  # Add chunk_index to metadata
-    
+    embedding_ts: DateTime = None
+
+    # MISSING
+    embedding_vector: List[float] = None
+    embedding_model: str = None
+    embedding_checksum: str = None
+    slide_context_id: Optional[str] = None
+    slide_number: Optional[int] = None
+    semantic_similarity_score: Optional[float] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the metadata to a dictionary."""
         return {
@@ -41,3 +55,31 @@ class ChunkMetadata:
             "same_table_group_id": self.same_table_group_id,
             "chunk_index": self.chunk_index,
         }
+
+
+# STRUCTURAL METADATA (From Kruthik's list)
+
+# character_count: int
+# Xbox_units: int
+# original_block_type: str
+# original_file_name: str
+# section_type: str
+
+# bbox: list
+# block_type: str
+# caption: str
+# column_headers: list
+# column_names: list
+# current_heading_text: str
+# filename: str
+# heading_context: str
+# page_number: int
+# region_id: str
+# region_type: str
+# section_heading: str
+# section_id: int
+# sheet_name: str
+# slide_number: int
+# source: str
+# source_type: str
+# word_count: int

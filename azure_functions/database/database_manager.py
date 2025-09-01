@@ -11,7 +11,7 @@ import uuid
 import os
 from utils.database import SessionLocal, engine
 from models.database_models import (
-    OnboardingGuide, User, Project, Document, DocumentChunk, DocumentSummary
+    OnboardingGuide, User, Project, Document, DocumentChunk, DocumentSummary, TempDocument
 )
 from utils.exceptions import DatabaseError, ValidationError, NotFoundError
 
@@ -936,7 +936,7 @@ class DatabaseManager:
             logger.error(f"Database error getting document: {e}")
             return None
 
-    def get_project_documents(self, project_id: Union[int, str], user_id: Union[str, uuid.UUID] = None) -> List[Document]:
+    def get_project_documents(self, project_id: Union[int, str], user_id: Optional[Union[str, uuid.UUID]] = None) -> List[Document]:
         """Get all documents for a project with optimized query and enhanced type handling."""
         try:
             # Convert project_id to int if needed
@@ -1105,53 +1105,40 @@ class DatabaseManager:
             logger.error(f"Database error deleting document: {e}")
             raise DatabaseError(f"Failed to delete document: {e}")
 
-    # Document Chunk Operations (Enhanced)
-    def create_document_chunk(self, **kwargs) -> DocumentChunk:
-        """Create a new document chunk with UUID conversion for SQLite."""
-        try:
-            # Convert UUID fields to strings for SQLite compatibility
-            if 'chunk_id' in kwargs and kwargs['chunk_id']:
-                if isinstance(kwargs['chunk_id'], uuid.UUID):
-                    kwargs['chunk_id'] = str(kwargs['chunk_id'])
-
-            if 'vector_id' in kwargs and kwargs['vector_id']:
-                if isinstance(kwargs['vector_id'], uuid.UUID):
-                    kwargs['vector_id'] = str(kwargs['vector_id'])
-
-            if 'metadata_' in kwargs and kwargs['metadata_']:
-                kwargs['metadata_'] = self._serialize_metadata(kwargs['metadata_'])
-
-            # Rest of your existing validation code...
-            required_fields = ['document_id', 'chunk_text']
-            for field in required_fields:
-                if not kwargs.get(field):
-                    raise ValidationError(f"Required field '{field}' is missing")
-
-            with self.get_session() as session:
-                chunk = DocumentChunk(**kwargs)
-                session.add(chunk)
-                session.flush()
-
-                # Detach from session
-                logger.info(f"Created document chunk for document ID: {kwargs.get('document_id')}")
-                session.expunge(chunk)
-                return chunk
-
-        except ValidationError:
-            raise
-        except SQLAlchemyError as e:
-            logger.error(f"Database error creating document chunk: {e}")
-            raise DatabaseError(f"Failed to create document chunk: {e}")
-
     def get_project_document_chunks(self, project_id: int) -> List[DocumentChunk]:
         """Fetch all document chunks for a given project"""
         try:
             with self.get_session() as session:
                 chunks = session.query(DocumentChunk).join(Document, Document.id == DocumentChunk.document_id).filter(Document.project_id == project_id).all()
+                if not chunks:
+                    logger.warning(f"No chunk found with for the project with id: {project_id}")
                 return chunks
         except SQLAlchemyError as e:
             logger.error(f"Database error in getting document chunks: {e}")
             raise DatabaseError(f"Failed to get document chunks: {e}")
+
+    def get_chunk_by_id(self, chunk_id: Union[str, uuid.UUID]) -> DocumentChunk:
+        """Fetch a document chunk using chunk id"""
+        try:
+            if isinstance(chunk_id, uuid.UUID):
+                try:
+                    chunk_id = str(chunk_id)
+                except ValueError as e:
+                    logger.error(f"Invalid UUID format for chunk_id: {chunk_id}")
+                    raise ValidationError(f"Invalid chunk_id format: {chunk_id}")
+
+            with self.get_session() as session:
+                chunk = session.query(DocumentChunk).filter(DocumentChunk.chunk_id == chunk_id).first()
+
+                if not chunk:
+                    logger.warning(f"No chunk found with ID: {chunk_id}")
+                session.expunge(chunk)
+                return chunk
+        except ValidationError:
+            raise
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in getting document chunk: {e}")
+            raise DatabaseError(f"Failed to get document chunk: {e}")
 
     # Document Summary Operations (Enhanced)
     def create_document_summary(self, **kwargs) -> DocumentSummary:
@@ -1299,12 +1286,12 @@ class DatabaseManager:
 
     def save_summary(self, document_id: str, summary_data: Dict[str, Any]) -> bool:
         """Save a document summary to the database with separate summarization and metadata analysis."""
-        
+
         def safe_extract(data, key, default=None):
             """Safely extract a value from nested data structures with improved handling."""
             if isinstance(data, dict):
                 value = data.get(key, default)
-                
+
                 # Handle cases where the value might be a dict with additional nesting
                 if isinstance(value, dict):
                     # Priority order for extracting the actual value from nested dicts
@@ -1314,16 +1301,16 @@ class DatabaseManager:
                             # Return the extracted value if it's not another complex dict
                             if not isinstance(extracted, (dict, list)):
                                 return extracted
-                    
+
                     # If no standard keys found, try to return a meaningful string
                     if value:
                         # If it's a non-empty dict, try to get the first string value
                         for v in value.values():
                             if isinstance(v, str) and v.strip():
                                 return v
-                    
+
                     return default
-                
+
                 return value
             return default
 
@@ -1336,7 +1323,7 @@ class DatabaseManager:
             """Validate and convert values for database storage with better null handling."""
             if value is None or value == "":
                 return None
-            
+
             if expected_type == 'string':
                 if isinstance(value, dict):
                     # Try to extract a meaningful string representation
@@ -1352,17 +1339,17 @@ class DatabaseManager:
                             if isinstance(v, str) and v.strip():
                                 return v
                         return None  # Don't convert empty dicts to strings
-                
+
                 result = str(value) if value is not None else None
                 return result if result and result.strip() else None
-            
+
             elif expected_type == 'list':
                 if isinstance(value, list):
                     return value if value else []  # Return empty list instead of None
                 elif isinstance(value, dict):
                     return []  # Return empty list for dicts when list expected
                 return []
-            
+
             return value
 
         try:
@@ -1384,13 +1371,13 @@ class DatabaseManager:
             # Extract both analysis types
             summarization_analysis = summary_data.get("summarization_analysis", {})
             metadata_analysis = summary_data.get("metadata_analysis", {})
-            
+
             # Validate that both analyses are present
             if not summarization_analysis:
                 logger.warning(f"No summarization_analysis found for document {document_id}")
             if not metadata_analysis:
                 logger.warning(f"No metadata_analysis found for document {document_id}")
-            
+
             # Extract nested structures with fallbacks and better handling
             extracted_metadata = metadata_analysis.get("extracted_metadata", {})
             intelligence_layer = extracted_metadata.get("intelligence_layer", {})
@@ -1401,16 +1388,16 @@ class DatabaseManager:
             with self.get_session() as session:
                 # Calculate duration values with defaults
                 summarization_duration = summary_data.get("summarization_duration_seconds")
-                metadata_duration = summary_data.get("metadata_duration_seconds") 
+                metadata_duration = summary_data.get("metadata_duration_seconds")
                 total_duration = summary_data.get("processing_duration_seconds")
-                
+
                 # If metadata_duration is missing but we have total and summarization, calculate it
                 if metadata_duration is None and summarization_duration is not None and total_duration is not None:
                     metadata_duration = max(0, total_duration - summarization_duration)
 
                 summary = DocumentSummary(
                     document_id=document_uuid,
-                    
+
                     # Core LLM Analysis - separate columns for each type
                     summarization_analysis=summarization_analysis,
                     metadata_analysis=metadata_analysis,
@@ -1437,18 +1424,18 @@ class DatabaseManager:
 
                     # Extracted fields for easy querying (from metadata_analysis) - improved extraction
                     extracted_keywords=safe_extract_list(metadata_analysis, "extracted_keywords"),
-                    
+
                     # Extract from universal_metadata with better handling
                     suggested_title=validate_and_convert_for_db(
-                        safe_extract(universal_metadata, "suggested_document_title"), 
+                        safe_extract(universal_metadata, "suggested_document_title"),
                         'string'
                     ),
                     implied_audience=validate_and_convert_for_db(
-                        safe_extract(universal_metadata, "implied_audience"), 
+                        safe_extract(universal_metadata, "implied_audience"),
                         'string'
                     ),
                     geographical_focus=validate_and_convert_for_db(
-                        safe_extract(universal_metadata, "primary_geographical_focus"), 
+                        safe_extract(universal_metadata, "primary_geographical_focus"),
                         'string'
                     ),
 
@@ -1475,7 +1462,7 @@ class DatabaseManager:
                     metadata_duration_seconds=metadata_duration,
                     total_processing_duration_seconds=total_duration,
                 )
-                
+
                 session.add(summary)
                 session.commit()
                 logger.info(f"Successfully saved summary for document {document_id}")
@@ -1567,7 +1554,7 @@ class DatabaseManager:
                 converted.append(item)
         return converted
 
-    def save_chunks(self, document_id: Union[str, uuid.UUID], chunks: List[Any]) -> bool:
+    def save_chunks(self, document_id: Union[str, uuid.UUID], chunks: List[DocumentChunk]) -> bool:
         """Save document chunks to the database with UUID conversion."""
         logger.debug(f"Attempting to save {len(chunks)} chunks for document_id: {document_id}")
 
@@ -1584,10 +1571,74 @@ class DatabaseManager:
             logger.debug(f"Document {document_id} exists, proceeding with chunk save")
 
             with self.get_session() as session:
-                session.begin()
-
                 try:
-                    for i, chunk_data in enumerate(chunks):
+                    # Process each chunk and add to session
+                    for i, chunk in enumerate(chunks):
+                        # Ensure chunk has the correct document_id (keep as UUID object for SQLAlchemy)
+                        chunk.document_id = document_id
+
+                        # Ensure chunk_index is set if not already
+                        if chunk.chunk_index is None:
+                            chunk.chunk_index = i
+
+                        # Ensure chunk_id is set if not already
+                        if not chunk.chunk_id:
+                            chunk.chunk_id = str(uuid.uuid4())
+
+                        # Ensure metadata_ is a dict if it's None
+                        if chunk.metadata_ is None:
+                            chunk.metadata_ = {}
+
+                        # Ensure metadata_ is JSON serializable
+                        if chunk.metadata_ is not None:
+                            try:
+                                import json
+                                # Convert any UUID objects in metadata to strings
+                                if isinstance(chunk.metadata_, dict):
+                                    chunk.metadata_ = self._convert_dict_uuids_to_strings(chunk.metadata_)
+                                json.dumps(chunk.metadata_)
+                            except (TypeError, ValueError) as e:
+                                logger.warning(f"Metadata not JSON serializable, converting to string: {e}")
+                                chunk.metadata_ = str(chunk.metadata_)
+
+                        # Add the chunk to the session
+                        session.add(chunk)
+
+                    # Commit all chunks to database
+                    session.commit()
+                    logger.info(f"Successfully saved {len(chunks)} chunks for document {document_id}")
+                    return True
+
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Error saving chunks: {e}")
+                    raise e
+        except SQLAlchemyError as e:
+            logger.error(f"Database error saving chunks: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving chunks: {e}")
+            return False
+
+    def save_chunks_from_data(self, document_id: Union[str, uuid.UUID], chunks_data: List[Any]) -> bool:
+        """Save document chunks from various data formats (tuples, dicts, etc.) to the database."""
+        logger.debug(f"Attempting to save {len(chunks_data)} chunks from data for document_id: {document_id}")
+
+        try:
+            # Normalize document_id to string format
+            if isinstance(document_id, str):
+                document_id = uuid.UUID(document_id)
+
+            # Verify the document exists
+            if not self._verify_document_exists(document_id):
+                logger.error(f"Document validation failed: document_id {document_id} does not exist in documents table")
+                return False
+
+            logger.debug(f"Document {document_id} exists, proceeding with chunk save")
+
+            with self.get_session() as session:
+                try:
+                    for i, chunk_data in enumerate(chunks_data):
                         # Initialize variables with defaults
                         chunk_text = ""
                         chunk_metadata = {}
@@ -1646,7 +1697,7 @@ class DatabaseManager:
                             metadata_json = {}
 
                         chunk_dict = {
-                            'document_id': document_id,  # Use normalized string format
+                            'document_id': document_id,
                             'chunk_index': i,
                             'chunk_text': chunk_text,
                             'metadata_': metadata_json,
@@ -1655,9 +1706,8 @@ class DatabaseManager:
                             'embedding_checksum': embedding_checksum
                         }
 
-                        # Convert any remaining UUIDs to strings (except document_id which is already normalized)
+                        # Convert any remaining UUIDs to strings
                         chunk_dict_converted = self._convert_uuids_to_strings(chunk_dict)
-                        # Keep document_id as normalized string (don't convert back to UUID)
                         chunk_dict_converted['document_id'] = document_id
 
                         # Additional safety check - ensure all values are JSON serializable
@@ -1672,17 +1722,19 @@ class DatabaseManager:
                         session.add(chunk)
 
                     session.commit()
+                    logger.info(f"Successfully saved {len(chunks_data)} chunks from data for document {document_id}")
                     return True
 
                 except Exception as e:
                     session.rollback()
+                    logger.error(f"Error saving chunks from data: {e}")
                     raise e
 
         except SQLAlchemyError as e:
-            logger.error(f"Database error saving chunks: {e}")
+            logger.error(f"Database error saving chunks from data: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error saving chunks: {e}")
+            logger.error(f"Unexpected error saving chunks from data: {e}")
             return False
 
     def update_temp_document_status(self, temp_document_id: str, status: str, error_message: Optional[str] = None) -> bool:
@@ -1717,3 +1769,29 @@ class DatabaseManager:
             logger.error(f"Database error updating temp document status: {e}")
             session.rollback()  # Explicit rollback on error
             return False
+
+    def get_document_chunks(self, document_id: Union[str, uuid.UUID]) -> List[Dict[str, Any]]:
+        """Get all chunks for a specific document as dictionaries."""
+        try:
+            if isinstance(document_id, str):
+                document_id = uuid.UUID(document_id)
+
+            with self.get_session() as session:
+                chunks = session.query(DocumentChunk).filter(
+                    DocumentChunk.document_id == document_id
+                ).order_by(DocumentChunk.chunk_index).all()
+
+                # Convert to dictionaries to avoid session binding issues
+                chunk_dicts = []
+                for chunk in chunks:
+                    chunk_dict = chunk.to_dict()
+                    chunk_dicts.append(chunk_dict)
+
+                return chunk_dicts
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error getting document chunks: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Unexpected error getting document chunks: {e}")
+            return []

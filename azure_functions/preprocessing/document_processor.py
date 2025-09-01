@@ -263,6 +263,7 @@ class DocumentProcessor:
             openai_key = self.api_keys.get("openai") or os.getenv("OPENAI_API_KEY")
 
             # Generate chunks
+            # TODO: Remove chunking process from here, already being done in document_upload_service.py
             chunks_with_metadata = chunk_document_adaptive(
                 parsed_blocks,
                 document_id,
