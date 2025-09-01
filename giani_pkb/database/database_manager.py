@@ -1460,13 +1460,14 @@ class DatabaseManager:
             logger.error(f"Database error getting project documents: {e}")
             return []
     
-    def create_conversation(self, project_id: int, user_id: uuid.UUID) -> Optional[Conversation]:
+    def create_conversation(self, project_id: int, user_id: uuid.UUID, user_question: str) -> Optional[Conversation]:
         """Create a new conversation."""
         try:
             with self.get_session() as session:
                 conversation = Conversation(
                     project_id=project_id,
                     user_id=user_id,
+                    conversation_title=user_question
                 )
                 session.add(conversation)
                 session.flush()
@@ -1504,7 +1505,7 @@ class DatabaseManager:
                 if not conversation:
                     logger.warning(f"Conversation {conversation_id} not found for title update.")
                     return False
-                conversation.title = title
+                conversation.conversation_title = title
                 session.flush()
                 logger.info(f"Updated title for conversation {conversation_id}")
                 return True
