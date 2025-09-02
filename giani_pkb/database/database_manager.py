@@ -1478,7 +1478,7 @@ class DatabaseManager:
             logger.error(f"Database error creating conversation: {e}")
             return None
 
-    def add_chat_message(self, conversation_id: uuid.UUID, message_index: int, sender_type: str, content: str) -> Optional[ChatMessage]:
+    def add_chat_message(self, conversation_id: uuid.UUID, message_index: int, sender_type: str, message: str) -> Optional[ChatMessage]:
         """Add a new message to a conversation."""
         try:
             with self.get_session() as session:
@@ -1486,7 +1486,7 @@ class DatabaseManager:
                     conversation_id=conversation_id,
                     message_id=message_index,
                     sender_type=sender_type,
-                    message=content,
+                    message=message,
                 )
                 session.add(message)
                 session.flush()
