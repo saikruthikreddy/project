@@ -26,13 +26,6 @@ def run_query(
     db_manager = DatabaseManager()
 
     try:
-        if conversation_id:
-            db_manager.add_chat_message(
-                conversation_id=conversation_id,
-                message=user_question,
-                sender_type='human'
-            )
-        
         logger.info(f"Starting RAG query for project {project_id}: {user_question[:100]}...")
 
         embed_chunks_for_project(db, project_id)
@@ -51,11 +44,6 @@ def run_query(
                 logger.warning("No chunks with embeddings found for the project. Falling back to direct LLM call.")
                 model = genai.GenerativeModel(GEMINI_FLASH_MODEL)
                 response = model.generate_content(user_question)
-                db_manager.add_chat_message(
-                    conversation_id=conversation_id,
-                    message=str(response.text),
-                    sender_type='AI'
-                )
                 return {
                     "answer": response.text,
                     "sources": [],
@@ -108,13 +96,6 @@ def run_query(
                     "query_successful": False
                 }
             }
-
-        if conversation_id:
-            db_manager.add_chat_message(
-                conversation_id=conversation_id,
-                message=str(response),
-                sender_type='AI'
-            )
         
         # Step 4: Format citations
         sources = format_citations(response.source_nodes) if response.source_nodes else []
