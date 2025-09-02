@@ -1517,7 +1517,7 @@ class DatabaseManager:
         """Get the chat history for a conversation."""
         try:
             with self.get_session() as session:
-                messages = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation_id).order_by(ChatMessage.message_index).all()
+                messages = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation_id).order_by(ChatMessage.message_id).all()
                 for message in messages:
                     session.expunge(message)
                 return messages

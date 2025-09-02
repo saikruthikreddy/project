@@ -385,7 +385,7 @@ def create_project_routes():
             # Convert messages to dictionaries
             history_dict = [
                 {
-                    'message_index': msg.message_index,
+                    'message_id': msg.message_id,
                     'sender_type': msg.sender_type,
                     'content': msg.content,
                     'timestamp': msg.timestamp.isoformat()
