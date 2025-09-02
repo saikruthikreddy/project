@@ -1486,7 +1486,7 @@ class DatabaseManager:
                     conversation_id=conversation_id,
                     message_id=message_index,
                     sender_type=sender_type,
-                    content=content,
+                    message=content,
                 )
                 session.add(message)
                 session.flush()
