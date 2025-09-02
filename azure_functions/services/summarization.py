@@ -76,7 +76,7 @@ class SummarizationService:
             raise FileProcessingError(f"Document not found: {document_path}", filepath=document_path)
 
         try:
-            parsed_blocks, _ = self.processor.process_single_file(document_path, "doc-id", "proj-id")
+            parsed_blocks = self.processor.process_single_file(document_path, "doc-id", "proj-id")
 
             if not parsed_blocks:
                 self.logger.warning(f"No parsed blocks returned for: {document_path}")

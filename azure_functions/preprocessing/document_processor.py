@@ -142,27 +142,6 @@ class DocumentProcessor:
         else:
             raise ProcessingError(f"Unsupported file type: {extension}")
 
-    def _determine_document_type(
-        self, document_category_hint: Optional[str] = None
-    ) -> str:
-        """
-        Determine document type for chunking based on category hint.
-
-        Args:
-            document_category_hint: Optional category hint
-
-        Returns:
-            Document type string for chunking
-        """
-        if document_category_hint:
-            # Try to map category to document group
-            mapped_group = CATEGORY_TO_GROUP_MAPPING.get(document_category_hint)
-            if mapped_group:
-                return mapped_group.value
-
-        # Default document type
-        return "formal"
-
     def _create_image_block(self, image_text: str) -> List[Tuple[str, Dict[str, Any]]]:
         """
         Create structured block from image processing result.
@@ -193,12 +172,8 @@ class DocumentProcessor:
         container_name: str,
         blob_name: str,
         document_id: str,
-        project_id: str,
-        document_category_hint: Optional[str] = None,
-        use_semantic_chunker: bool = False,
-        **chunker_kwargs,
     ) -> Tuple[
-        Optional[List[Tuple[str, Dict[str, Any]]]], List[Tuple[str, ChunkMetadata]]
+        Optional[List[Tuple[str, Dict[str, Any]]]]
     ]:
         """
         Process a single file: parse it into blocks and then chunk those blocks.
@@ -207,10 +182,6 @@ class DocumentProcessor:
             container_name:
             blob_name:
             document_id: ID of the document
-            project_id: ID of the project
-            document_category_hint: Hint for document type classification
-            use_semantic_chunker: Whether to use semantic chunking
-            **chunker_kwargs: Additional chunking parameters
 
         Returns:
             Tuple of (parsed_blocks, chunks_with_metadata)
@@ -253,31 +224,7 @@ class DocumentProcessor:
                 )
                 return None, []
 
-            # Determine document type for chunking
-            doc_type = self._determine_document_type(document_category_hint)
-            logger.info(
-                f"DocID {document_id}: Using document type '{doc_type}' for adaptive chunking."
-            )
-
-            # Get OpenAI API key for semantic chunking
-            openai_key = self.api_keys.get("openai") or os.getenv("OPENAI_API_KEY")
-
-            # Generate chunks
-            # TODO: Remove chunking process from here, already being done in document_upload_service.py
-            chunks_with_metadata = chunk_document_adaptive(
-                parsed_blocks,
-                document_id,
-                project_id,
-                document_type=doc_type,
-                use_semantic_chunker=use_semantic_chunker,
-                openai_api_key=openai_key,
-                **chunker_kwargs,
-            )
-
-            logger.info(
-                f"DocID {document_id}: Generated {len(chunks_with_metadata)} chunks."
-            )
-            return parsed_blocks, chunks_with_metadata
+            return parsed_blocks
 
         except Exception as e:
             logger.error(
@@ -287,165 +234,3 @@ class DocumentProcessor:
             raise FileProcessingError(
                 f"Error processing file {blob_name} in {container_name}: {e}"
             )
-
-    def process_files(
-        self, file_metadata_list: List[Dict[str, Any]]
-    ) -> List[ProcessingResult]:
-        """
-        Process multiple files with their metadata.
-
-        Args:
-            file_metadata_list: List of file metadata dictionaries
-
-        Returns:
-            List of processing results
-        """
-        results = []
-
-        for item in file_metadata_list:
-            try:
-                # Extract required metadata
-                blob_name = item.get("blob_name")
-                container_name = item.get("container_name")
-                doc_id = item.get("document_id")
-                proj_id = item.get("project_id")
-
-                if not all([blob_name, container_name, doc_id, proj_id]):
-                    error_msg = "Missing critical metadata (blob_name, container_name, document_id, or project_id)"
-                    logger.error(f"{error_msg} in item: {item}")
-                    results.append(
-                        ProcessingResult(
-                            blob_name=blob_name,
-                            container_name=container_name,
-                            document_id=doc_id or "unknown",
-                            project_id=proj_id or "unknown",
-                            status="Error - Missing critical metadata",
-                            parsed_block_count=0,
-                            chunk_count=0,
-                            chunks_preview=[],
-                            error_message=error_msg,
-                        )
-                    )
-                    continue
-
-                # Extract optional parameters
-                doc_category_hint = item.get("document_category_hint")
-                use_semantic = item.get("use_semantic_chunker", False)
-                chunker_settings = item.get("chunker_kwargs", {})
-
-                # Process file
-                parsed_blocks, chunks = self.process_single_file(
-                    blob_name,
-                    container_name,
-                    doc_id,
-                    proj_id,
-                    document_category_hint=doc_category_hint,
-                    use_semantic_chunker=use_semantic,
-                    **chunker_settings,
-                )
-
-                # Create result
-                num_parsed_blocks = len(parsed_blocks) if parsed_blocks else 0
-                chunks_preview = [
-                    (
-                        chunk_text[:100] + "...",
-                        chunk_meta.chunk_id,
-                        chunk_meta.chunk_type,
-                    )
-                    for chunk_text, chunk_meta in chunks[:2]
-                ]
-
-                results.append(
-                    ProcessingResult(
-                        blob_name=blob_name,
-                        container_name=container_name,
-                        document_id=doc_id,
-                        project_id=proj_id,
-                        status="Success",
-                        parsed_block_count=num_parsed_blocks,
-                        chunk_count=len(chunks),
-                        chunks_preview=chunks_preview,
-                    )
-                )
-
-            except Exception as e:
-                logger.error(f"Error processing item {item}: {e}")
-                results.append(
-                    ProcessingResult(
-                        blob_name=item.get("blob_name", "unknown"),
-                        container_name=item.get("container_name", "unknown"),
-                        document_id=item.get("document_id", "unknown"),
-                        project_id=item.get("project_id", "unknown"),
-                        status="Error",
-                        parsed_block_count=0,
-                        chunk_count=0,
-                        chunks_preview=[],
-                        error_message=str(e),
-                    )
-                )
-
-        return results
-
-    def discover_files(self, target_folder: Union[str, Path]) -> List[str]:
-        """
-        Discover all supported files in a directory.
-
-        Args:
-            target_folder: Path to search for files
-
-        Returns:
-            List of file paths
-        """
-        target_folder = Path(target_folder)
-
-        if not target_folder.exists():
-            logger.warning(f"Target folder does not exist: {target_folder}")
-            return []
-
-        file_paths = []
-        try:
-            for file_path in target_folder.rglob("*"):
-                if (
-                    file_path.is_file()
-                    and file_path.suffix.lower() in self.supported_extensions
-                ):
-                    file_paths.append(str(file_path))
-
-            logger.info(
-                f"Discovered {len(file_paths)} supported files in {target_folder}"
-            )
-
-        except Exception as e:
-            logger.error(f"Error discovering files in {target_folder}: {e}")
-
-        return file_paths
-
-    def main_processing_orchestrator(
-        self, file_metadata_list: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        Legacy method for backward compatibility.
-
-        Args:
-            file_metadata_list: List of file metadata dictionaries
-
-        Returns:
-            List of result dictionaries
-        """
-        results = self.process_files(file_metadata_list)
-
-        # Convert to legacy format
-        legacy_results = []
-        for result in results:
-            legacy_results.append(
-                {
-                    "blob": result.blob_name,
-                    "container": result.container_name,
-                    "document_id": result.document_id,
-                    "parsed_block_count": result.parsed_block_count,
-                    "chunk_count": result.chunk_count,
-                    "chunks_preview": result.chunks_preview,
-                }
-            )
-
-        return legacy_results

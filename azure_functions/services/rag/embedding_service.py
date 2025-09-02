@@ -41,7 +41,6 @@ class EmbeddingService:
         self.tokenizer = tokenizer
         self.db_manager = DatabaseManager()
 
-    # DTO-based methods (Service Layer)
     def embed_chunk_dtos(self, chunk_dtos: List[ChunkDTO]) -> Dict[str, int]:
         """
         Embed a list of ChunkDTO objects (service layer method).
@@ -82,7 +81,6 @@ class EmbeddingService:
         }
 
         try:
-            # Prepare texts and check for existing embeddings
             chunks_to_embed = []
             texts_to_embed = []
 
@@ -170,7 +168,7 @@ class EmbeddingService:
         header = f"[{chunk_type.upper()}] " + " ".join(header_parts)
         return header
 
-    # Model-based methods (Database Layer) - Keep existing functionality
+    # TODO: Remove this
     def embed_document_chunks(self, chunks: List[DocumentChunk]) -> Dict[str, int]:
         """
         Embed DocumentChunk models (database layer method).
@@ -233,6 +231,7 @@ class EmbeddingService:
             logger.error(f"Error in embed_summary_chunks: {e}")
             return chunks
 
+    # TODO: Remove this
     def embed_single_chunk(self, chunk: DocumentChunk) -> bool:
         """
         Embed a single DocumentChunk model (database layer method).
@@ -289,6 +288,7 @@ class EmbeddingService:
             logger.error(f"Failed to embed chunk {chunk_id}: {e}")
             return False
 
+    # TODO: Remove this
     def embed_chunks_for_project(self, project_id: int) -> Dict[str, int]:
         """
         Enhanced embedding function for all chunks in a project.

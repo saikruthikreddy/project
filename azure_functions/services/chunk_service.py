@@ -71,12 +71,8 @@ class ChunkService:
         Get all chunks for a document as DTOs for business logic use.
         """
         try:
-            # Database layer returns SQLAlchemy models
             db_chunks = self.db_manager.get_document_chunks(document_id)
-
-            # Convert to DTOs for business logic
             chunk_dtos = [ChunkDTO.from_document_chunk(chunk) for chunk in db_chunks]
-
             return chunk_dtos
         except Exception as e:
             logger.error(f"Error retrieving chunks for document {document_id}: {e}")
@@ -87,10 +83,7 @@ class ChunkService:
         Save chunks from DTOs to database.
         """
         try:
-            # Convert DTOs to SQLAlchemy models for database operations
             db_chunks = [chunk_dto.to_document_chunk() for chunk_dto in chunk_dtos]
-
-            # Use database manager to save
             document_id = chunk_dtos[0].document_id if chunk_dtos else None
             if document_id:
                 self.db_manager.save_chunks(document_id, db_chunks)
@@ -113,11 +106,9 @@ class ChunkService:
         }
 
         try:
-            # Use the embedding service to embed DTOs directly
             embedding_stats = self.embedding_service.embed_chunk_dtos(chunk_dtos)
             stats.update(embedding_stats)
 
-            # Convert embedded DTOs to SQLAlchemy models for database saving
             embedded_dtos = [dto for dto in chunk_dtos if dto.embedding_vector is not None]
 
             if embedded_dtos:
@@ -201,9 +192,7 @@ class ChunkService:
             chunk_dto.embedding_vector = embedding_vector
             chunk_dto.embedding_checksum = embedding_checksum
 
-            # Convert back to model and save
             db_chunk = chunk_dto.to_document_chunk()
-            # Here you'd call a database update method
             # self.db_manager.update_chunk(db_chunk)
 
             return True
