@@ -266,10 +266,10 @@ def convert_chunk_to_node(
         if page_numbers_raw:
             page_numbers = normalize_page_numbers(page_numbers_raw)
 
-        # Fallback to legacy source_page_number for backward compatibility
+        # Fallback to legacy source_page_numbers for backward compatibility
         if not page_numbers:
-            source_page_number = safe_extract_metadata(chunk, 'source_page_number')
-            page_numbers = normalize_page_numbers(source_page_number)
+            source_page_numbers = safe_extract_metadata(chunk, 'source_page_numbers')
+            page_numbers = normalize_page_numbers(source_page_numbers)
 
         # Build metadata safely
         metadata = {
@@ -439,9 +439,9 @@ def convert_dict_to_node(
         elif "source_page_numbers" in meta:
             page_numbers = normalize_page_numbers(meta["source_page_numbers"])
 
-        # Fallback to legacy source_page_number (singular)
-        elif "source_page_number" in meta:
-            page_numbers = normalize_page_numbers(meta["source_page_number"])
+        # Fallback to legacy source_page_numbers (singular)
+        elif "source_page_numbers" in meta:
+            page_numbers = normalize_page_numbers(meta["source_page_numbers"])
 
         # Handle slide_number for PPTX files (add to page_numbers)
         slide_number = meta.get("slide_number")

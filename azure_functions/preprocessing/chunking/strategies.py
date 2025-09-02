@@ -1,5 +1,3 @@
-# Updated strategies.py
-
 import logging
 import uuid
 import csv
@@ -11,6 +9,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_openai import OpenAIEmbeddings
 
+from preprocessing.chunking.dto import ChunkDTO
 from .models import ChunkMetadata
 from .token_counter import TokenCounter
 from .nlp_processor import NLPProcessor
@@ -903,7 +902,11 @@ def chunk_document_adaptive(
     token_model: Optional[str] = None,
     embeddings=None,  # ✅ Accepts external embedding instance
     **kwargs
-) -> List[Tuple[str, ChunkMetadata]]:
+) -> List[ChunkDTO]:
+    # Ensure document_id and project_id are strings (handle UUID objects)
+    document_id = str(document_id)
+    project_id = str(project_id)
+
     if token_model:
         set_token_model(token_model)
 
@@ -916,7 +919,7 @@ def chunk_document_adaptive(
         "formal": chunk_formal_document,
     }
 
-    chunks = []  # Initialize chunks list
+    chunks = []  # Initialize chunks list: (text, ChunkMetadata) tuples
 
     # ✅ NEW WIRING LOGIC STARTS HERE
     # This block intercepts relevant document types to run the metric pairing first.
@@ -962,4 +965,21 @@ def chunk_document_adaptive(
         if i > 0:
             meta.previous_chunk_id = chunks[i - 1][1].chunk_id
 
-    return chunks
+    chunk_dtos: List[ChunkDTO] = []
+    for chunk_text, metadata in chunks:
+        chunk_dto = ChunkDTO(
+            chunk_id=metadata.chunk_id,
+            document_id=uuid.UUID(metadata.document_id),
+            chunk_index=metadata.chunk_index,
+            chunk_text=chunk_text,
+            source_page_numbers=metadata.source_page_numbers or [],
+            metadata_=metadata.to_dict(),
+            embedding_vector=metadata.embedding_vector,
+            embedding_model=metadata.embedding_model,
+            embedding_checksum=metadata.embedding_checksum,
+            embedding_ts=metadata.embedding_ts,
+        )
+        chunk_dtos.append(chunk_dto)
+
+
+    return chunk_dtos

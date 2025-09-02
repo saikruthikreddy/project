@@ -9,16 +9,18 @@ from typing import Dict, Any
 from pathlib import Path
 import logging
 
+from services.rag.embed_chunk import embed_single_chunk
 from services.classification import ClassificationService
 from services.metadata_manager import MetadataManagerService
 from database.database_manager import DatabaseManager
-from preprocessing.chunking.strategies import chunk_document_adaptive
 from preprocessing.document_processor import DocumentProcessor
+from services.chunk_service import ChunkService
 from models.document import DocumentMetadata
 from utils.config import config
 from utils.exceptions import FileProcessingError
 from services.summarization import SummarizationService
 from services.blob_storage_service import blob_storage_service
+from services.ai_search_service import AzureSearchService
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,7 @@ class DocumentUploadService:
             self.db_manager = DatabaseManager()
             self.metadata_manager = MetadataManagerService()
             self.classification_service = ClassificationService()
+            self.ai_search_service = AzureSearchService()
 
             # Get API keys from config with validation
             api_keys = {
@@ -129,20 +132,14 @@ class DocumentUploadService:
 
                 # Convert user_id and project_id to proper types for database
                 try:
-                    user_uuid = (
-                        uuid.UUID(user_id) if isinstance(user_id, str) else user_id
-                    )
+                    user_uuid = (uuid.UUID(user_id) if isinstance(user_id, str) else user_id)
                 except ValueError:
                     raise FileProcessingError(f"Invalid user_id format: {user_id}")
 
                 try:
-                    project_int = (
-                        int(project_id) if isinstance(project_id, str) else project_id
-                    )
+                    project_int = (int(project_id) if isinstance(project_id, str) else project_id)
                 except (ValueError, TypeError):
-                    raise FileProcessingError(
-                        f"Invalid project_id format: {project_id}"
-                    )
+                    raise FileProcessingError(f"Invalid project_id format: {project_id}")
 
                 # Create document in database
                 document = self.db_manager.create_document(
@@ -161,40 +158,24 @@ class DocumentUploadService:
                     user_id=user_uuid,
                     project_id=project_int,
                     processed_content=task.get("user_purpose_note", ""),
+                    # document_metadata=doc_meta,
                     date_added_to_giani=datetime.utcnow(),
                 )
 
                 if not document:
-                    raise FileProcessingError(
-                        "Failed to create document record in database"
-                    )
-
-
+                    raise FileProcessingError("Failed to create document record in database")
                 logger.info(f"Successfully processed document: {original_filename}")
 
             except Exception as db_error:
-                logger.error(
-                    f"Database/metadata error for {original_filename}: {db_error}"
-                )
+                logger.error(f"Database/metadata error for {original_filename}: {db_error}")
 
                 # TODO: Cleanup destination file if database operation failed
-                # try:
-                #     if dest_path and os.path.exists(dest_path):
-                #         os.remove(dest_path)
-                #         logger.info(
-                #             f"Cleaned up destination file after database error: {dest_path}"
-                #         )
-                # except:
-                #     logger.warning(f"Failed to cleanup destination file: {dest_path}")
 
-                raise FileProcessingError(
-                    f"Failed to save document metadata: {db_error}"
-                )
+                raise FileProcessingError(f"Failed to save document metadata: {db_error}")
 
-            # ============= SINGLE DOCUMENT PROCESSING & CHUNKING =============
-            # Process document once and extract chunks for both chunking and summarization
+            # DOCUMENT PROCESSING & CHUNKING
             parsed_blocks = None
-            chunks = None
+            chunk_dtos = None
 
             try:
                 logger.info(
@@ -202,29 +183,46 @@ class DocumentUploadService:
                 )
 
                 # Process document once to get parsed blocks
-                parsed_blocks, chunks = self.document_processor.process_single_file(
-                    container_name=source_container, blob_name=source_blob_name, document_id=document_id, project_id=project_id
+                parsed_blocks = self.document_processor.process_single_file(
+                    container_name=source_container, blob_name=source_blob_name, document_id=str(document_id), project_id=project_id
                 )
 
                 if parsed_blocks:
-                    
-                    if chunks:
-                        # Save chunks to database
-                        self.db_manager.save_chunks(
-                            document_id=document_id,
-                            chunks=chunks,
-                        )
-                        logger.info(
-                            f"Successfully chunked and saved {len(chunks)} chunks for document: {original_filename}"
-                        )
-                    else:
-                        logger.warning(
-                            f"No chunks generated for document: {original_filename}"
-                        )
-                else:
-                    logger.warning(
-                        f"No parsed blocks generated for document: {original_filename}"
+                    # Create chunks from parsed blocks using chunk service
+                    chunk_service = ChunkService()
+                    chunk_dtos = chunk_service.generate_chunks(
+                        parsed_blocks=parsed_blocks,
+                        document_id=document_id,
+                        project_id=project_id,
+                        document_type=doc_meta.finalCategory,
+                        openai_api_key=config.OPENAI_API_KEY,
                     )
+
+                    if chunk_dtos:
+                        # Complete pipeline: embed, save, and index chunks
+                        try:
+                            import asyncio
+                            processing_stats = asyncio.run(
+                                chunk_service.embed_save_and_index_chunks(chunk_dtos)
+                            )
+
+                            logger.info(f"Chunk processing stats: {processing_stats}")
+
+                            if processing_stats['saved_successfully'] > 0:
+                                logger.info(f"Successfully processed {processing_stats['saved_successfully']} chunks")
+                            else:
+                                logger.warning("No chunks were successfully processed")
+
+                        except Exception as e:
+                            logger.error(f"Error during chunk processing pipeline: {e}")
+                            # Fallback to basic embedding and saving
+                            embedding_stats = chunk_service.embed_and_save_chunks(chunk_dtos)
+                            logger.info(f"Fallback embedding stats: {embedding_stats}")
+
+                    else:
+                        logger.warning(f"No chunks generated for document: {original_filename}")
+                else:
+                    logger.warning(f"No parsed blocks generated for document: {original_filename}")
 
             except Exception as e:
                 logger.error(
@@ -232,40 +230,25 @@ class DocumentUploadService:
                 )
                 # Don't fail the entire process, continue with summarization attempt
 
-            # ============= SUMMARIZATION USING EXISTING CHUNKS =============
+            # SUMMARIZATION
             try:
                 logger.info(f"Starting summarization for: {original_filename}")
 
                 summarization_service = SummarizationService()
 
                 # Use pre-processed chunks if available, otherwise fall back to file processing
-                if chunks:
-                    logger.info(
-                        f"Using pre-processed chunks ({len(chunks)}) for summarization"
-                    )
-                    summary = summarization_service.summarize_from_chunks(
-                        doc_meta, chunks
-                    )
+                if chunk_dtos:
+                    logger.info(f"Using chunk DTOs ({len(chunk_dtos)}) for summarization")
+                    summary = summarization_service.summarize_from_chunk_dtos(doc_meta, chunk_dtos)
                 else:
-                    logger.warning(
-                        f"No chunks available, falling back to file-based summarization"
-                    )
+                    logger.warning("No chunks available, falling back to file-based summarization")
                     summary = summarization_service.summarize_document(doc_meta)
 
                 if summary:
-                    # Save summary to database
-                    self.db_manager.save_summary(
-                        document_id=document_id,
-                        summary_data=summary,
-                    )
-
-                    logger.info(
-                        f"Successfully generated and saved summary for document: {original_filename}"
-                    )
+                    self.db_manager.save_summary(document_id=document_id, summary_data=summary)
+                    logger.info(f"Successfully generated and saved summary for document: {original_filename}")
                 else:
-                    logger.warning(
-                        f"No summary generated for document: {original_filename}"
-                    )
+                    logger.warning(f"No summary generated for document: {original_filename}")
 
             except Exception as e:
                 logger.error(
@@ -286,7 +269,6 @@ class DocumentUploadService:
                 except Exception as e:
                     logger.error("Unable to move file.")
                     raise
-
 
                 # Remove temp document from database
                 self.db_manager.delete_temp_document(

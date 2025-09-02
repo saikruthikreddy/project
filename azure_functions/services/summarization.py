@@ -16,6 +16,7 @@ import google.generativeai as genai
 
 from models.document import DocumentMetadata
 from services.metadata_manager import MetadataManagerService
+from preprocessing.chunking.dto import ChunkDTO
 from utils.constants import DocumentGroup, CATEGORY_TO_GROUP_MAPPING
 from utils.exceptions import APIError, FileProcessingError, ParsingError, ConfigurationError
 from utils.config import GEMINI_API_KEY, GEMINI_PRO_MODEL
@@ -64,6 +65,7 @@ class SummarizationService:
 
     def extract_document_chunks(self, document_path: str) -> List[Dict[str, Any]]:
         """Extracts text chunks from a document."""
+        # TODO: Update this method to use blob storage
         self.logger.info(f"Starting chunk extraction for: {document_path}")
 
         if not os.path.isabs(document_path):
@@ -74,7 +76,7 @@ class SummarizationService:
             raise FileProcessingError(f"Document not found: {document_path}", filepath=document_path)
 
         try:
-            parsed_blocks, _ = self.processor.process_single_file(document_path, "doc-id", "proj-id")
+            parsed_blocks = self.processor.process_single_file(document_path, "doc-id", "proj-id")
 
             if not parsed_blocks:
                 self.logger.warning(f"No parsed blocks returned for: {document_path}")
@@ -111,10 +113,9 @@ class SummarizationService:
         return d
 
     def extract_clean_json(self, raw: str) -> Optional[str]:
-        """Clean malformed JSON content."""
+        """Clean malformed JSON content with improved handling of extra data."""
         self.logger.debug(f"Starting JSON cleanup, raw length: {len(raw)}")
 
-        self.logger.info(f'============= RAW =============: {type(raw)}')
         self.logger.info(raw)
         cleaned = raw.strip()
 
@@ -124,34 +125,50 @@ class SummarizationService:
             end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
         elif "```" in cleaned:
-            start = cleaned.find("```")
+            start = cleaned.find("```") + 3
             end = cleaned.find("```", start)
             cleaned = cleaned[start:end].strip() if end != -1 else cleaned[start:].strip()
 
-        # Normalize brackets - find first { and last }
+        # Find the main JSON object - look for balanced braces
         if "{" in cleaned:
-            cleaned = cleaned[cleaned.find("{"):]
+            start_pos = cleaned.find("{")
+            brace_count = 0
+            end_pos = start_pos
 
-        if "}" in cleaned:
-            cleaned = cleaned[:cleaned.rfind("}") + 1]
+            for i, char in enumerate(cleaned[start_pos:], start_pos):
+                if char == "{":
+                    brace_count += 1
+                elif char == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_pos = i + 1
+                        break
 
-        # Balance braces
-        open_braces = cleaned.count("{")
-        close_braces = cleaned.count("}")
-        if open_braces > close_braces:
-            cleaned += "}" * (open_braces - close_braces)
-            self.logger.debug(f"Added {open_braces - close_braces} closing braces")
+            # Extract only the balanced JSON object
+            cleaned = cleaned[start_pos:end_pos]
+            self.logger.debug(f"Extracted balanced JSON from position {start_pos} to {end_pos}")
 
         # Fix common JSON errors
         cleaned = re.sub(r',\s*}', '}', cleaned)  # Remove trailing commas before }
         cleaned = re.sub(r',\s*]', ']', cleaned)  # Remove trailing commas before ]
 
+        # Remove any remaining extra characters after the JSON
+        cleaned = cleaned.strip()
+
         # Validate basic JSON structure
         is_valid = cleaned.startswith("{") and cleaned.endswith("}")
         if not is_valid:
             self.logger.warning("Invalid JSON structure after cleaning")
+            return None
 
-        return cleaned if is_valid else None
+        # Try to parse to ensure it's valid JSON
+        try:
+            json.loads(cleaned)
+            self.logger.debug("JSON validation successful")
+            return cleaned
+        except json.JSONDecodeError as e:
+            self.logger.warning(f"JSON still invalid after cleaning: {e}")
+            return None
 
     def validate_summarization_response(self, response: Dict[str, Any]) -> bool:
         """Validate summarization response structure."""
@@ -194,7 +211,7 @@ class SummarizationService:
 
         for field, field_type in required_fields.items():
             if field not in response:
-                self.logger.error(f"Missing field in metadata response: {field}")
+                self.logger.error(f"Missing required field in metadata response: {field}")
                 return False
             if not isinstance(response[field], field_type):
                 self.logger.error(f"Type mismatch for '{field}': expected {field_type}, got {type(response[field])}")
@@ -296,7 +313,7 @@ class SummarizationService:
     def call_llm_apis_parallel(self, document_category: str, document_filename: str, user_purpose: str, combined_text: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], float, float]:
         """Call both summarization and metadata LLM APIs in parallel and return individual durations."""
         self.logger.info(f"Starting parallel LLM API calls for category: {document_category}")
-        
+
         try:
             # Get both prompts using the existing prompt generators
             summarization_prompt, metadata_prompt = get_both_prompts(
@@ -315,16 +332,16 @@ class SummarizationService:
         metadata_result = None
         summarization_duration = 0
         metadata_duration = 0
-        
+
         # Use ThreadPoolExecutor for parallel execution
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit both tasks with timing
             summarization_start = time.time()
             future_summarization = executor.submit(self.call_llm_api, summarization_prompt, "summarization")
-            
+
             metadata_start = time.time()
             future_metadata = executor.submit(self.call_llm_api, metadata_prompt, "metadata")
-            
+
             # Collect results as they complete
             for future in as_completed([future_summarization, future_metadata]):
                 try:
@@ -346,95 +363,34 @@ class SummarizationService:
 
         return summarization_result, metadata_result, summarization_duration, metadata_duration
 
-    def _normalize_chunks(self, chunks: List[Any]) -> List[Dict[str, Any]]:
+    def summarize_from_chunk_dtos(self, document: DocumentMetadata, chunk_dtos: List[ChunkDTO]) -> Optional[Dict[str, Any]]:
         """
-        Normalize chunks to dictionary format regardless of input format.
-
-        Args:
-            chunks: List of chunks in various formats (tuples, dicts, etc.)
-
-        Returns:
-            List of normalized chunk dictionaries
-        """
-        processed_chunks = []
-
-        for i, chunk in enumerate(chunks):
-            if isinstance(chunk, tuple):
-                # Handle tuple format (raw output from chunk_document_adaptive)
-                processed_chunk = {
-                    "text": chunk[0] if len(chunk) > 0 else "",
-                    "metadata": chunk[1] if len(chunk) > 1 else {},
-                    "chunk_id": str(uuid.uuid4()),
-                    "chunk_index": i,
-                    "vector_id": chunk[2] if len(chunk) > 2 else None,
-                    "embedding_checksum": chunk[3] if len(chunk) > 3 else None
-                }
-                processed_chunks.append(processed_chunk)
-
-            elif isinstance(chunk, dict):
-                # Handle dictionary format - ensure required fields exist
-                normalized_chunk = {
-                    "text": chunk.get("text", ""),
-                    "metadata": chunk.get("metadata", {}),
-                    "chunk_id": chunk.get("chunk_id", str(uuid.uuid4())),
-                    "chunk_index": chunk.get("chunk_index", i),
-                    "vector_id": chunk.get("vector_id"),
-                    "embedding_checksum": chunk.get("embedding_checksum")
-                }
-                processed_chunks.append(normalized_chunk)
-
-            elif isinstance(chunk, str):
-                # Handle plain text format
-                processed_chunk = {
-                    "text": chunk,
-                    "metadata": {},
-                    "chunk_id": str(uuid.uuid4()),
-                    "chunk_index": i,
-                    "vector_id": None,
-                    "embedding_checksum": None
-                }
-                processed_chunks.append(processed_chunk)
-
-            else:
-                self.logger.warning(f"Unknown chunk format at index {i}: {type(chunk)}, skipping")
-                continue
-
-        return processed_chunks
-
-    def summarize_from_chunks(self, document: DocumentMetadata, chunks: List[Any]) -> Optional[Dict[str, Any]]:
-        """
-        Summarize a document using pre-processed chunks with parallel processing.
+        Summarize a document using ChunkDTO objects with parallel processing.
         This method runs both summarization and metadata extraction in parallel.
         Args:
             document: DocumentMetadata object containing document information
-            chunks: Pre-processed chunks from the document (supports multiple formats)
+            chunk_dtos: List of ChunkDTO objects from the chunking process
         Returns:
             Dictionary containing both summarization and metadata results or None if failed
         """
-        self.logger.info(f"Starting parallel summarization from pre-processed chunks for: {document.originalFilename}")
+        self.logger.info(f"Starting parallel summarization from ChunkDTO objects for: {document.originalFilename}")
         start_time = time.time()
-        
+
         try:
-            if not chunks:
-                self.logger.warning("No chunks provided for summarization")
+            if not chunk_dtos:
+                self.logger.warning("No ChunkDTO objects provided for summarization")
                 return None
 
-            # Normalize chunks to dictionary format
-            processed_chunks = self._normalize_chunks(chunks)
-            if not processed_chunks:
-                self.logger.warning("No valid chunks found after normalization")
-                return None
+            self.logger.debug(f"Processing {len(chunk_dtos)} ChunkDTO objects")
 
-            self.logger.debug(f"Normalized {len(chunks)} input chunks to {len(processed_chunks)} processed chunks")
-
-            # Extract text from processed chunks
+            # Extract text from ChunkDTO objects
             combined_text = "\n\n".join(
-                chunk.get("text", "") for chunk in processed_chunks if chunk.get("text", "").strip()
+                chunk_dto.chunk_text for chunk_dto in chunk_dtos if chunk_dto.chunk_text.strip()
             )
-            self.logger.debug(f"Combined text from {len(processed_chunks)} chunks, length: {len(combined_text)} characters")
+            self.logger.debug(f"Combined text from {len(chunk_dtos)} chunks, length: {len(combined_text)} characters")
 
             if not combined_text.strip():
-                self.logger.warning("No text found in provided chunks")
+                self.logger.warning("No text found in provided ChunkDTO objects")
                 return None
 
             # Call both APIs in parallel and get individual durations
@@ -463,10 +419,8 @@ class SummarizationService:
                 "processing_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime()),
                 "summarization_analysis": summarization_result,
                 "metadata_analysis": metadata_result,
-                "chunks_count": len(processed_chunks),
-                "processing_method": "from_pre_processed_chunks_parallel",
-                "original_chunks_count": len(chunks),
-                "chunks_normalized": len(chunks) - len(processed_chunks),
+                "chunks_count": len(chunk_dtos),
+                "processing_method": "from_chunk_dtos_parallel",
                 "processing_duration_seconds": total_duration,
                 "summarization_duration_seconds": summarization_duration,
                 "metadata_duration_seconds": metadata_duration
@@ -476,8 +430,8 @@ class SummarizationService:
             return result
 
         except Exception as exc:
-            self.logger.error(f"Failed to summarize document from chunks {document.originalFilename}: {exc}")
-            raise FileProcessingError(f"Failed to summarize document from chunks: {exc}", filepath=document.storagePath)
+            self.logger.error(f"Failed to summarize document from ChunkDTO objects {document.originalFilename}: {exc}")
+            raise FileProcessingError(f"Failed to summarize document from ChunkDTO objects: {exc}", filepath=document.storagePath)
 
     def summarize_document(self, document: DocumentMetadata) -> Optional[Dict[str, Any]]:
         """
