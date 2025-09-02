@@ -6,12 +6,13 @@ from typing import List, Optional, Dict, Any, Set
 from sqlalchemy.orm import Session
 from sqlalchemy import Column, String, Integer, DateTime, Index, text
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import prometheus_client
 from prometheus_client import Histogram, Counter
 import numpy as np
 
 from llama_index.core import VectorStoreIndex
 from services.rag.node_converter import convert_chunk_to_node
-from services.rag.embed_chunks import INGESTION_VERSION  # Import shared version
+from services.rag.embed_chunk import INGESTION_VERSION  # Import shared version
 from models.database_models import Document, DocumentChunk, Base
 
 # Configure structured logging

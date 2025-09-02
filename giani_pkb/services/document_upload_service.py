@@ -22,11 +22,7 @@ from giani_pkb.models.document import DocumentMetadata
 from giani_pkb.utils.config import config
 from giani_pkb.utils.constants import DOCUMENT_TYPES
 from giani_pkb.utils.exceptions import FileProcessingError, ValidationError
-from giani_pkb.services.summarization import SummarizationService
 from giani_pkb.services.service_bus_sender import document_service_bus
-from giani_pkb.services.summarychunking import SummaryChunkingService
-from giani_pkb.services.rag.embed_chunks import embed_summary_chunks
-from giani_pkb.preprocessing.chunking.strategies import chunk_document_adaptive
 from giani_pkb.services.storage_factory import storage_service
 
 logger = logging.getLogger(__name__)
@@ -256,11 +252,11 @@ class DocumentUploadService:
     def extract_text_preview_light(self, file_path: str, max_chars: int = 5000) -> str:
         """
         Extract text preview using lightweight parsing (no heavy models).
-        
+
         Args:
             file_path: Path to the file
             max_chars: Maximum characters to extract
-            
+
         Returns:
             Text preview string
         """
@@ -268,20 +264,19 @@ class DocumentUploadService:
             if not file_path:
                 return "File path not provided for text extraction"
 
-                
+
             # Use the lightweight processor
             preview_text = self.document_processor.process_file_light(file_path, max_chars)
-            
+
             if preview_text and preview_text.strip():
                 return preview_text.strip()
             else:
                 return "No readable text found"
-                
+
         except Exception as e:
             logger.error(f"Light text extraction failed for {file_path}: {e}")
             return f"Text preview unavailable: {str(e)}"
 
-    
     def _fallback_text_extraction(self, file_path: str, max_chars: int) -> str:
         """Fallback text extraction for simple file types."""
         try:
