@@ -1,227 +1,261 @@
-# --- START OF FILE query_executor.py ---
-
-# File: query_executor.py
-import os
 import logging
 import time
-import uuid
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
 import traceback
-import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import threading
-from typing import Optional, Dict, Any, List
-from dataclasses import asdict
+import random
 
-import structlog
-from prometheus_client import Histogram, Counter
-from sqlalchemy.orm import Session, sessionmaker
-from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import TextNode
+logger = logging.getLogger(__name__)
 
-# Refactored imports
-from services.rag.query_orchestrator import QueryOrchestrator, OrchestrationResult
-from services.rag.retrieval_service import UnifiedRetrievalService
-from services.rag.embed_chunk import embed_chunks_for_project
-from services.rag.index_builder import RAGIndexer
-from services.rag.config_loader import load_orchestration_config as get_config
-from services.rag.core.auth.user_context import UserContext
+class QueryExecutionError(Exception):
+    pass
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.stdlib.filter_by_level,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer()
-    ],
-    wrapper_class=structlog.stdlib.BoundLogger,
-    logger_factory=structlog.stdlib.LoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-logger = structlog.get_logger(__name__)
+class QueryExecutor:
+    def __init__(self, max_workers: int = 10, timeout: int = 30, max_retries: int = 3, error_rate: float = 0.05):
+        self.max_workers = max_workers
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.error_rate = error_rate
+        self._lock = threading.Lock()
 
-# FIXED Prometheus metrics with low-cardinality labels
-PIPELINE_DURATION = Histogram(
-    'rag_pipeline_execution_seconds',
-    'Time spent in RAG pipeline execution',
-    ['stage', 'result_type']  # Removed project_id, query_id
-)
+    def execute_subqueries(self, subqueries: List[Dict[str, Any]], 
+                          parallel: bool = False) -> Dict[str, Any]:
+        if not subqueries:
+            logger.warning("No subqueries provided for execution")
+            return {
+                "results": [],
+                "summary": {
+                    "success": 0,
+                    "failure": 0,
+                    "total": 0
+                }
+            }
 
-PIPELINE_FAILURES = Counter(
-    'rag_pipeline_failures_total',
-    'Number of RAG pipeline failures',
-    ['stage', 'error_type']  # Removed project_id
-)
+        if not isinstance(subqueries, list):
+            raise QueryExecutionError("Subqueries must be provided as a list")
 
-PIPELINE_SUCCESS = Counter(
-    'rag_pipeline_success_total',
-    'Number of successful RAG pipeline executions',
-    ['has_partial_results'] # Simplified labels
-)
+        logger.info(f"Starting execution of {len(subqueries)} subqueries (parallel={parallel})")
 
-# Environment flags
-_FORCE_REBUILD = bool(os.getenv("RAG_FORCE_REBUILD", "0") == "1")
+        if parallel and len(subqueries) > 1:
+            results = self._execute_parallel(subqueries)
+        else:
+            results = self._execute_sequential(subqueries)
 
-class RAGPipeline:
-    """
-    Main entry point for the RAG system.
-    Handles synchronous setup (embedding, indexing) and then delegates
-    to the asynchronous QueryOrchestrator for query processing.
-    """
-    def __init__(self, db: Session, SessionLocal: sessionmaker):
-        self.db = db
-        self.SessionLocal = SessionLocal  # Store the session factory
-        self.config = get_config(default={})
-        self.indexer = RAGIndexer(self.db)
-        self.orchestrator = self._initialize_orchestrator()
+        if not self._validate_execution_results(results):
+            raise QueryExecutionError("Execution results failed schema validation")
 
-    def _initialize_orchestrator(self) -> QueryOrchestrator:
-        """
-        Initializes all necessary components for the QueryOrchestrator.
-        This should be done carefully to manage resource lifetimes.
-        """
-        # NOTE: This part might need adjustment based on how you manage VectorStoreIndex instances.
-        # A more advanced setup might involve a dictionary of indexes per project, managed by the orchestrator.
-        try:
-            # For initialization, we might need a "default" index.
-            # You will need to decide which project_id to use, or if the service can start without one.
-            default_project_id_for_init = 1
-            primary_index = self.indexer.get_index_for_project(default_project_id_for_init)
-            if not primary_index:
-                 primary_index = self.indexer.build_index_for_project(default_project_id_for_init)
-        except Exception:
-            # If loading fails, create an empty one to avoid crashing on startup.
-            primary_index = VectorStoreIndex.from_documents([TextNode(text="dummy node")])
-            logger.warning("Failed to load a default index; orchestrator initialized with a dummy index.")
-
-        retrieval_service = UnifiedRetrievalService(primary_index)
-        # --- FIX: Pass the session factory to the orchestrator ---
-        return QueryOrchestrator(retrieval_service, db_session_factory=self.SessionLocal)
-
-    def execute(
-        self,
-        user: UserContext,
-        user_question: str
-    ) -> Dict[str, Any]:
-        """
-        Execute the complete RAG pipeline.
-        """
-        start_time = time.time()
-        query_id = str(uuid.uuid4())
-        project_id = user.project_id
-
-        log_context = {"query_id": query_id, "project_id": project_id, "user_id": user.user_id}
-        logger.info("Starting RAG pipeline execution", **log_context)
-
-        try:
-            # --- SETUP PHASE (Synchronous) ---
-            self._ensure_data_is_ready(project_id, query_id)
-
-            # --- QUERY PHASE (Asynchronous) ---
-            with PIPELINE_DURATION.labels(stage="query_orchestration", result_type="n/a").time():
-                result = self._run_async_orchestration(user, user_question)
-
-            # --- FORMATTING AND METRICS ---
-            total_duration = time.time() - start_time
-            if result.success:
-                PIPELINE_DURATION.labels(stage="complete", result_type="success").observe(total_duration)
-                PIPELINE_SUCCESS.labels(has_partial_results=str(result.partial_results)).inc()
-            else:
-                PIPELINE_DURATION.labels(stage="complete", result_type="failure").observe(total_duration)
-
-            logger.info("RAG pipeline finished", **log_context, total_duration=total_duration, success=result.success)
-            return self._format_response(result)
-
-        except Exception as e:
-            PIPELINE_FAILURES.labels(stage="pipeline_setup", error_type=type(e).__name__).inc()
-            logger.error("RAG pipeline failed during setup", **log_context, error=str(e), traceback=traceback.format_exc())
-            return self._format_error_response(query_id, project_id, e)
-
-    def _run_async_orchestration(self, user: UserContext, user_question: str) -> OrchestrationResult:
-        """Handles running the async orchestrator, managing the event loop."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running():
-                # If already in a loop (e.g., FastAPI), use run_coroutine_threadsafe for safety
-                # in case the caller is in a different thread.
-                logger.warning("Detected a running event loop for orchestration.")
-                future = asyncio.run_coroutine_threadsafe(self.orchestrator.execute_query(user, user_question), loop)
-                return future.result() # This will block until the coroutine is done.
-            else:
-                # If no loop is running, we can safely use asyncio.run
-                return asyncio.run(self.orchestrator.execute_query(user, user_question))
-        except RuntimeError:
-            # This handles the case where there's no loop at all.
-            return asyncio.run(self.orchestrator.execute_query(user, user_question))
-
-    def _ensure_data_is_ready(self, project_id: int, query_id: str):
-        """Ensures embeddings and index are available before querying."""
-        log_context = {"query_id": query_id, "project_id": project_id}
-
-        with PIPELINE_DURATION.labels(stage="embedding_check", result_type="n/a").time():
-            try:
-                # This can spawn a background task or run synchronously based on your needs
-                embed_chunks_for_project(self.db, project_id)
-            except Exception as e:
-                PIPELINE_FAILURES.labels(stage="embedding_check", error_type=type(e).__name__).inc()
-                logger.warning("Embedding check/trigger failed; proceeding with existing data.", **log_context, error=str(e))
-                # We continue, assuming some embeddings might already exist.
-
-        with PIPELINE_DURATION.labels(stage="indexing_check", result_type="n/a").time():
-            try:
-                if _FORCE_REBUILD or not self.indexer.index_exists(project_id):
-                    logger.info("Index rebuild triggered.", **log_context)
-                    self.indexer.build_index_for_project(project_id)
-            except Exception as e:
-                PIPELINE_FAILURES.labels(stage="indexing_check", error_type=type(e).__name__).inc()
-                # This is a critical failure, as we can't query without an index.
-                logger.error("Failed to build or load index.", **log_context, error=str(e))
-                raise RuntimeError(f"Could not ensure index availability for project {project_id}") from e
-
-    def _format_response(self, result: OrchestrationResult) -> Dict[str, Any]:
-        """Formats the final API response from the orchestration result."""
-        return asdict(result)
-
-    def _format_error_response(self, query_id: str, project_id: int, error: Exception) -> Dict[str, Any]:
-        """Formats a consistent error response for setup failures."""
+        summary = self._generate_summary(results)
+        self._log_execution_summary(summary)
+        
         return {
-            "query_id": query_id,
-            "success": False,
-            "answer": "Failed to process the query due to a system error during setup.",
-            "sources": [],
-            "metadata": {"project_id": project_id},
-            "execution_time": 0.0,
-            "partial_results": False,
-            "error": {"message": str(error), "type": type(error).__name__},
+            "results": results,
+            "summary": summary
         }
 
-# Global pipeline instance for convenience
-_pipeline_instance = None
-_pipeline_lock = threading.Lock()
+    def _execute_sequential(self, subqueries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        results = []
+        for subquery in subqueries:
+            result = self._execute_single_subquery(subquery)
+            results.append(result)
+        return results
 
-def get_rag_pipeline(db: Session, SessionLocal: sessionmaker) -> RAGPipeline:
-    """
-    Factory function to get a singleton instance of the RAGPipeline.
-    It requires the database session and the session factory.
-    """
-    global _pipeline_instance
-    with _pipeline_lock:
-        if _pipeline_instance is None:
-            _pipeline_instance = RAGPipeline(db, SessionLocal)
-        # If the DB session changes, you might need to re-initialize or update the instance
-        elif _pipeline_instance.db != db:
-             _pipeline_instance = RAGPipeline(db, SessionLocal)
-        return _pipeline_instance
+    def _execute_parallel(self, subqueries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        results = [None] * len(subqueries)
+        
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            future_to_index = {
+                executor.submit(self._execute_single_subquery, subquery): idx 
+                for idx, subquery in enumerate(subqueries)
+            }
+            
+            try:
+                for future in as_completed(future_to_index, timeout=self.timeout):
+                    idx = future_to_index[future]
+                    try:
+                        with self._lock:
+                            results[idx] = future.result()
+                    except Exception as e:
+                        logger.error(f"Parallel execution failed for subquery at index {idx}: {e}")
+                        with self._lock:
+                            results[idx] = self._create_error_result(
+                                subqueries[idx], 
+                                f"Parallel execution error: {str(e)}"
+                            )
+            except TimeoutError:
+                logger.error(f"Parallel execution timed out after {self.timeout}s")
+                for future, idx in future_to_index.items():
+                    if not future.done():
+                        with self._lock:
+                            if results[idx] is None:
+                                results[idx] = self._create_error_result(
+                                    subqueries[idx],
+                                    f"Execution timed out after {self.timeout}s"
+                                )
+        
+        return results
 
-# Main function to be called by your API layer
-def run_query(
-    db: Session,
-    SessionLocal: sessionmaker, # Pass your session factory here
-    user: UserContext,
-    user_question: str,
-) -> Dict[str, Any]:
-    """Main entry point to execute a query."""
-    pipeline = get_rag_pipeline(db, SessionLocal)
-    return pipeline.execute(user, user_question)
+    def _execute_single_subquery(self, subquery: Dict[str, Any]) -> Dict[str, Any]:
+        subquery_id = subquery.get("subquery_id", f"unknown_{id(subquery)}")
+        plan_id = subquery.get("plan_id", "unknown")
+        intent = subquery.get("intent", "unknown")
+        action = subquery.get("action", "unknown")
+        parameters = subquery.get("parameters", {})
 
-# --- END OF FILE query_executor.py ---
+        result = {
+            "subquery_id": subquery_id,
+            "plan_id": plan_id,
+            "intent": intent,
+            "status": "failure",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "data": {},
+            "error": None
+        }
+
+        logger.info(f"Executing subquery {subquery_id} with action '{action}'")
+
+        for attempt in range(self.max_retries):
+            try:
+                start_time = time.perf_counter()
+                
+                execution_data = self._simulate_execution(action, parameters)
+                execution_duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+                result.update({
+                    "status": "success",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "data": {
+                        **execution_data,
+                        "execution_metadata": {
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "duration_ms": execution_duration_ms,
+                            "simulated": True,
+                            "attempt": attempt + 1
+                        }
+                    }
+                })
+
+                logger.info(f"Successfully executed subquery {subquery_id} in {execution_duration_ms}ms (attempt {attempt + 1})")
+                return result
+
+            except Exception as e:
+                error_message = str(e)
+                
+                if attempt == self.max_retries - 1:
+                    result.update({
+                        "status": "failure",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "error": f"Failed after {self.max_retries} attempts: {error_message}"
+                    })
+                    logger.error(f"Failed to execute subquery {subquery_id} after {self.max_retries} attempts: {error_message}")
+                    return result
+                else:
+                    logger.warning(f"Attempt {attempt + 1} failed for subquery {subquery_id}: {error_message}. Retrying...")
+                    base_delay = 0.1 * (2 ** attempt)
+                    jitter = random.uniform(0, 0.05)
+                    time.sleep(base_delay + jitter)
+            
+        return result
+
+    def _simulate_execution(self, action: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        time.sleep(0.01)
+        
+        if random.random() < self.error_rate:
+            raise Exception("Simulated transient error")
+        
+        return {
+            "executed_action": action,
+            "input_parameters": parameters,
+            "result_count": len(parameters.get("query", "")) if "query" in parameters else 1
+        }
+
+    def _create_error_result(self, subquery: Dict[str, Any], error_message: str) -> Dict[str, Any]:
+        return {
+            "subquery_id": subquery.get("subquery_id", f"unknown_{id(subquery)}"),
+            "plan_id": subquery.get("plan_id", "unknown"),
+            "intent": subquery.get("intent", "unknown"),
+            "status": "failure",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "data": {},
+            "error": error_message
+        }
+
+    def _validate_execution_results(self, results: List[Dict[str, Any]]) -> bool:
+        if not results:
+            return True
+
+        required_fields = {"subquery_id": str, "plan_id": str, "intent": str, 
+                          "status": str, "timestamp": str, "data": dict}
+        valid_statuses = {"success", "failure"}
+        validation_errors = []
+
+        for i, result in enumerate(results):
+            if not isinstance(result, dict):
+                validation_errors.append(f"Result {i} is not a dictionary")
+                continue
+
+            for field, expected_type in required_fields.items():
+                if field not in result:
+                    validation_errors.append(f"Result {i} missing required field '{field}'")
+                elif not isinstance(result[field], expected_type):
+                    validation_errors.append(f"Result {i} field '{field}' has wrong type")
+
+            if result.get("status") not in valid_statuses:
+                validation_errors.append(f"Result {i} has invalid status: {result.get('status')}")
+
+            try:
+                datetime.fromisoformat(result.get("timestamp", "").replace("Z", ""))
+            except (ValueError, AttributeError):
+                validation_errors.append(f"Result {i} has invalid timestamp format")
+
+            if result.get("status") == "failure" and not result.get("error"):
+                validation_errors.append(f"Result {i} has failure status but no error message")
+
+        if validation_errors:
+            error_msg = "Validation failed:\n" + "\n".join(validation_errors)
+            logger.error(error_msg)
+            raise QueryExecutionError(error_msg)
+
+        return True
+
+    def _generate_summary(self, results: List[Dict[str, Any]]) -> Dict[str, int]:
+        success_count = sum(1 for r in results if r["status"] == "success")
+        failure_count = len(results) - success_count
+        
+        return {
+            "success": success_count,
+            "failure": failure_count,
+            "total": len(results)
+        }
+
+    def _log_execution_summary(self, summary: Dict[str, int]) -> None:
+        success_count = summary["success"]
+        failure_count = summary["failure"]
+        total_count = summary["total"]
+
+        if failure_count == 0:
+            logger.info(f"Successfully executed all {total_count} subqueries")
+        elif success_count == 0:
+            logger.warning(f"All {total_count} subqueries failed")
+        else:
+            logger.info(f"Executed {total_count} subqueries: {success_count} succeeded, {failure_count} failed")
+
+
+def execute_subqueries(subqueries: List[Dict[str, Any]], 
+                      parallel: bool = False, 
+                      max_workers: int = 10, 
+                      timeout: int = 30,
+                      max_retries: int = 3,
+                      error_rate: float = 0.05) -> Dict[str, Any]:
+    executor = QueryExecutor(max_workers=max_workers, timeout=timeout, 
+                           max_retries=max_retries, error_rate=error_rate)
+    return executor.execute_subqueries(subqueries, parallel=parallel)
+
+
+def validate_execution_results(results: List[Dict[str, Any]]) -> bool:
+    executor = QueryExecutor()
+    try:
+        return executor._validate_execution_results(results)
+    except QueryExecutionError:
+        return False

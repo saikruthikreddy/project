@@ -1,152 +1,294 @@
-# --- START OF FILE intent_router.py ---
-from typing import Dict, List, Tuple, Any, TypedDict
-import numpy as np
+from typing import Dict, List, Tuple, Optional
 import logging
-
-# --- FIX: Import the central config loader ---
-from services.rag.config_loader import load_orchestration_config as get_config
-
+import re
 
 logger = logging.getLogger(__name__)
 
-INTENTS = [
-    "METRIC_LOOKUP",
-    "NARRATIVE_SUMMARY",
-    "ENTITY_LOOKUP",
-    "COMPARISON",
-    "TEMPORAL_TREND",
-    "MULTI_HOP",
-    "NAVIGATION"
-]
+# Standardized intent names with _QUERY suffix
+ANALYTICS_QUERY = "ANALYTICS_QUERY"
+COMPARISON_QUERY = "COMPARISON_QUERY"
+RETRIEVAL_QUERY = "RETRIEVAL_QUERY"
+DEFAULT_QUERY = "DEFAULT_QUERY"
 
-class SubQuery(TypedDict):
-    """Type definition for a subquery component."""
-    intent: str
-    text: str
-    facets: Dict[str, Any]
+# Extensible keyword mapping dictionary
 
-class PlanDraft(TypedDict):
-    """Type definition for the complete query plan."""
-    intent: str
-    subqueries: List[SubQuery]
-    filters: Dict[str, Any]
+# Extensible keyword mapping dictionary
+INTENT_KEYWORDS: Dict[str, List[str]] = {
+    ANALYTICS_QUERY: [
+        "trend", "revenue", "sales", "growth", "report", "metrics", "kpi", 
+        "performance", "analytics", "dashboard", "chart", "graph", "statistics",
+        "analysis", "insights", "data", "numbers", "summary", "overview"
+    ],
+    COMPARISON_QUERY: [
+        "compare", "vs", "versus", "difference", "against", "between", 
+        "comparison", "contrast", "relative", "better", "worse", "than",
+        "benchmark", "baseline", "compete", "competing"
+    ],
+    RETRIEVAL_QUERY: [
+        "find", "get", "show", "list", "retrieve", "fetch", "search", 
+        "lookup", "display", "view", "see", "information", "details",
+        "query", "pull", "extract", "obtain", "access"
+    ],
+    DEFAULT_QUERY: []  # Fallback intent with no specific keywords
+}
 
-class IntentRouter:
-    """Intent classification and query decomposition router."""
 
-    # --- FIX: Remove config_path and use central config ---
-    def __init__(self, clf_model, llm_client, thresh: float = None):
-        """
-        Initialize the IntentRouter.
+def get_intent_priority() -> List[str]:
+    """
+    Get the intent priority order for tie-breaking.
+    
+    DEFAULT_QUERY is always last, other intents maintain their order from INTENT_KEYWORDS.
+    
+    Returns:
+        List[str]: List of intents in priority order
+    """
+    # Get all intents except DEFAULT_QUERY, maintaining their order
+    priority_intents = [intent for intent in INTENT_KEYWORDS.keys() if intent != DEFAULT_QUERY]
+    # DEFAULT_QUERY is always last
+    priority_intents.append(DEFAULT_QUERY)
+    return priority_intents
 
-        Args:
-            clf_model: SetFit or compatible classifier with predict_proba method
-            llm_client: Small LLM tool client with .json_tool() interface
-            thresh: Classification confidence threshold (overrides config)
-        """
-        self.clf_model = clf_model
-        self.llm_client = llm_client
 
-        # Get the threshold from the single source of truth: the central config.
-        # The `thresh` parameter can still be used for testing overrides.
-        self.thresh = thresh if thresh is not None else get_config(
-            'orchestration.intent_router', 'threshold', default=0.6
-        )
+def extract_word_tokens(text: str) -> List[str]:
+    """
+    Extract word tokens from text using regex word boundaries.
+    
+    Args:
+        text: Input text to tokenize
+        
+    Returns:
+        List[str]: List of lowercase word tokens
+    """
+    # Use regex to find word tokens (sequences of word characters)
+    tokens = re.findall(r'\b\w+\b', text.lower())
+    return tokens
 
-        logger.info(f"IntentRouter initialized with confidence threshold: {self.thresh}")
 
-    # --- FIX: Removed the local _load_config method ---
+def validate_query(query: Optional[str]) -> str:
+    """
+    Validate and normalize the input query.
+    
+    Args:
+        query: The input query string to validate
+        
+    Returns:
+        str: The validated and normalized query string
+        
+    Raises:
+        ValueError: If query is None, empty, or contains only whitespace
+    """
+    if query is None:
+        raise ValueError("Query cannot be None")
+    
+    if not isinstance(query, str):
+        raise ValueError(f"Query must be a string, got {type(query)}")
+    
+    query_stripped = query.strip()
+    if not query_stripped:
+        raise ValueError("Query cannot be empty or contain only whitespace")
+    
+    return query_stripped
 
-    def classify(self, q: str) -> Tuple[str, float, Dict[str, float]]:
-        """
-        Classify query intent using the trained classifier.
-        """
-        probs = self.clf_model.predict_proba([q])[0]
 
-        assert len(probs) == len(INTENTS), f"Classifier output length mismatch: got {len(probs)}, expected {len(INTENTS)}"
+def calculate_intent_scores(query: str) -> Dict[str, int]:
+    """
+    Calculate keyword match scores for each intent using full word matching.
+    
+    Args:
+        query: The normalized query string
+        
+    Returns:
+        Dict[str, int]: Dictionary mapping intent names to their match scores
+    """
+    query_tokens = extract_word_tokens(query)
+    query_token_set = set(query_tokens)
+    scores = {}
+    
+    for intent, keywords in INTENT_KEYWORDS.items():
+        score = 0
+        matched_tokens = []
+        
+        for keyword in keywords:
+            keyword_tokens = extract_word_tokens(keyword)
+            # Check if all tokens in the keyword are present in the query
+            if all(token in query_token_set for token in keyword_tokens):
+                score += 1
+                matched_tokens.extend(keyword_tokens)
+        
+        scores[intent] = score
+        
+        if matched_tokens:
+            # Remove duplicates while preserving order
+            unique_matched = list(dict.fromkeys(matched_tokens))
+            logger.debug(f"Intent '{intent}' matched tokens: {unique_matched} (score: {score})")
+    
+    return scores
 
-        probs_dict = {intent: float(prob) for intent, prob in zip(INTENTS, probs)}
-        best_idx = np.argmax(probs)
-        best_intent = INTENTS[best_idx]
-        best_prob = float(probs[best_idx])
 
-        logger.info(f"[Router] Query='{q}' -> Intent={best_intent} (p={best_prob:.2f})")
-        logger.debug(f"[Router] Full probabilities: {probs_dict}")
+def select_best_intent(scores: Dict[str, int]) -> str:
+    """
+    Select the best intent based on scores and priority order.
+    
+    Args:
+        scores: Dictionary mapping intent names to their match scores
+        
+    Returns:
+        str: The selected intent name
+    """
+    # Find the maximum score
+    max_score = max(scores.values())
+    
+    # If no keywords matched, return default
+    if max_score == 0:
+        logger.info("No keywords matched, selecting DEFAULT_QUERY")
+        return DEFAULT_QUERY
+    
+    # Find all intents with the maximum score
+    top_intents = [intent for intent, score in scores.items() if score == max_score]
+    
+    # If only one intent has the max score, return it
+    if len(top_intents) == 1:
+        selected_intent = top_intents[0]
+        logger.info(f"Intent '{selected_intent}' selected with score {max_score}")
+        return selected_intent
+    
+    # Handle ties by using priority order
+    intent_priority = get_intent_priority()
+    for priority_intent in intent_priority:
+        if priority_intent in top_intents:
+            logger.info(f"Tie-breaking: Intent '{priority_intent}' selected with score {max_score} "
+                       f"(candidates with same score: {top_intents})")
+            return priority_intent
+    
+    # Fallback (should never reach here given our priority list)
+    selected_intent = top_intents[0]
+    logger.warning(f"Unexpected tie-breaking scenario, selecting '{selected_intent}' "
+                  f"from candidates: {top_intents}")
+    return selected_intent
 
-        return best_intent, best_prob, probs_dict
 
-    async def decompose_if_needed(self, q: str, intent: str, p: float) -> PlanDraft:
-        """
-        Decompose query into subqueries if needed based on confidence and intent type.
-        """
-        complex_intents = {"COMPARISON", "MULTI_HOP", "TEMPORAL_TREND"}
-
-        if p >= self.thresh and intent not in complex_intents:
-            logger.info(f"[Router] Using simple plan - high confidence ({p:.2f}) for {intent}")
-            return {
-                "intent": intent,
-                "subqueries": [{"intent": intent, "text": q, "facets": {}}],
-                "filters": {}
-            }
+def route_intent(query: Optional[str]) -> str:
+    """
+    Route the given query to an intent type using keyword-based scoring.
+    
+    This function implements a robust keyword matching algorithm that:
+    1. Validates input and handles edge cases
+    2. Counts keyword matches for each intent
+    3. Selects the intent with the highest score
+    4. Breaks ties using a defined priority order
+    5. Falls back to DEFAULT_QUERY when no keywords match
+    
+    Args:
+        query: User's natural language query string
+        
+    Returns:
+        str: Detected intent name (e.g., "ANALYTICS_QUERY", "COMPARISON_QUERY", 
+             "RETRIEVAL_QUERY", "DEFAULT_QUERY")
+             
+    Raises:
+        ValueError: If query is None, empty, or contains only whitespace
+        
+    Examples:
+        >>> route_intent("Show me sales trends")
+        'ANALYTICS_QUERY'
+        
+        >>> route_intent("Compare revenue vs last year")
+        'COMPARISON_QUERY'
+        
+        >>> route_intent("Find customer information")
+        'RETRIEVAL_QUERY'
+        
+        >>> route_intent("Hello world")
+        'DEFAULT_QUERY'
+    """
+    try:
+        # Step 1: Validate and normalize input
+        normalized_query = validate_query(query)
+        logger.debug(f"Processing query: '{normalized_query}'")
+        
+        # Step 2: Calculate keyword match scores for each intent
+        scores = calculate_intent_scores(normalized_query)
+        logger.debug(f"Intent scores: {scores}")
+        
+        # Step 3: Select the best intent based on scores and priority
+        selected_intent = select_best_intent(scores)
+        
+        # Step 4: Log final result
+        max_score = max(scores.values())
+        if max_score > 0:
+            logger.info(f"Query '{normalized_query}' routed to '{selected_intent}' with score {max_score}")
         else:
-            logger.info(f"[Router] Using LLM decomposition - confidence={p:.2f}, intent={intent}")
+            logger.info(f"Query '{normalized_query}' routed to '{selected_intent}' (no keyword matches)")
+        
+        return selected_intent
+        
+    except ValueError as e:
+        logger.error(f"Query validation failed: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during intent routing: {e}")
+        # In case of unexpected errors, fallback to default intent
+        logger.info(f"Falling back to '{DEFAULT_QUERY}' due to error")
+        return DEFAULT_QUERY
 
-            llm_spec = {
-                "instructions": "Decompose user query into 1-3 subqueries with intents from this list.",
-                "labels": INTENTS,
-                "query": q
-            }
 
-            try:
-                result = await self.llm_client.json_tool("classify_and_decompose", llm_spec)
+def get_supported_intents() -> List[str]:
+    """
+    Get the list of supported intent types.
+    
+    Returns:
+        List[str]: List of all supported intent names
+    """
+    return list(INTENT_KEYWORDS.keys())
 
-                if not isinstance(result, dict):
-                    raise ValueError(f"LLM returned non-dictionary response: {type(result)}")
 
-                result = self._normalize_llm_result(result, q, intent)
+def get_intent_keywords(intent: str) -> List[str]:
+    """
+    Get the keywords associated with a specific intent.
+    
+    Args:
+        intent: The intent name to get keywords for
+        
+    Returns:
+        List[str]: List of keywords for the specified intent
+        
+    Raises:
+        ValueError: If the intent is not supported
+    """
+    if intent not in INTENT_KEYWORDS:
+        raise ValueError(f"Unsupported intent: {intent}. "
+                        f"Supported intents: {list(INTENT_KEYWORDS.keys())}")
+    
+    return INTENT_KEYWORDS[intent].copy()
 
-                logger.info(f"[Router] LLM decomposition successful: {len(result['subqueries'])} subqueries")
-                return result
 
-            except Exception as e:
-                logger.error(f"[Router] LLM decomposition failed: {e}")
-                return self._create_fallback_plan(q, intent)
-
-    def _normalize_llm_result(self, result: Dict[str, Any], original_query: str, fallback_intent: str) -> PlanDraft:
-        """Normalize and validate LLM decomposition result."""
-        if "intent" not in result:
-            result["intent"] = fallback_intent
-
-        if "subqueries" not in result or not isinstance(result["subqueries"], list) or not result["subqueries"]:
-            logger.warning("[Router] LLM returned empty or invalid subqueries, creating fallback")
-            result["subqueries"] = [{"intent": result["intent"], "text": original_query, "facets": {}}]
-
-        if "filters" not in result or not isinstance(result["filters"], dict):
-            result["filters"] = {}
-
-        for i, subquery in enumerate(result["subqueries"]):
-            if not isinstance(subquery, dict):
-                result["subqueries"][i] = {"intent": result["intent"], "text": original_query, "facets": {}}
-            else:
-                subquery.setdefault("facets", {})
-                subquery.setdefault("text", original_query)
-                subquery.setdefault("intent", result["intent"])
-
-        return result
-
-    def _create_fallback_plan(self, query: str, intent: str) -> PlanDraft:
-        """Create a fallback plan when LLM decomposition fails."""
-        logger.info(f"[Router] Creating fallback plan for query: '{query}'")
-        return {
-            "intent": intent,
-            "subqueries": [{"intent": intent, "text": query, "facets": {}}],
-            "filters": {}
-        }
-
-    def get_router_stats(self) -> Dict[str, Any]:
-        """Get router configuration and statistics."""
-        return {
-            "confidence_threshold": self.thresh,
-            "supported_intents": INTENTS,
-        }
-# --- END OF FILE intent_router.py ---
+def add_intent_keywords(intent: str, keywords: List[str]) -> None:
+    """
+    Add keywords to an existing intent or create a new intent.
+    
+    Args:
+        intent: The intent name to add keywords to
+        keywords: List of keywords to add
+        
+    Raises:
+        ValueError: If keywords is not a list or contains non-string elements
+    """
+    if not isinstance(keywords, list):
+        raise ValueError("Keywords must be provided as a list")
+    
+    if not all(isinstance(kw, str) for kw in keywords):
+        raise ValueError("All keywords must be strings")
+    
+    if intent not in INTENT_KEYWORDS:
+        INTENT_KEYWORDS[intent] = []
+        logger.info(f"Created new intent: {intent}")
+    
+    # Add new keywords, avoiding duplicates
+    existing_keywords = set(INTENT_KEYWORDS[intent])
+    new_keywords = [kw for kw in keywords if kw not in existing_keywords]
+    
+    if new_keywords:
+        INTENT_KEYWORDS[intent].extend(new_keywords)
+        logger.info(f"Added {len(new_keywords)} new keywords to intent '{intent}': {new_keywords}")
+    else:
+        logger.info(f"No new keywords added to intent '{intent}' (all keywords already exist)")

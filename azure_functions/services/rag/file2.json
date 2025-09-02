@@ -1,0 +1,285 @@
+{
+  "summary": {
+    "total_chunks": 5,
+    "chunk_type_distribution": {
+      "prose": 4,
+      "table": 1
+    },
+    "chunks_by_page": {
+      "Page 1": 1,
+      "Page 2": 2,
+      "Page 3": 1,
+      "Page 4": 1
+    },
+    "document_info": {
+      "filename": "Climate_Change_Impact_Report.pdf",
+      "file_type": "application/pdf",
+      "file_size": 60855,
+      "parsed_blocks_count": 5,
+      "extraction_methods": [
+        "PyMuPDF_native_table",
+        "PyMuPDF_text_layer_PRIMARY"
+      ]
+    },
+    "token_statistics": {
+      "min_tokens": 46,
+      "max_tokens": 140,
+      "avg_tokens": 81.8,
+      "total_tokens": 409
+    }
+  },
+  "chunks": [
+    {
+      "text_chunk": "Climate Change and Its Global Impact Understanding Climate Change Climate change refers to long-term shifts in temperatures and weather patterns. These shifts may be natural, such as through variations in the solar cycle. But since the 1800s, human activities have been the main driver of climate change, primarily due to burning fossil fuels like coal, oil, and gas. Major Causes of Climate Change 1. Burning Fossil Fuels: Generates greenhouse gases that trap heat. 2. Deforestation: Reduces the number of trees that absorb carbon dioxide. 3. Agriculture: Methane emissions from livestock and rice paddies. 4. Industrial Activities: Emit large quantities of CO2 and other gases. Page 1",
+      "token_count": 140,
+      "character_count": 686,
+      "metadata": {
+        "chunk_id": "chunk_80c33df1",
+        "document_id": "doc_f2fd22a7",
+        "project_id": "pptx_logic_pdf_processing",
+        "chunk_type": "prose",
+        "source_page_numbers": [
+          1
+        ],
+        "speaker_attribution": "Region: pdf_text_1",
+        "previous_chunk_id": null,
+        "same_table_group_id": null,
+        "chunk_index": 0,
+        "structural_metadata": {
+          "document_id": "doc_f2fd22a7",
+          "project_id": "pptx_logic_pdf_processing",
+          "block_type": "prose",
+          "source_type": "text",
+          "page_number": 1,
+          "region_id": "pdf_text_1",
+          "source": "Climate_Change_Impact_Report.pdf#page=1",
+          "caption": "Text content from page 1",
+          "bbox": [
+            0,
+            0,
+            595,
+            841
+          ],
+          "bbox_units": "px",
+          "page_width": 595,
+          "page_height": 841,
+          "section_id": "page_1",
+          "structural_metadata": {
+            "region_type": "text",
+            "current_heading_text": "Page 1",
+            "current_heading_level": 1,
+            "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+            "confidence": 1.0
+          },
+          "original_block_type": "prose",
+          "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+          "confidence": 1.0
+        }
+      }
+    },
+    {
+      "text_chunk": "Climate Change and Its Global Impact Greenhouse Gas Emissions by Source Source Gas Type Contribution (%) Transportation CO2 28 Electricity CO2 25 Industry CO2, CH4 21 Agriculture CH4, N2O 11 Buildings CO2 6 Page 2",
+      "token_count": 46,
+      "character_count": 213,
+      "metadata": {
+        "chunk_id": "chunk_f7297132",
+        "document_id": "doc_f2fd22a7",
+        "project_id": "pptx_logic_pdf_processing",
+        "chunk_type": "prose",
+        "source_page_numbers": [
+          2
+        ],
+        "speaker_attribution": "Region: pdf_text_2",
+        "previous_chunk_id": "chunk_80c33df1",
+        "same_table_group_id": null,
+        "chunk_index": 1,
+        "structural_metadata": {
+          "document_id": "doc_f2fd22a7",
+          "project_id": "pptx_logic_pdf_processing",
+          "block_type": "prose",
+          "source_type": "text",
+          "page_number": 2,
+          "region_id": "pdf_text_2",
+          "source": "Climate_Change_Impact_Report.pdf#page=2",
+          "caption": "Text content from page 2",
+          "bbox": [
+            0,
+            0,
+            595,
+            841
+          ],
+          "bbox_units": "px",
+          "page_width": 595,
+          "page_height": 841,
+          "section_id": "page_2",
+          "structural_metadata": {
+            "region_type": "text",
+            "current_heading_text": "Page 2",
+            "current_heading_level": 1,
+            "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+            "confidence": 1.0
+          },
+          "original_block_type": "prose",
+          "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+          "confidence": 1.0
+        }
+      }
+    },
+    {
+      "text_chunk": "| Source | Gas Type | Contribution (%) |\n| --- | --- | --- |\n| Transportation | CO2 | 28 |\n| Electricity | CO2 | 25 |\n| Industry | CO2, CH4 | 21 |\n| Agriculture | CH4, N2O | 11 |\n| Buildings | CO2 | 6 |\n",
+      "token_count": 70,
+      "character_count": 203,
+      "metadata": {
+        "chunk_id": "chunk_83f6b3e9",
+        "document_id": "doc_f2fd22a7",
+        "project_id": "pptx_logic_pdf_processing",
+        "chunk_type": "table",
+        "source_page_numbers": [
+          2
+        ],
+        "speaker_attribution": "Region: pdf_native_table_2_0",
+        "previous_chunk_id": "chunk_f7297132",
+        "same_table_group_id": null,
+        "chunk_index": 2,
+        "structural_metadata": {
+          "document_id": "doc_f2fd22a7",
+          "project_id": "pptx_logic_pdf_processing",
+          "block_type": "table",
+          "source_type": "table",
+          "page_number": 2,
+          "region_id": "pdf_native_table_2_0",
+          "source": "Climate_Change_Impact_Report.pdf#page=2",
+          "caption": "Table 1 on page 2",
+          "table_headers": [
+            "Source",
+            "Gas Type",
+            "Contribution (%)"
+          ],
+          "column_names": [
+            "Source",
+            "Gas Type",
+            "Contribution (%)"
+          ],
+          "bbox": [
+            28,
+            99,
+            538,
+            269
+          ],
+          "bbox_units": "px",
+          "page_width": 595,
+          "page_height": 841,
+          "section_id": "page_2",
+          "structural_metadata": {
+            "region_type": "table",
+            "current_heading_text": "Page 2",
+            "current_heading_level": 1,
+            "extraction_method": "PyMuPDF_native_table",
+            "confidence": 1.0,
+            "row_count": 5,
+            "column_count": 3
+          },
+          "original_block_type": "table",
+          "extraction_method": "PyMuPDF_native_table",
+          "confidence": 1.0
+        }
+      }
+    },
+    {
+      "text_chunk": "Climate Change and Its Global Impact Effects of Climate Change 1. Rising Temperatures: Global temperatures have increased significantly. 2. Melting Ice Caps: Leads to rising sea levels. 3. Extreme Weather: Increased frequency of hurricanes, droughts, and floods. 4. Ocean Acidification: Caused by excessive CO2 absorption. 5. Impact on Biodiversity: Loss of habitats and species extinction. Page 3",
+      "token_count": 75,
+      "character_count": 397,
+      "metadata": {
+        "chunk_id": "chunk_d0678de9",
+        "document_id": "doc_f2fd22a7",
+        "project_id": "pptx_logic_pdf_processing",
+        "chunk_type": "prose",
+        "source_page_numbers": [
+          3
+        ],
+        "speaker_attribution": "Region: pdf_text_3",
+        "previous_chunk_id": "chunk_83f6b3e9",
+        "same_table_group_id": null,
+        "chunk_index": 3,
+        "structural_metadata": {
+          "document_id": "doc_f2fd22a7",
+          "project_id": "pptx_logic_pdf_processing",
+          "block_type": "prose",
+          "source_type": "text",
+          "page_number": 3,
+          "region_id": "pdf_text_3",
+          "source": "Climate_Change_Impact_Report.pdf#page=3",
+          "caption": "Text content from page 3",
+          "bbox": [
+            0,
+            0,
+            595,
+            841
+          ],
+          "bbox_units": "px",
+          "page_width": 595,
+          "page_height": 841,
+          "section_id": "page_3",
+          "structural_metadata": {
+            "region_type": "text",
+            "current_heading_text": "Page 3",
+            "current_heading_level": 1,
+            "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+            "confidence": 1.0
+          },
+          "original_block_type": "prose",
+          "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+          "confidence": 1.0
+        }
+      }
+    },
+    {
+      "text_chunk": "Climate Change and Its Global Impact Solutions to Combat Climate Change 1. Transition to Renewable Energy: Solar, wind, hydro, and geothermal. 2. Increase Energy Efficiency: Using less energy to perform the same task. 3. Afforestation: Planting trees to absorb CO2. 4. Sustainable Transportation: Electric vehicles and public transport. 5. Policy and Global Cooperation: International agreements and regulations. Page 4",
+      "token_count": 78,
+      "character_count": 419,
+      "metadata": {
+        "chunk_id": "chunk_7ffc9d81",
+        "document_id": "doc_f2fd22a7",
+        "project_id": "pptx_logic_pdf_processing",
+        "chunk_type": "prose",
+        "source_page_numbers": [
+          4
+        ],
+        "speaker_attribution": "Region: pdf_text_4",
+        "previous_chunk_id": "chunk_d0678de9",
+        "same_table_group_id": null,
+        "chunk_index": 4,
+        "structural_metadata": {
+          "document_id": "doc_f2fd22a7",
+          "project_id": "pptx_logic_pdf_processing",
+          "block_type": "prose",
+          "source_type": "text",
+          "page_number": 4,
+          "region_id": "pdf_text_4",
+          "source": "Climate_Change_Impact_Report.pdf#page=4",
+          "caption": "Text content from page 4",
+          "bbox": [
+            0,
+            0,
+            595,
+            841
+          ],
+          "bbox_units": "px",
+          "page_width": 595,
+          "page_height": 841,
+          "section_id": "page_4",
+          "structural_metadata": {
+            "region_type": "text",
+            "current_heading_text": "Page 4",
+            "current_heading_level": 1,
+            "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+            "confidence": 1.0
+          },
+          "original_block_type": "prose",
+          "extraction_method": "PyMuPDF_text_layer_PRIMARY",
+          "confidence": 1.0
+        }
+      }
+    }
+  ]
+}
