@@ -36,7 +36,7 @@ async def main(msg: func.ServiceBusMessage):
         guide_generator = OnboardingGuideGenerator(db_manager)
 
         # Generate the guide
-        onboarding_guide = await guide_generator.generate_onboarding_guide(project_id)
+        onboarding_guide = guide_generator.generate_onboarding_guide(project_id)
 
         if "error" in onboarding_guide:
             logging.error(
