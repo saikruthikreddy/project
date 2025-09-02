@@ -6,11 +6,8 @@ searching, and retrieval with semantic capabilities.
 """
 
 import os
-import json
 import logging
 from typing import List, Dict, Any, Optional
-from datetime import datetime
-import uuid
 
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
@@ -32,10 +29,10 @@ from azure.search.documents.indexes.models import (
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import ResourceNotFoundError
 
-from ..utils.config import Config
-from ..utils.exceptions import SearchServiceError
-from ..utils.gemini_client import initialize_gemini_client
-from .rag.embed_chunks import create_embeddings_with_retry
+from giani_pkb.utils.config import Config
+from giani_pkb.utils.exceptions import SearchServiceError
+from giani_pkb.utils.gemini_client import initialize_gemini_client
+from giani_pkb.services.rag.embed_chunk import create_embeddings_with_retry
 
 VECTOR_PROFILE_NAME = "giani-doc-chunks-vector"
 SEMANTIC_CONFIG_NAME = "giani-doc-chunks-semantic-config"
@@ -106,27 +103,39 @@ class AzureSearchService:
             SimpleField(name="project_id", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="document_id", type=SearchFieldDataType.String, filterable=True),
 
-            # Chunk structure & metadata
+            # Core chunk fields (from ChunkMetadata)
             SimpleField(name="chunk_id", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="chunk_type", type=SearchFieldDataType.String, filterable=True),
             SimpleField(name="chunk_index", type=SearchFieldDataType.Int32, filterable=True, sortable=True, retrievable=True),
             SimpleField(name="slide_number", type=SearchFieldDataType.Int32, filterable=True, sortable=True, retrievable=True),
-            SimpleField(name="same_table_group_id", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="source_page_numbers", type=SearchFieldDataType.Collection(SearchFieldDataType.Int32), filterable=True),
-            SimpleField(name="speaker_attribution", type=SearchFieldDataType.String, filterable=True, retrievable=True),
+
+            # Chunk relationships (from ChunkMetadata)
             SimpleField(name="previous_chunk_id", type=SearchFieldDataType.String, filterable=True, retrievable=True),
+            SimpleField(name="same_table_group_id", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="slide_context_id", type=SearchFieldDataType.String, filterable=True, retrievable=True),
+
+            # Content-specific metadata (from ChunkMetadata)
+            SimpleField(name="speaker_attribution", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="semantic_similarity_score", type=SearchFieldDataType.Double, filterable=True, sortable=True, retrievable=True),
             SimpleField(name="role", type=SearchFieldDataType.String, filterable=True, retrievable=True),
+
+            # Fields from structural_metadata (actually populated in strategies.py)
             SimpleField(name="element_type", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="region_type", type=SearchFieldDataType.String, filterable=True, retrievable=True),
+            SimpleField(name="heading_level", type=SearchFieldDataType.Int32, filterable=True, sortable=True, retrievable=True),
             SimpleField(name="subtype", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="caption", type=SearchFieldDataType.String, searchable=True, retrievable=True),
             SimpleField(name="section", type=SearchFieldDataType.String, searchable=True, retrievable=True),
             SimpleField(name="column_names", type=SearchFieldDataType.Collection(SearchFieldDataType.String), retrievable=True),
-            SimpleField(name="slide_range", type=SearchFieldDataType.Collection(SearchFieldDataType.Int32), filterable=True, retrievable=True),
+            SimpleField(name="slide_range", type=SearchFieldDataType.Collection(SearchFieldDataType.Int32), retrievable=True),
+            SearchableField(name="current_heading_text", type=SearchFieldDataType.String, searchable=True, retrievable=True),
+            SimpleField(name="current_heading_level", type=SearchFieldDataType.Int32, filterable=True, retrievable=True),
+            SimpleField(name="current_heading_source", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="bbox", type=SearchFieldDataType.String, retrievable=True),  # as JSON/CSV
             SimpleField(name="label_bbox", type=SearchFieldDataType.String, retrievable=True),  # as JSON/CSV
+
+            # Raw structural metadata for full access
             SimpleField(name="structural_metadata_raw", type=SearchFieldDataType.String, retrievable=True),
 
             # Content
@@ -162,7 +171,7 @@ class AzureSearchService:
                     parameters={
                         "m": 20,
                         "efConstruction": 300,
-                        "efSearch": 80,
+                        "efSearch": 100,
                         "metric": "cosine"
                     },
                 )
@@ -201,24 +210,32 @@ class AzureSearchService:
 
     @staticmethod
     def map_search_result_to_chunk(record: dict) -> dict:
-        # Maps every field, robustly, for deserialized result
+        # Maps only fields actually used in strategies.py - optimized mapping
         return {
+            # Core fields
             "id": record.get("id"),
             "project_id": record.get("project_id"),
             "document_id": record.get("document_id"),
             "chunk_id": record.get("chunk_id"),
             "chunk_type": record.get("chunk_type"),
             "chunk_index": record.get("chunk_index"),
+            # Page/slide information
             "slide_number": record.get("slide_number"),
             "same_table_group_id": record.get("same_table_group_id"),
             "source_page_numbers": record.get("source_page_numbers", []),
-            "speaker_attribution": record.get("speaker_attribution"),
+            "slide_number": record.get("slide_number"),
+            # Chunk relationships
             "previous_chunk_id": record.get("previous_chunk_id"),
+            "same_table_group_id": record.get("same_table_group_id"),
             "slide_context_id": record.get("slide_context_id"),
+            # Content-specific metadata
+            "speaker_attribution": record.get("speaker_attribution"),
             "semantic_similarity_score": record.get("semantic_similarity_score"),
             "role": record.get("role"),
             "element_type": record.get("element_type"),
             "region_type": record.get("region_type"),
+            # Structural metadata fields (actually populated in strategies.py)
+            "heading_level": record.get("heading_level"),
             "subtype": record.get("subtype"),
             "caption": record.get("caption"),
             "section": record.get("section"),
@@ -227,6 +244,7 @@ class AzureSearchService:
             "bbox": record.get("bbox"),
             "label_bbox": record.get("label_bbox"),
             "structural_metadata_raw": record.get("structural_metadata_raw"),
+            # Content and search metadata
             "text": record.get("text"),
             "embedding_model": record.get("embedding_model"),
             "embedding_checksum": record.get("embedding_checksum"),
@@ -235,130 +253,6 @@ class AzureSearchService:
             "score": record.get("@search.score"),
             "highlights": record.get("@search.highlights", {}),
         }
-
-    async def index_document_chunk(
-        self,
-        project_id: str,
-        document_id: str,
-        document_name: str,
-        chunk_data: Dict[str, Any],
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Index a single document chunk with full field support.
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-
-            now = datetime.utcnow().isoformat()
-            search_document = {
-                "id": str(uuid.uuid4()),
-                "project_id": project_id,
-                "document_id": document_id,
-                "chunk_id": chunk_data.get("chunk_id", ""),
-                "chunk_type": chunk_data.get("chunk_type", ""),
-                "chunk_index": chunk_data.get("chunk_index", 0),
-                "slide_number": chunk_data.get("slide_number"),
-                "same_table_group_id": chunk_data.get("same_table_group_id"),
-                "source_page_numbers": chunk_data.get("source_page_numbers", []),
-                "speaker_attribution": chunk_data.get("speaker_attribution"),
-                "previous_chunk_id": chunk_data.get("previous_chunk_id"),
-                "slide_context_id": chunk_data.get("slide_context_id"),
-                "semantic_similarity_score": chunk_data.get("semantic_similarity_score"),
-                "role": chunk_data.get("role"),
-                "element_type": chunk_data.get("element_type"),
-                "region_type": chunk_data.get("region_type"),
-                "subtype": chunk_data.get("subtype"),
-                "caption": chunk_data.get("caption"),
-                "section": chunk_data.get("section"),
-                "column_names": chunk_data.get("column_names", []),
-                "slide_range": chunk_data.get("slide_range", []),
-                "bbox": chunk_data.get("bbox"),
-                "label_bbox": chunk_data.get("label_bbox"),
-                "structural_metadata_raw": json.dumps(chunk_data.get("structural_metadata_raw", {})),
-                "text": chunk_data.get("text", ""),
-                "embedding_model": chunk_data.get("embedding_model", ""),
-                "embedding_checksum": chunk_data.get("embedding_checksum", ""),
-                "created_at": now,
-                "updated_at": now,
-                # Embedding vector
-                "vector": chunk_data.get("embedding_vector", []),
-            }
-            result = self.search_client.upload_documents([search_document])
-            if result[0].succeeded:
-                self.logger.info(f"Successfully indexed chunk for document {document_id}")
-                return True
-            else:
-                self.logger.error(f"Failed to index chunk: {result[0].error_message}")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Error indexing document chunk: {str(e)}")
-            raise SearchServiceError(f"Failed to index document chunk: {str(e)}")
-
-    async def index_document_chunks(
-        self,
-        project_id: str,
-        document_id: str,
-        document_name: str,
-        chunks: List[Dict[str, Any]],
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> bool:
-        """
-        Index multiple document chunks in batch.
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-            now = datetime.utcnow().isoformat()
-            search_documents = []
-            for chunk in chunks:
-                doc = {
-                    "id": str(uuid.uuid4()),
-                    "project_id": project_id,
-                    "document_id": document_id,
-                    "chunk_id": chunk.get("chunk_id", ""),
-                    "chunk_type": chunk.get("chunk_type", ""),
-                    "chunk_index": chunk.get("chunk_index", 0),
-                    "slide_number": chunk.get("slide_number"),
-                    "same_table_group_id": chunk.get("same_table_group_id"),
-                    "source_page_numbers": chunk.get("source_page_numbers", []),
-                    "speaker_attribution": chunk.get("speaker_attribution"),
-                    "previous_chunk_id": chunk.get("previous_chunk_id"),
-                    "slide_context_id": chunk.get("slide_context_id"),
-                    "semantic_similarity_score": chunk.get("semantic_similarity_score"),
-                    "role": chunk.get("role"),
-                    "element_type": chunk.get("element_type"),
-                    "region_type": chunk.get("region_type"),
-                    "subtype": chunk.get("subtype"),
-                    "caption": chunk.get("caption"),
-                    "section": chunk.get("section"),
-                    "column_names": chunk.get("column_names", []),
-                    "slide_range": chunk.get("slide_range", []),
-                    "bbox": chunk.get("bbox"),
-                    "label_bbox": chunk.get("label_bbox"),
-                    "structural_metadata_raw": json.dumps(chunk.get("structural_metadata_raw", {})),
-                    "text": chunk.get("text", ""),
-                    "embedding_model": chunk.get("embedding_model", ""),
-                    "embedding_checksum": chunk.get("embedding_checksum", ""),
-                    "created_at": now,
-                    "updated_at": now,
-                    #
-                    "vector": chunk.get("embedding_vector", []),
-                }
-                search_documents.append(doc)
-            results = self.search_client.upload_documents(search_documents)
-            successful = sum(1 for res in results if res.succeeded)
-            if successful == len(results):
-                self.logger.info(f"Successfully indexed {successful}/{len(results)} chunks for document {document_id}")
-                return True
-            else:
-                self.logger.warning(f"Indexed {successful}/{len(results)} chunks for document {document_id}")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error indexing document chunks: {str(e)}")
-            raise SearchServiceError(f"Failed to index document chunks: {str(e)}")
 
     async def search_documents(
         self,
