@@ -1484,7 +1484,7 @@ class DatabaseManager:
             with self.get_session() as session:
                 message = ChatMessage(
                     conversation_id=conversation_id,
-                    message_index=message_index,
+                    message_id=message_index,
                     sender_type=sender_type,
                     content=content,
                 )
