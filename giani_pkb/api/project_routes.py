@@ -347,30 +347,6 @@ def create_project_routes():
             logger.error(f"Error getting project documents: {e}")
             return api_internal_server_error('Failed to retrieve project documents', str(e))
 
-    @projects.route('/<project_id>/conversations', methods=['POST'])
-    def create_conversation(project_id):
-        """Create a new conversation."""
-        try:
-            user_id = g.user_id
-
-            if not db_utils.verify_project_access(project_id, user_id):
-                return api_not_found_error('Project not found or access denied')
-
-            conversation = db_manager.create_conversation(project_id, user_id)
-
-            if not conversation:
-                return api_database_error('Failed to create conversation')
-
-            return api_success(
-                {'conversation_id': str(conversation.id)},
-                'Conversation created successfully',
-                201
-            )
-
-        except Exception as e:
-            logger.error(f"Error creating conversation: {e}")
-            return api_internal_server_error('Failed to create conversation', str(e))
-
     @projects.route('/<project_id>/conversations/<conversation_id>', methods=['GET'])
     def get_conversation_history(project_id, conversation_id):
         """Get the chat history for a conversation."""
@@ -416,7 +392,7 @@ def create_project_routes():
             conversations_dict = [
                 {
                     'id': str(conv.id),
-                    'title': conv.title,
+                    'title': conv.conversation_title,
                     'created_at': conv.created_at.isoformat()
                 } for conv in conversations
             ]
@@ -825,7 +801,7 @@ def create_project_routes():
                 conversation = db_manager.create_conversation(project_id, user_id, user_question)
                 if not conversation:
                     return api_database_error('Failed to create conversation')
-                conversation_id = conversation.id
+                conversation_id = conversation.conversation_id
 
             # Get message index
             history = db_manager.get_conversation_history(conversation_id)
