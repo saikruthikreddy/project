@@ -1460,13 +1460,14 @@ class DatabaseManager:
             logger.error(f"Database error getting project documents: {e}")
             return []
     
-    def create_conversation(self, project_id: int, user_id: uuid.UUID) -> Optional[Conversation]:
+    def create_conversation(self, project_id: int, user_id: uuid.UUID, user_question: str) -> Optional[Conversation]:
         """Create a new conversation."""
         try:
             with self.get_session() as session:
                 conversation = Conversation(
                     project_id=project_id,
                     user_id=user_id,
+                    conversation_title=user_question
                 )
                 session.add(conversation)
                 session.flush()
@@ -1483,7 +1484,7 @@ class DatabaseManager:
             with self.get_session() as session:
                 message = ChatMessage(
                     conversation_id=conversation_id,
-                    message_index=message_index,
+                    message_id=message_index,
                     sender_type=sender_type,
                     content=content,
                 )
@@ -1504,7 +1505,7 @@ class DatabaseManager:
                 if not conversation:
                     logger.warning(f"Conversation {conversation_id} not found for title update.")
                     return False
-                conversation.title = title
+                conversation.conversation_title = title
                 session.flush()
                 logger.info(f"Updated title for conversation {conversation_id}")
                 return True
@@ -1516,7 +1517,7 @@ class DatabaseManager:
         """Get the chat history for a conversation."""
         try:
             with self.get_session() as session:
-                messages = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation_id).order_by(ChatMessage.message_index).all()
+                messages = session.query(ChatMessage).filter(ChatMessage.conversation_id == conversation_id).order_by(ChatMessage.message_id).all()
                 for message in messages:
                     session.expunge(message)
                 return messages

@@ -169,8 +169,6 @@ class DocumentUploadService:
                         "Failed to create document record in database"
                     )
 
-                # TODO: Update master metadata
-                # self.metadata_manager.update_master_metadata(doc_meta)
 
                 logger.info(f"Successfully processed document: {original_filename}")
 
@@ -204,20 +202,12 @@ class DocumentUploadService:
                 )
 
                 # Process document once to get parsed blocks
-                parsed_blocks, chunks_with_metadata = self.document_processor.process_single_file(
+                parsed_blocks, chunks = self.document_processor.process_single_file(
                     container_name=source_container, blob_name=source_blob_name, document_id=document_id, project_id=project_id
                 )
 
                 if parsed_blocks:
-                    # Create chunks from parsed blocks
-                    chunks = chunk_document_adaptive(
-                        parsed_blocks=parsed_blocks,
-                        document_id=document_id,
-                        project_id=project_id,
-                        document_type=doc_meta.finalCategory,
-                        openai_api_key=config.OPENAI_API_KEY,
-                    )
-
+                    
                     if chunks:
                         # Save chunks to database
                         self.db_manager.save_chunks(
