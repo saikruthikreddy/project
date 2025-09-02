@@ -20,7 +20,7 @@ class QueryExecutor:
         self.error_rate = error_rate
         self._lock = threading.Lock()
 
-    def execute_subqueries(self, subqueries: List[Dict[str, Any]], 
+    def execute_subqueries(self, subqueries: List[Dict[str, Any]],
                           parallel: bool = False) -> Dict[str, Any]:
         if not subqueries:
             logger.warning("No subqueries provided for execution")
@@ -48,7 +48,7 @@ class QueryExecutor:
 
         summary = self._generate_summary(results)
         self._log_execution_summary(summary)
-        
+
         return {
             "results": results,
             "summary": summary
@@ -63,13 +63,13 @@ class QueryExecutor:
 
     def _execute_parallel(self, subqueries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         results = [None] * len(subqueries)
-        
+
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             future_to_index = {
-                executor.submit(self._execute_single_subquery, subquery): idx 
+                executor.submit(self._execute_single_subquery, subquery): idx
                 for idx, subquery in enumerate(subqueries)
             }
-            
+
             try:
                 for future in as_completed(future_to_index, timeout=self.timeout):
                     idx = future_to_index[future]
@@ -80,7 +80,7 @@ class QueryExecutor:
                         logger.error(f"Parallel execution failed for subquery at index {idx}: {e}")
                         with self._lock:
                             results[idx] = self._create_error_result(
-                                subqueries[idx], 
+                                subqueries[idx],
                                 f"Parallel execution error: {str(e)}"
                             )
             except TimeoutError:
@@ -93,7 +93,7 @@ class QueryExecutor:
                                     subqueries[idx],
                                     f"Execution timed out after {self.timeout}s"
                                 )
-        
+
         return results
 
     def _execute_single_subquery(self, subquery: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,7 +118,7 @@ class QueryExecutor:
         for attempt in range(self.max_retries):
             try:
                 start_time = time.perf_counter()
-                
+
                 execution_data = self._simulate_execution(action, parameters)
                 execution_duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
@@ -141,7 +141,7 @@ class QueryExecutor:
 
             except Exception as e:
                 error_message = str(e)
-                
+
                 if attempt == self.max_retries - 1:
                     result.update({
                         "status": "failure",
@@ -155,15 +155,15 @@ class QueryExecutor:
                     base_delay = 0.1 * (2 ** attempt)
                     jitter = random.uniform(0, 0.05)
                     time.sleep(base_delay + jitter)
-            
+
         return result
 
     def _simulate_execution(self, action: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
         time.sleep(0.01)
-        
+
         if random.random() < self.error_rate:
             raise Exception("Simulated transient error")
-        
+
         return {
             "executed_action": action,
             "input_parameters": parameters,
@@ -185,7 +185,7 @@ class QueryExecutor:
         if not results:
             return True
 
-        required_fields = {"subquery_id": str, "plan_id": str, "intent": str, 
+        required_fields = {"subquery_id": str, "plan_id": str, "intent": str,
                           "status": str, "timestamp": str, "data": dict}
         valid_statuses = {"success", "failure"}
         validation_errors = []
@@ -222,7 +222,7 @@ class QueryExecutor:
     def _generate_summary(self, results: List[Dict[str, Any]]) -> Dict[str, int]:
         success_count = sum(1 for r in results if r["status"] == "success")
         failure_count = len(results) - success_count
-        
+
         return {
             "success": success_count,
             "failure": failure_count,
@@ -242,13 +242,13 @@ class QueryExecutor:
             logger.info(f"Executed {total_count} subqueries: {success_count} succeeded, {failure_count} failed")
 
 
-def execute_subqueries(subqueries: List[Dict[str, Any]], 
-                      parallel: bool = False, 
-                      max_workers: int = 10, 
+def execute_subqueries(subqueries: List[Dict[str, Any]],
+                      parallel: bool = False,
+                      max_workers: int = 10,
                       timeout: int = 30,
                       max_retries: int = 3,
                       error_rate: float = 0.05) -> Dict[str, Any]:
-    executor = QueryExecutor(max_workers=max_workers, timeout=timeout, 
+    executor = QueryExecutor(max_workers=max_workers, timeout=timeout,
                            max_retries=max_retries, error_rate=error_rate)
     return executor.execute_subqueries(subqueries, parallel=parallel)
 
