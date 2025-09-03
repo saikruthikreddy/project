@@ -132,8 +132,8 @@ class AzureSearchService:
             SimpleField(name="region_type", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="heading_level", type=SearchFieldDataType.Int32, filterable=True, sortable=True, retrievable=True),
             SimpleField(name="subtype", type=SearchFieldDataType.String, filterable=True, retrievable=True),
-            SimpleField(name="caption", type=SearchFieldDataType.String, searchable=True, retrievable=True),
-            SimpleField(name="section", type=SearchFieldDataType.String, searchable=True, retrievable=True),
+            SearchableField(name="caption", type=SearchFieldDataType.String, searchable=True, retrievable=True),
+            SimpleField(name="section", type=SearchFieldDataType.String, retrievable=True),
             SimpleField(name="column_names", type=SearchFieldDataType.Collection(SearchFieldDataType.String), retrievable=True),
             SimpleField(name="slide_range", type=SearchFieldDataType.Collection(SearchFieldDataType.Int32), retrievable=True),
             SearchableField(name="current_heading_text", type=SearchFieldDataType.String, searchable=True, retrievable=True),
@@ -261,75 +261,6 @@ class AzureSearchService:
             "highlights": record.get("@search.highlights", {}),
         }
 
-    async def index_document_chunk(self, chunk_dto: ChunkDTO) -> bool:
-        """
-        Index a single document chunk DTO with full field support.
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-
-            now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-
-            chunk_dict = chunk_dto.to_dict()
-            chunk_text = chunk_dict.get("chunk_text", "")
-            chunk_metadata = chunk_dict.get("metadata_", {})
-            structural_metadata = chunk_metadata.get("structural_metadata", {})
-
-            doc = {
-                "id": str(uuid.uuid4()),
-                "project_id": chunk_metadata.get("project_id"),
-                "document_id": chunk_dict.get("document_id"),
-                "chunk_id": chunk_dict.get("chunk_id"),
-                "chunk_index": chunk_dict.get("chunk_index"),
-                "embedding_model": chunk_dict.get("embedding_model"),
-                "embedding_checksum": chunk_dict.get("embedding_checksum"),
-                "vector": chunk_dict.get("embedding_vector"),
-                "text": chunk_text,
-
-                # Chunk metadata
-                "chunk_type": chunk_metadata.get("chunk_type"),
-                "slide_number": chunk_metadata.get("slide_number"),
-                "same_table_group_id": chunk_metadata.get("same_table_group_id"),
-                "source_page_numbers": chunk_metadata.get("source_page_numbers", []),
-                "speaker_attribution": chunk_metadata.get("speaker_attribution"),
-                "previous_chunk_id": chunk_metadata.get("previous_chunk_id"),
-                "slide_context_id": chunk_metadata.get("slide_context_id"),
-                "semantic_similarity_score": chunk_metadata.get("semantic_similarity_score"),
-
-                # Structural metadata (fields actually used in strategies.py)
-                "role": structural_metadata.get("role"),
-                "element_type": structural_metadata.get("element_type"),
-                "region_type": structural_metadata.get("region_type"),
-                "heading_level": structural_metadata.get("heading_level"),
-                "subtype": structural_metadata.get("subtype"),
-                "caption": structural_metadata.get("caption"),
-                "section": structural_metadata.get("section"),
-                "column_names": structural_metadata.get("column_names", []),
-                "slide_range": structural_metadata.get("slide_range", []),
-                "bbox": structural_metadata.get("bbox"),
-                "label_bbox": structural_metadata.get("label_bbox"),
-                "role": structural_metadata.get("role"),
-                "label_bbox": json.dumps(structural_metadata.get("label_bbox")) if structural_metadata.get("label_bbox") else None,
-                "slide_range": structural_metadata.get("slide_range", []),
-                "structural_metadata_raw": json.dumps(structural_metadata),
-
-                "created_at": now,
-                "updated_at": now,
-            }
-
-            result = self.search_client.upload_documents([doc])
-            if result[0].succeeded:
-                self.logger.info(f"Successfully indexed chunk for document {chunk_dict.get('document_id')}")
-                return True
-            else:
-                self.logger.error(f"Failed to index chunk: {result[0].error_message}")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"Error indexing document chunk: {str(e)}")
-            raise SearchServiceError(f"Failed to index document chunk: {str(e)}")
-
     async def index_document_chunks(self, chunk_dtos: List[ChunkDTO]) -> bool:
         """
         Index multiple document chunk DTOs in batch.
@@ -409,148 +340,8 @@ class AzureSearchService:
             self.logger.error(f"Error indexing document chunks: {str(e)}")
             raise SearchServiceError(f"Failed to index document chunks: {str(e)}")
 
-    async def search_documents(
-        self,
-        query: str,
-        project_id: Optional[str] = None,
-        chunk_types: Optional[List[str]] = None,
-        top: int = 10,
-        use_semantic_search: bool = True,
-        use_vector_search: bool = True
-    ) -> Dict[str, Any]:
+    async def index_document_chunk(self, chunkDto: ChunkDTO) -> bool:
         """
-        Search documents with hybrid approach (text + vector + semantic).
+        Index a single document chunk.
         """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-
-            # Build filter conditions
-            filters = []
-            if project_id:
-                filters.append(f"project_id eq '{project_id}'")
-            if chunk_types:
-                ct_filters = " or ".join([f"chunk_type eq '{t}'" for t in chunk_types])
-                filters.append(f"({ct_filters})")
-            filter_expression = " and ".join(filters) if filters else None
-
-            search_params = {
-                "search_text": query,
-                "filter": filter_expression,
-                "top": top,
-                "include_total_count": True,
-                "query_type": "semantic" if use_semantic_search else "simple",
-                "semantic_configuration_name": SEMANTIC_CONFIG_NAME if use_semantic_search else None,
-            }
-
-            if use_vector_search:
-                query_vector = await self._generate_embedding(query)
-                vector_query = VectorizedQuery(
-                    vector=query_vector,
-                    k_nearest_neighbors=top,
-                    fields="vector"
-                )
-                search_params["vector_queries"] = [vector_query]
-
-            results = self.search_client.search(**search_params)
-            documents = [self.map_search_result_to_chunk(record) for record in results]
-            return {
-                "documents": documents,
-                "total_count": getattr(results, 'total_count', len(documents)),
-                "query": query,
-                "filters_applied": filter_expression,
-                "semantic_search_used": use_semantic_search,
-                "vector_search_used": use_vector_search
-            }
-        except Exception as e:
-            self.logger.error(f"Error searching documents: {str(e)}")
-            raise SearchServiceError(f"Document search failed: {str(e)}")
-
-    async def delete_document(self, document_id: str) -> bool:
-        """
-        Delete all chunks for a specific document (by document_id).
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-            # Search all chunks for the given document ID and collect their search index IDs
-            results = self.search_client.search(
-                search_text="*",
-                filter=f"document_id eq '{document_id}'",
-                select=["id"]
-            )
-            docs_to_delete = [{"id": record["id"]} for record in results]
-            if docs_to_delete:
-                deleted = self.search_client.delete_documents(docs_to_delete)
-                successful = sum(1 for r in deleted if r.succeeded)
-                self.logger.info(f"Deleted {successful}/{len(docs_to_delete)} chunks for document {document_id}")
-                return successful == len(docs_to_delete)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error deleting document: {str(e)}")
-            raise SearchServiceError(f"Failed to delete document: {str(e)}")
-
-    async def delete_project_documents(self, project_id: str) -> bool:
-        """
-        Delete all chunks for all documents in a specific project.
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-            results = self.search_client.search(
-                search_text="*",
-                filter=f"project_id eq '{project_id}'",
-                select=["id"]
-            )
-            docs_to_delete = [{"id": record["id"]} for record in results]
-            if docs_to_delete:
-                batch_size = 1000
-                total_deleted = 0
-                for i in range(0, len(docs_to_delete), batch_size):
-                    batch = docs_to_delete[i:i + batch_size]
-                    deleted = self.search_client.delete_documents(batch)
-                    total_deleted += sum(1 for res in deleted if res.succeeded)
-                self.logger.info(f"Deleted {total_deleted}/{len(docs_to_delete)} chunks for project {project_id}")
-                return total_deleted == len(docs_to_delete)
-            return True
-        except Exception as e:
-            self.logger.error(f"Error deleting project documents: {str(e)}")
-            raise SearchServiceError(f"Failed to delete project documents: {str(e)}")
-
-    async def get_document_stats(self, project_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get simple statistics for indexed documents (chunk counts).
-        """
-        try:
-            if not self.search_client:
-                await self.initialize_index()
-            filter_expr = f"project_id eq '{project_id}'" if project_id else None
-            results = self.search_client.search(
-                search_text="*",
-                filter=filter_expr,
-                include_total_count=True,
-                top=0
-            )
-            total_chunks = getattr(results, 'total_count', 0)
-            # (Can extend for facets/distributions if needed)
-            return {
-                "total_chunks": total_chunks,
-                "project_id": project_id
-            }
-        except Exception as e:
-            self.logger.error(f"Error getting document stats: {str(e)}")
-            raise SearchServiceError(f"Failed to get document stats: {str(e)}")
-
-    async def _generate_embedding(self, text: str) -> List[float]:
-        """
-        Generate embedding for text using Gemini AI (or OpenAI etc.).
-        """
-        try:
-            # Should return a flat list of floats, length == self.vector_dimension
-            embedding = create_embeddings_with_retry([text])
-            if isinstance(embedding, list) and len(embedding) == 1:
-                return embedding[0]
-            return embedding
-        except Exception as e:
-            self.logger.error(f"Error generating embedding: {str(e)}")
-            return [0.0] * self.vector_dimension
+        return await self.index_document_chunks([chunkDto])

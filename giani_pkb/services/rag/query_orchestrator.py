@@ -182,9 +182,9 @@ class QueryOrchestrator:
             # Step 4: Azure AI Search (includes semantic reranking)
             logger.info(
                 "Step 4: Executing Azure AI Search",
-                extra={"query_id": query_id, "step": "azure_ai_search", "subquery_count": len(subqueries)}
+                extra={"query_id": query_id, "step": "azure_ai_search", "subquery_count": len(subqueries.get("structured_subqueries"))}
             )
-            search_results = await self._execute_search_queries(subqueries, project_id)
+            search_results = await self._execute_search_queries(subqueries.get("structured_subqueries"), project_id)
             logger.info(
                 "Azure AI Search completed",
                 extra={
@@ -276,7 +276,7 @@ class QueryOrchestrator:
 
         for i, subquery in enumerate(subqueries):
             try:
-                query_text = subquery.get("query", "")
+                query_text = subquery.get("description", "")
                 chunk_types = subquery.get("chunk_types", None)
 
                 logger.info(
@@ -291,9 +291,9 @@ class QueryOrchestrator:
                 # Execute search with semantic and vector search enabled
                 result = await self.ai_search_service.search_documents(
                     query=query_text,
-                    project_id=project_id,
+                    project_id=str(project_id),
                     chunk_types=chunk_types,
-                    top=20,  # Get more results for better fusion
+                    top=1, # TODO: update this, using 1 for testing
                     use_semantic_search=True,  # Enables semantic reranking
                     use_vector_search=True
                 )
@@ -301,7 +301,7 @@ class QueryOrchestrator:
                 # Add subquery metadata to results
                 result["subquery_metadata"] = {
                     "subquery_index": i,
-                    "subquery_id": subquery.get("id", f"subquery_{i}"),
+                    "subquery_id": subquery.get("subquery_id", f"subquery_{i}"),
                     "subquery_type": subquery.get("type", "unknown")
                 }
 
@@ -391,16 +391,17 @@ if __name__ == "__main__":
 
         # Example queries to test
         test_queries = [
-            "What are the revenue figures for Q3 2023?",
-            "Show me customer satisfaction trends",
-            "Compare sales performance across regions"
+            "Why should I use Azure AI Search",
+            # "What are the revenue figures for Q3 2023?",
+            # "Show me customer satisfaction trends",
+            # "Compare sales performance across regions"
         ]
 
         for query in test_queries:
             print(f"\n--- Processing: {query} ---")
 
             # Process query through orchestration pipeline
-            result = await orchestrator.process_query(query)
+            result = await orchestrator.process_query(query, 3) # Use a valid project id or remove it
 
             if result.success:
                 print(f"✓ Query ID: {result.query_id}")
@@ -422,6 +423,7 @@ if __name__ == "__main__":
             # Demonstrate the to_dict method for JSON-like output
             result_dict = result.to_dict()
             print(f"✓ Dictionary format available with {len(result_dict)} fields")
+            print(result_dict)
 
     # Run the async test
     asyncio.run(test_orchestrator())
