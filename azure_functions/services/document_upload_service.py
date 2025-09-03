@@ -184,7 +184,7 @@ class DocumentUploadService:
 
                 # Process document once to get parsed blocks
                 parsed_blocks = self.document_processor.process_single_file(
-                    container_name=source_container, blob_name=source_blob_name, document_id=str(document_id), project_id=project_id
+                    container_name=source_container, blob_name=source_blob_name, document_id=str(document_id)
                 )
 
                 if parsed_blocks:
