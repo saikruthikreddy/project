@@ -125,8 +125,8 @@ class AzureSearchService:
             SimpleField(name="region_type", type=SearchFieldDataType.String, filterable=True, retrievable=True),
             SimpleField(name="heading_level", type=SearchFieldDataType.Int32, filterable=True, sortable=True, retrievable=True),
             SimpleField(name="subtype", type=SearchFieldDataType.String, filterable=True, retrievable=True),
-            SimpleField(name="caption", type=SearchFieldDataType.String, searchable=True, retrievable=True),
-            SimpleField(name="section", type=SearchFieldDataType.String, searchable=True, retrievable=True),
+            SearchableField(name="caption", type=SearchFieldDataType.String, searchable=True, retrievable=True),
+            SimpleField(name="section", type=SearchFieldDataType.String, retrievable=True),
             SimpleField(name="column_names", type=SearchFieldDataType.Collection(SearchFieldDataType.String), retrievable=True),
             SimpleField(name="slide_range", type=SearchFieldDataType.Collection(SearchFieldDataType.Int32), retrievable=True),
             SearchableField(name="current_heading_text", type=SearchFieldDataType.String, searchable=True, retrievable=True),
@@ -210,7 +210,7 @@ class AzureSearchService:
 
     @staticmethod
     def map_search_result_to_chunk(record: dict) -> dict:
-        # Maps only fields actually used in strategies.py - optimized mapping
+        # Maps all available fields including semantic search metadata
         return {
             # Core fields
             "id": record.get("id"),
@@ -223,10 +223,8 @@ class AzureSearchService:
             "slide_number": record.get("slide_number"),
             "same_table_group_id": record.get("same_table_group_id"),
             "source_page_numbers": record.get("source_page_numbers", []),
-            "slide_number": record.get("slide_number"),
             # Chunk relationships
             "previous_chunk_id": record.get("previous_chunk_id"),
-            "same_table_group_id": record.get("same_table_group_id"),
             "slide_context_id": record.get("slide_context_id"),
             # Content-specific metadata
             "speaker_attribution": record.get("speaker_attribution"),
@@ -234,7 +232,7 @@ class AzureSearchService:
             "role": record.get("role"),
             "element_type": record.get("element_type"),
             "region_type": record.get("region_type"),
-            # Structural metadata fields (actually populated in strategies.py)
+            # Structural metadata fields
             "heading_level": record.get("heading_level"),
             "subtype": record.get("subtype"),
             "caption": record.get("caption"),
@@ -243,6 +241,9 @@ class AzureSearchService:
             "slide_range": record.get("slide_range", []),
             "bbox": record.get("bbox"),
             "label_bbox": record.get("label_bbox"),
+            "current_heading_text": record.get("current_heading_text"),
+            "current_heading_level": record.get("current_heading_level"),
+            "current_heading_source": record.get("current_heading_source"),
             "structural_metadata_raw": record.get("structural_metadata_raw"),
             # Content and search metadata
             "text": record.get("text"),
@@ -250,8 +251,28 @@ class AzureSearchService:
             "embedding_checksum": record.get("embedding_checksum"),
             "created_at": record.get("created_at"),
             "updated_at": record.get("updated_at"),
+            # All Azure AI Search scores and metadata
             "score": record.get("@search.score"),
+            "reranker_score": record.get("@search.reranker_score"),
+            "semantic_score": record.get("@search.semantic_score"),
             "highlights": record.get("@search.highlights", {}),
+            "captions": [
+                {
+                    "text": caption.text if hasattr(caption, 'text') else str(caption),
+                    "highlights": caption.highlights if hasattr(caption, 'highlights') else []
+                } for caption in record.get("@search.captions", [])
+            ],
+            "answers": [
+                {
+                    "key": answer.key if hasattr(answer, 'key') else None,
+                    "text": answer.text if hasattr(answer, 'text') else str(answer),
+                    "highlights": answer.highlights if hasattr(answer, 'highlights') else [],
+                    "score": answer.score if hasattr(answer, 'score') else None
+                } for answer in record.get("@search.answers", [])
+            ],
+            # Additional search metadata that might be present
+            "search_action": record.get("@search.action"),
+            "search_features": record.get("@search.features", {}),
         }
 
     async def search_documents(
@@ -286,6 +307,10 @@ class AzureSearchService:
                 "include_total_count": True,
                 "query_type": "semantic" if use_semantic_search else "simple",
                 "semantic_configuration_name": SEMANTIC_CONFIG_NAME if use_semantic_search else None,
+                "query_caption": "extractive" if use_semantic_search else None,
+                "query_answer": "extractive" if use_semantic_search else None,
+                # "highlight_fields": ["text", "caption", "section"] if use_semantic_search else None,
+                # TODO: highlighting is not working, fix this
             }
 
             if use_vector_search:

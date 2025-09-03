@@ -1,0 +1,604 @@
+{
+  "query_id": "15f4dd36-9e2e-4f38-a282-c103b4388c6d",
+  "original_query": "Why should I use Azure AI Search",
+  "intent": "RETRIEVAL_QUERY",
+  "plan": {
+    "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+    "intent": "RETRIEVAL_QUERY",
+    "original_query": "Why should I use Azure AI Search",
+    "steps": [
+      {
+        "action": "extract_entities",
+        "description": "Identify target entities and information types"
+      },
+      {
+        "action": "extract_context",
+        "description": "Determine contextual constraints and scope"
+      },
+      {
+        "action": "build_search_terms",
+        "description": "Generate optimized search terms and filters"
+      },
+      {
+        "action": "build_retrieval_query",
+        "description": "Construct document retrieval query"
+      }
+    ],
+    "timestamp": "2025-09-03T23:31:20.746606Z"
+  },
+  "subqueries": {
+    "subqueries": [
+      "What are the benefits and reasons for using Search?",
+      "What are the main advantages of using Search?",
+      "What problems does Search solve?",
+      "What are the key use cases for Search?",
+      "How does Search improve business outcomes?",
+      "What makes Search different from other solutions?"
+    ],
+    "structured_subqueries": [
+      {
+        "subquery_id": "8a952b67-75d4-4b51-8245-6b8bf1fe8014",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "What are the benefits and reasons for using Search?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 0,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 0
+      },
+      {
+        "subquery_id": "6b8553ce-11f8-4311-9e05-45dc15046f40",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "What are the main advantages of using Search?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 1,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 1
+      },
+      {
+        "subquery_id": "3b7bd3da-b0ef-4918-8df7-4e1e2d9b2fcc",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "What problems does Search solve?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 2,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 2
+      },
+      {
+        "subquery_id": "755a5b22-d3b2-4789-b2b4-67e2ccdd4d10",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "What are the key use cases for Search?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 3,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 3
+      },
+      {
+        "subquery_id": "d2b2aaaf-b884-4f0c-9c73-a1a1b0004fe7",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "How does Search improve business outcomes?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 4,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 4
+      },
+      {
+        "subquery_id": "62adbc9e-a18a-4bc1-a92f-a27253650dea",
+        "plan_id": "cd6bff88-bad5-4a9d-8ed2-3dbf3d425d6d",
+        "intent": "RETRIEVAL_QUERY",
+        "action": "build_natural_language_subquery",
+        "description": "What makes Search different from other solutions?",
+        "parameters": {
+          "generated_from": "build_subqueries",
+          "original_index": 5,
+          "generation_method": "natural_language_processing"
+        },
+        "timestamp": "2025-09-03T23:31:20.748115Z",
+        "step_index": 5
+      }
+    ]
+  },
+  "search_results": [
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.03205128386616707,
+          "reranker_score": 2.417919158935547,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves.",
+              "highlights": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:<em>  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.</em> Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "What are the benefits and reasons for using Search?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 0,
+        "subquery_id": "8a952b67-75d4-4b51-8245-6b8bf1fe8014",
+        "subquery_type": "unknown"
+      }
+    },
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.03253968432545662,
+          "reranker_score": 2.5290451049804688,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves.",
+              "highlights": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW)<em> searches for better relevance.</em> Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "What are the main advantages of using Search?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 1,
+        "subquery_id": "6b8553ce-11f8-4311-9e05-45dc15046f40",
+        "subquery_type": "unknown"
+      }
+    },
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.03253968432545662,
+          "reranker_score": 2.0464353561401367,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "Current System Limitations:  Scalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves search.",
+              "highlights": "Current System Limitations:  Scalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments. Azure AI Search Advantages:  Hybrid Search: Seamlessly<em> blends </em>keyword (BM25) and vector (HNSW)<em> searches </em>for<em> better relevance.</em> Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves search."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "What problems does Search solve?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 2,
+        "subquery_id": "3b7bd3da-b0ef-4918-8df7-4e1e2d9b2fcc",
+        "subquery_type": "unknown"
+      }
+    },
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.03181818127632141,
+          "reranker_score": 2.1511809825897217,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "... Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance. Managed Scalability &.",
+              "highlights": "... Persistence: No persistent storage; every process restart requires a full rebuild. Azure<em> AI </em>Search Advantages:<em>  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.</em> <em>Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.</em> Managed Scalability &."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "What are the key use cases for Search?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 3,
+        "subquery_id": "755a5b22-d3b2-4789-b2b4-67e2ccdd4d10",
+        "subquery_type": "unknown"
+      }
+    },
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.01587301678955555,
+          "reranker_score": 2.263237714767456,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves.",
+              "highlights": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure<em> AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.</em> Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "How does Search improve business outcomes?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 4,
+        "subquery_id": "d2b2aaaf-b884-4f0c-9c73-a1a1b0004fe7",
+        "subquery_type": "unknown"
+      }
+    },
+    {
+      "documents": [
+        {
+          "id": "3162db9a-1b96-4501-92fe-8880e8c707d1",
+          "project_id": "3",
+          "document_id": "52d96428-7c39-41b0-93c4-e793a6ac96a8",
+          "chunk_id": "eeaceffe-dacc-4cd1-9020-a1edf3edb9e5",
+          "chunk_type": "prose",
+          "chunk_index": 5,
+          "slide_number": None,
+          "same_table_group_id": None,
+          "source_page_numbers": [],
+          "previous_chunk_id": "b117782e-4a9a-430b-a540-432b13a7823a",
+          "slide_context_id": None,
+          "speaker_attribution": None,
+          "semantic_similarity_score": None,
+          "role": None,
+          "element_type": None,
+          "region_type": None,
+          "heading_level": None,
+          "subtype": None,
+          "caption": None,
+          "section": None,
+          "column_names": [],
+          "slide_range": [],
+          "bbox": None,
+          "label_bbox": None,
+          "current_heading_text": "2. Why Azure AI Search?",
+          "current_heading_level": 1,
+          "current_heading_source": "style_name",
+          "structural_metadata_raw": {
+            "source_block_types": [
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph",
+              "paragraph"
+            ],
+            "primary_block_type": "paragraph",
+            "style_name": "normal",
+            "current_heading_text": "2. Why Azure AI Search?",
+            "current_heading_level": 1,
+            "current_heading_source": "style_name"
+          },
+          "text": "Current System Limitations:\n\nScalability: In-memory indexes are bound to server capacity—impractical for production-scale deployments.\n\nPerformance: Indexes built on-demand cause latency for users.\n\nPersistence: No persistent storage; every process restart requires a full rebuild.\n\nAzure AI Search Advantages:\n\nHybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.\n\nMetadata Filtering: Powerful pre-filtering on rich metadata greatly improves search efficiency and relevance.\n\nManaged Scalability & Reliability: Automatic scaling, backup, and high availability.\n\nSemantic Ranker: Utilizes Microsoft’s advanced cross-encoder for re-ranking, enhancing result quality.",
+          "embedding_model": "text-embedding-3-small",
+          "embedding_checksum": "5526267add7477f4035e598228c7f9b26384b514e364eff412ca2210e78370e9",
+          "created_at": "2025-09-03T23:03:35Z",
+          "updated_at": "2025-09-03T23:03:35Z",
+          "score": 0.03181818127632141,
+          "reranker_score": 2.196575403213501,
+          "semantic_score": None,
+          "highlights": None,
+          "captions": [
+            {
+              "text": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. Azure AI Search Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance. Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves.",
+              "highlights": "Performance: Indexes built on-demand cause latency for users. Persistence: No persistent storage; every process restart requires a full rebuild. <em>Azure AI </em>Search<em> Advantages:  Hybrid Search: Seamlessly blends keyword (BM25) and vector (HNSW) searches for better relevance.</em> Metadata Filtering: Powerful pre-filtering on rich metadata greatly improves."
+            }
+          ],
+          "answers": [],
+          "search_action": None,
+          "search_features": {}
+        }
+      ],
+      "total_count": 1,
+      "query": "What makes Search different from other solutions?",
+      "filters_applied": "project_id eq "3"",
+      "semantic_search_used": True,
+      "vector_search_used": True,
+      "subquery_metadata": {
+        "subquery_index": 5,
+        "subquery_id": "62adbc9e-a18a-4bc1-a92f-a27253650dea",
+        "subquery_type": "unknown"
+      }
+    }
+  ],
+  "timestamp": "2025-09-03T23:31:20.745671",
+  "success": True,
+  "error_message": None
+}
