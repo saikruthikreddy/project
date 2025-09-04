@@ -1423,7 +1423,7 @@ class DatabaseManager:
                     main_topics=safe_extract_list(summarization_analysis, "ai_main_topics_with_summaries_list_of_objects"),
 
                     # Extracted fields for easy querying (from metadata_analysis) - improved extraction
-                    extracted_keywords=safe_extract_list(metadata_analysis, "extracted_keywords"),
+                    extracted_keywords=(safe_extract_list(metadata_analysis, "extracted_keywords") or safe_extract_list(extracted_metadata, "extracted_keywords") or safe_extract_list(summarization_analysis, "extracted_keywords") or []),
 
                     # Extract from universal_metadata with better handling
                     suggested_title=validate_and_convert_for_db(
@@ -1463,6 +1463,19 @@ class DatabaseManager:
                     total_processing_duration_seconds=total_duration,
                 )
 
+                if not document_uuid:
+                    logger.error("document_uuid is None, cannot save summary")
+                    return False
+
+                try:
+                    if summarization_analysis and not isinstance(summarization_analysis, dict):
+                        summarization_analysis = {}
+                    if metadata_analysis and not isinstance(metadata_analysis, dict):
+                        metadata_analysis = {}
+                except Exception as e:
+                    logger.error(f"JSON validation error: {e}")
+                    return False
+                    
                 session.add(summary)
                 session.commit()
                 logger.info(f"Successfully saved summary for document {document_id}")
