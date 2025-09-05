@@ -18,7 +18,8 @@ from enum import Enum
 
 # NEW imports
 from fusion import fusion_pipeline
-from post_retrieval import run_post_retrieval_on_fused
+from post_retrieval import process_postretrieval_pipeline as run_post_retrieval_on_fused  # aliased: existing entry point
+
 
 from intent_router import route_intent
 from query_engine import generate_query_plan
